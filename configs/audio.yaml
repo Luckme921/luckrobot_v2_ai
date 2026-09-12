@@ -2,6 +2,8 @@ audio:
   sample_rate: 16000
   channels: 1
   format: s16le
+  reconnect_interval_seconds: 1.0
+  zero_audio_timeout_seconds: 1.0
 
   microphone:
     match_any:
