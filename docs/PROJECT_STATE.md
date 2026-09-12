@@ -229,3 +229,36 @@ Phase 2 in progress:
 - automatic real-time transcription
 
 Models, logs, third_party source, and .venv remain local and are not committed to Git.
+
+## Phase 2 - Real-time speech baseline
+
+Status: usable baseline accepted on 2026-09-12.
+
+Validated:
+- Generalplus USB microphone dynamic PulseAudio resolution
+- continuous 16 kHz mono PCM capture
+- Silero VAD real-time endpointing
+- resident SenseVoice INT8 ASR
+- CPU / 4 threads
+- typical ASR inference around 0.06-0.15 s
+- low-latency parec capture
+- USB microphone unplug/replug recovery
+- AUDIO_CONNECTING / AUDIO_OK / AUDIO_DEGRADED states
+- Ctrl+C leaves no stale parec process
+- PulseAudio module-suspend-on-idle disabled at audio startup
+- microphone input baseline: 100% / 0 dB
+
+Known issue:
+- a small number of repeated runtime starts have produced no recognition
+  despite AUDIO_OK/READY.
+- This issue is currently non-blocking and remains on the regression backlog.
+- Do not change VAD/ASR parameters unless reproducible evidence requires it.
+
+Frozen baseline:
+- SenseVoice 2024-07-17 INT8 model
+- provider: CPU
+- num_threads: 4
+- VAD threshold: 0.5
+- VAD min_silence_duration: 0.40 s
+- parec requested latency: 100 ms
+- parec process time: 20 ms
