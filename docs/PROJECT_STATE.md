@@ -262,3 +262,46 @@ Frozen baseline:
 - VAD min_silence_duration: 0.40 s
 - parec requested latency: 100 ms
 - parec process time: 20 ms
+
+## Phase 3.1 - Cloud text Agent and robot identity
+
+Status: COMPLETE on 2026-09-12.
+
+Cloud Agent:
+- provider: Zhipu
+- model: GLM-5.3-Flash
+- OpenAI-compatible API
+- FastAPI local gateway
+- API key loaded only from local .env
+- .env is ignored by Git
+- default reasoning_effort: low
+- max_tokens: 2048
+
+LuckRobot identity:
+- name: LuckRobot
+- developer: Bilibili UP主 luckme
+- product type: 家用移动服务机器人
+- not a Bilibili official product
+- supports natural conversation and emotional companionship
+- personality and capability definitions are stored locally in robot_profile.yaml
+
+Validated:
+- GET /health returns OK
+- normal GLM text conversation works
+- identity response correct
+- developer identity response correct
+- emotional companionship behavior works
+- navigation request is understood without falsely claiming execution
+
+Reasoning policy:
+- low: normal conversation, companionship, simple intent recognition, simple tool selection
+- high: complex vision and multi-step planning
+- max: exceptional complex reasoning tasks
+- physical safety must not depend on LLM reasoning depth
+
+Next:
+- Phase 3.2 Tool Router
+- first semantic tool: navigate_to(location)
+- tool execution will initially use MOCK backend
+- later connect Tool Router to ROS2 AI Gateway
+- AI Agent must never publish raw /cmd_vel

@@ -15,6 +15,7 @@ venv/
 # Secrets
 .env
 .env.*
+!.env.example
 
 # Audio / video test artifacts
 *.wav
