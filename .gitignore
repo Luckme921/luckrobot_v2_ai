@@ -1,0 +1,31 @@
+# Models / runtime data
+models/
+logs/
+
+# Third-party source and build products
+third_party/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*
+
+# Audio / video test artifacts
+*.wav
+*.pcm
+*.mp3
+*.mp4
+*.avi
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
