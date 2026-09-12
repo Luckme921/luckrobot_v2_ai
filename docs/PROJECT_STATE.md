@@ -148,3 +148,84 @@ Build sherpa-onnx v1.13.8 with:
 - PortAudio disabled for first benchmark
 
 Then benchmark SenseVoice CPU vs CUDA.
+
+## Phase 1 - Local ASR validation COMPLETE
+
+Completed: 2026-09-12
+
+### sherpa-onnx
+
+C++ benchmark runtime:
+- sherpa-onnx v1.13.8
+- ONNX Runtime 1.18.1
+- Jetson Orin Nano Super
+- JetPack 6.2.1
+- CUDA 12.6
+
+Python interaction runtime:
+- Python 3.10.12
+- isolated venv: .venv
+- sherpa-onnx Python 1.13.7
+- NumPy 2.2.6
+- PyYAML 6.0.3
+
+### Production ASR choice
+
+Primary Mandarin model:
+- sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17
+- provider: CPU
+- threads: 4
+- language: zh
+- ITN: enabled
+
+Reason:
+- CPU INT8 RTF about 0.053-0.056
+- CUDA INT8 RTF about 0.108
+- CPU is faster for this model
+- GPU is reserved for future YOLO/vision workloads
+
+Optional Cantonese model:
+- sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09
+
+### USB microphone validation
+
+Generalplus USB microphone:
+- PulseAudio capture verified
+- PCM 16-bit
+- mono
+- 16000 Hz
+
+Real microphone recording:
+- duration: 23.404 s
+- SenseVoice inference: 1.307 s
+- RTF: 0.056
+- Mandarin transcription matched spoken content
+
+### Silero VAD validation
+
+Model:
+- silero_vad.onnx
+
+Validation result:
+- VAD_ASR_PIPELINE=OK
+- 23.4 s recording automatically reduced to two speech segments
+
+Detected segments:
+1. start 11.590 s, duration 1.322 s
+   text: 你好。
+
+2. start 13.510 s, duration 6.058 s
+   text: 我是戴伟，请带我去实验室。
+
+### Current milestone
+
+Phase 1: COMPLETE
+
+Phase 2 in progress:
+- stable PulseAudio USB device resolver
+- continuous microphone capture
+- Silero VAD automatic utterance segmentation
+- resident SenseVoice recognizer
+- automatic real-time transcription
+
+Models, logs, third_party source, and .venv remain local and are not committed to Git.

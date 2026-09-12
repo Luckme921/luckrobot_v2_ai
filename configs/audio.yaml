@@ -1,0 +1,35 @@
+audio:
+  sample_rate: 16000
+  channels: 1
+  format: s16le
+
+  microphone:
+    match_any:
+      - "alsa_input.usb-Generalplus_Usb_Audio_Device"
+      - "Generalplus"
+      - "1b3f"
+      - "2008"
+
+  speaker:
+    match_any:
+      - "alsa_output.usb-Jieli_Technology_CD002-AUDIO"
+      - "Jieli"
+      - "e2b8"
+      - "0811"
+      - "4150344636343011"
+
+vad:
+  model: "~/luckrobot_ai/models/vad/silero_vad.onnx"
+  threshold: 0.5
+  min_silence_duration: 0.40
+  min_speech_duration: 0.25
+  max_speech_duration: 20
+  buffer_size_seconds: 30
+  num_threads: 1
+
+asr:
+  model_dir: "~/luckrobot_ai/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+  provider: "cpu"
+  num_threads: 4
+  language: "zh"
+  use_itn: true
