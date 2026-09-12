@@ -43,6 +43,7 @@ class PulseCapture:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             bufsize=0,
+            start_new_session=True,
         )
 
         if self._process.stdout is None:

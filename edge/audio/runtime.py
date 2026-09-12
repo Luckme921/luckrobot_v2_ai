@@ -260,6 +260,13 @@ def main() -> None:
                                 / sample_rate
                             )
 
+                            print(
+                                "[VAD] "
+                                f"start={start_sec:.2f}s "
+                                f"duration={duration_sec:.2f}s",
+                                flush=True,
+                            )
+
                             t0 = time.monotonic()
 
                             text = (
@@ -273,6 +280,14 @@ def main() -> None:
                                 time.monotonic()
                                 - t0
                             )
+
+                            if not text:
+                                print(
+                                    "[ASR_EMPTY] "
+                                    f"duration={duration_sec:.2f}s "
+                                    f"inference={elapsed:.3f}s",
+                                    flush=True,
+                                )
 
                             if text:
                                 print(
