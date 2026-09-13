@@ -121,5 +121,4 @@ tts:
   speed: 1.0
   silence_scale: 0.2
   volume_percent: 80
-  max_chunk_chars: 24
   post_playback_guard_seconds: 0.6

@@ -47,9 +47,42 @@ def normalize_for_speech(
         text,
     )
 
+    # Normalize whitespace first.
     text = re.sub(
         r"\s+",
         " ",
+        text,
+    )
+
+    # Chinese speech should not inherit
+    # arbitrary spaces inserted around
+    # Chinese / Latin boundaries by the LLM.
+    #
+    # Examples:
+    #   我是 LuckRobot -> 我是LuckRobot
+    #   UP主 luckme 开发 -> UP主luckme开发
+    #
+    # English-internal spaces such as
+    # "OpenAI API" remain untouched.
+    cjk = r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+
+    text = re.sub(
+        rf"(?<=[{cjk}]) +",
+        "",
+        text,
+    )
+
+    text = re.sub(
+        rf" +(?=[{cjk}])",
+        "",
+        text,
+    )
+
+    # Spaces around Chinese punctuation are
+    # also not useful to Kokoro prosody.
+    text = re.sub(
+        r" *([，。！？；：、]) *",
+        r"\1",
         text,
     )
 
@@ -62,33 +95,58 @@ def normalize_for_speech(
     return text.strip()
 
 
-def _split_long_part(
+def _sentence_units(
     text: str,
-    max_chars: int,
 ) -> list[str]:
-    if len(text) <= max_chars:
-        return [text]
-
-    result: list[str] = []
-
-    while len(text) > max_chars:
-        result.append(
-            text[:max_chars]
+    # Strong punctuation is a genuine
+    # spoken sentence boundary.
+    return [
+        item.strip()
+        for item in re.findall(
+            r".+?[。！？!?；;]|.+$",
+            text,
         )
+        if item.strip()
+    ]
 
-        text = text[max_chars:]
 
-    if text:
-        result.append(text)
-
-    return result
+def _clause_units(
+    sentence: str,
+) -> list[str]:
+    # Comma and colon are optional
+    # boundaries for an overlong sentence.
+    #
+    # Deliberately do NOT split on "、".
+    # Enumerations normally sound more
+    # natural when Kokoro sees them inside
+    # the same synthesis unit.
+    return [
+        item.strip()
+        for item in re.findall(
+            r".+?[，,:：]|.+$",
+            sentence,
+        )
+        if item.strip()
+    ]
 
 
 def split_for_speech(
     text: str,
     *,
-    max_chars: int = 24,
+    max_chars: int = 36,
 ) -> list[str]:
+    """
+    Split spoken text at linguistic boundaries.
+
+    max_chars is a SOFT target, not a hard
+    character limit.
+
+    Never cut an otherwise indivisible
+    Chinese clause merely because it exceeds
+    max_chars. A slightly longer synthesis
+    unit is preferable to breaking a word or
+    semantic phrase in the middle.
+    """
     text = normalize_for_speech(
         text
     )
@@ -96,75 +154,61 @@ def split_for_speech(
     if not text:
         return []
 
-    # First split on strong sentence endings.
-    sentences = re.findall(
-        r".+?[。！？!?；;]|.+$",
-        text,
+    max_chars = max(
+        8,
+        int(max_chars),
     )
 
     chunks: list[str] = []
 
-    for sentence in sentences:
-        sentence = (
-            sentence.strip()
-        )
-
-        if not sentence:
-            continue
-
+    for sentence in _sentence_units(
+        text
+    ):
         if len(sentence) <= max_chars:
-            chunks.append(sentence)
+            chunks.append(
+                sentence
+            )
             continue
 
-        # For an overly long sentence,
-        # prefer natural comma/colon boundaries.
-        parts = re.findall(
-            r".+?[，,:：]|.+$",
-            sentence,
+        clauses = _clause_units(
+            sentence
         )
 
         current = ""
 
-        for part in parts:
-            part = part.strip()
-
-            if not part:
+        for clause in clauses:
+            if not current:
+                current = clause
                 continue
 
-            if (
+            candidate = (
                 current
-                and
-                len(current) + len(part)
-                > max_chars
+                + clause
+            )
+
+            if (
+                len(candidate)
+                <= max_chars
             ):
-                chunks.extend(
-                    _split_long_part(
-                        current,
-                        max_chars,
-                    )
-                )
+                current = candidate
+                continue
 
-                current = ""
+            # Flush only at an existing
+            # linguistic boundary.
+            chunks.append(
+                current
+            )
 
-            if len(part) > max_chars:
-                if current:
-                    chunks.append(
-                        current
-                    )
-                    current = ""
-
-                chunks.extend(
-                    _split_long_part(
-                        part,
-                        max_chars,
-                    )
-                )
-
-            else:
-                current += part
+            # Important:
+            # even if this single clause is
+            # longer than max_chars, keep it
+            # intact. max_chars is soft.
+            current = clause
 
         if current:
-            chunks.append(current)
+            chunks.append(
+                current
+            )
 
     return [
         chunk

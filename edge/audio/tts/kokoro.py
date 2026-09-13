@@ -13,7 +13,7 @@ import numpy as np
 import sherpa_onnx
 
 from edge.audio.tts.text import (
-    split_for_speech,
+    normalize_for_speech,
 )
 
 
@@ -85,16 +85,6 @@ class KokoroTts:
                         80,
                     )
                 ),
-            ),
-        )
-
-        self.max_chunk_chars = max(
-            8,
-            int(
-                config.get(
-                    "max_chunk_chars",
-                    24,
-                )
             ),
         )
 
@@ -370,7 +360,13 @@ class KokoroTts:
         text: str,
         sink: str,
     ) -> TtsResult:
-        text = text.strip()
+        # Keep the reply as one logical utterance.
+        # Kokoro sees the complete text so its
+        # punctuation/prosody stay natural.
+        text = normalize_for_speech(
+            text
+        )
+
         sink = sink.strip()
 
         if not text:
@@ -383,144 +379,256 @@ class KokoroTts:
                 "TTS sink is empty"
             )
 
-        chunks = split_for_speech(
-            text,
-            max_chars=(
-                self.max_chunk_chars
-            ),
-        )
-
-        if not chunks:
-            raise TtsError(
-                "TTS text became empty "
-                "after normalization"
-            )
-
         self._prepare_sink(
             sink
         )
 
-        work_queue: queue.Queue[
-            tuple[str, object]
+        sample_rate = int(
+            self._tts.sample_rate
+        )
+
+        if sample_rate <= 0:
+            raise TtsError(
+                "Invalid TTS sample rate"
+            )
+
+        try:
+            player = subprocess.Popen(
+                [
+                    "pacat",
+                    "--playback",
+                    "--raw",
+                    f"--device={sink}",
+                    "--format=s16le",
+                    f"--rate={sample_rate}",
+                    "--channels=1",
+                ],
+                stdin=subprocess.PIPE,
+                bufsize=0,
+            )
+        except OSError as exc:
+            raise TtsError(
+                "Unable to start pacat: "
+                f"{exc}"
+            ) from exc
+
+        if player.stdin is None:
+            player.terminate()
+
+            raise TtsError(
+                "pacat stdin unavailable"
+            )
+
+        audio_queue: queue.Queue[
+            bytes | None
         ] = queue.Queue()
 
-        def producer() -> None:
+        playback_errors: list[
+            BaseException
+        ] = []
+
+        def playback_worker() -> None:
             try:
-                for chunk_text in chunks:
-                    generated = (
-                        self._generate(
-                            chunk_text
-                        )
+                while True:
+                    data = audio_queue.get()
+
+                    if data is None:
+                        break
+
+                    player.stdin.write(
+                        data
                     )
 
-                    work_queue.put(
-                        (
-                            "audio",
-                            generated,
-                        )
-                    )
-
-            except Exception as exc:
-                work_queue.put(
-                    (
-                        "error",
-                        exc,
-                    )
+            except BaseException as exc:
+                playback_errors.append(
+                    exc
                 )
 
             finally:
-                work_queue.put(
-                    (
-                        "done",
-                        None,
-                    )
-                )
-
-        start = time.monotonic()
+                try:
+                    player.stdin.close()
+                except Exception:
+                    pass
 
         worker = threading.Thread(
-            target=producer,
-            name="luckrobot-tts",
+            target=playback_worker,
+            name="luckrobot-tts-playback",
             daemon=True,
         )
 
         worker.start()
 
+        generation_config = (
+            sherpa_onnx.GenerationConfig()
+        )
+
+        generation_config.sid = (
+            self.speaker_id
+        )
+
+        generation_config.speed = (
+            self.speed
+        )
+
+        generation_config.silence_scale = (
+            self.silence_scale
+        )
+
+        started = time.monotonic()
+
         first_audio_latency = None
-        generation_seconds = 0.0
-        audio_seconds = 0.0
-        sample_rate = 0
-        played_chunks = 0
+        callback_batches = 0
 
-        while True:
-            kind, payload = (
-                work_queue.get()
-            )
+        def on_audio(
+            samples,
+            progress,
+        ):
+            nonlocal first_audio_latency
+            nonlocal callback_batches
 
-            if kind == "done":
-                break
+            array = np.asarray(
+                samples,
+                dtype=np.float32,
+            ).reshape(-1)
 
-            if kind == "error":
-                if isinstance(
-                    payload,
-                    TtsError,
-                ):
-                    raise payload
-
-                raise TtsError(
-                    "TTS producer failed: "
-                    f"{payload}"
-                )
-
-            generated = payload
-
-            if not isinstance(
-                generated,
-                _GeneratedChunk,
-            ):
-                raise TtsError(
-                    "Invalid generated "
-                    "TTS chunk"
-                )
+            if len(array) == 0:
+                return 1
 
             if first_audio_latency is None:
                 first_audio_latency = (
                     time.monotonic()
-                    - start
+                    - started
                 )
 
-            generation_seconds += (
-                generated
-                .generation_seconds
-            )
-
-            chunk_audio_seconds = (
-                len(
-                    generated.samples
+            pcm = (
+                np.clip(
+                    array,
+                    -1.0,
+                    1.0,
                 )
-                / generated.sample_rate
+                * 32767.0
+            ).astype(
+                np.int16
             )
 
-            audio_seconds += (
-                chunk_audio_seconds
+            audio_queue.put(
+                pcm.tobytes()
             )
 
-            sample_rate = (
-                generated.sample_rate
+            callback_batches += 1
+
+            # Verified on sherpa-onnx 1.13.7:
+            # 1 = continue generation
+            # 0 = stop generation early
+            return 1
+
+        try:
+            audio = self._tts.generate(
+                text,
+                generation_config,
+                on_audio,
             )
 
-            self._play_chunk(
-                generated,
-                sink,
+            generation_seconds = (
+                time.monotonic()
+                - started
             )
 
-            played_chunks += 1
+            # Defensive fallback:
+            # if a backend returns audio but never
+            # invokes the callback, play the returned
+            # complete waveform once.
+            if (
+                callback_batches == 0
+                and len(audio.samples) > 0
+            ):
+                array = np.asarray(
+                    audio.samples,
+                    dtype=np.float32,
+                ).reshape(-1)
+
+                if first_audio_latency is None:
+                    first_audio_latency = (
+                        time.monotonic()
+                        - started
+                    )
+
+                pcm = (
+                    np.clip(
+                        array,
+                        -1.0,
+                        1.0,
+                    )
+                    * 32767.0
+                ).astype(
+                    np.int16
+                )
+
+                audio_queue.put(
+                    pcm.tobytes()
+                )
+
+        except Exception as exc:
+            audio_queue.put(
+                None
+            )
+
+            worker.join(
+                timeout=2.0
+            )
+
+            try:
+                player.terminate()
+                player.wait(
+                    timeout=2.0
+                )
+            except Exception:
+                pass
+
+            raise TtsError(
+                "Kokoro streaming synthesis "
+                "failed: "
+                f"{type(exc).__name__}: "
+                f"{exc}"
+            ) from exc
+
+        audio_queue.put(
+            None
+        )
 
         worker.join()
 
+        return_code = player.wait()
+
+        if playback_errors:
+            raise TtsError(
+                "TTS streaming playback "
+                "failed: "
+                f"{playback_errors[0]}"
+            )
+
+        if return_code != 0:
+            raise TtsError(
+                "pacat exited with code "
+                f"{return_code}"
+            )
+
+        if (
+            audio.sample_rate <= 0
+            or len(audio.samples) == 0
+        ):
+            raise TtsError(
+                "Kokoro returned empty audio"
+            )
+
         wall_seconds = (
             time.monotonic()
-            - start
+            - started
+        )
+
+        audio_seconds = (
+            len(audio.samples)
+            / audio.sample_rate
         )
 
         return TtsResult(
@@ -530,19 +638,21 @@ class KokoroTts:
             audio_seconds=(
                 audio_seconds
             ),
-            sample_rate=(
-                sample_rate
+            sample_rate=int(
+                audio.sample_rate
             ),
             first_audio_latency_seconds=(
                 first_audio_latency
                 if first_audio_latency
                 is not None
-                else wall_seconds
+                else generation_seconds
             ),
             wall_seconds=(
                 wall_seconds
             ),
-            chunks=(
-                played_chunks
-            ),
+
+            # One logical utterance.
+            # Internal callback batches are not
+            # application-level text chunks.
+            chunks=1,
         )
