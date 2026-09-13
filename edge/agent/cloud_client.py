@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -188,6 +189,83 @@ class CloudAgentClient:
                 "invalid JSON"
             ) from exc
 
+    @staticmethod
+    def _encode_jpeg_frames(
+        jpeg_frames: list[bytes] | None,
+    ) -> list[str]:
+        frames = list(
+            jpeg_frames
+            or []
+        )
+
+        if len(frames) > 5:
+            raise CloudAgentError(
+                "At most 5 vision frames "
+                "may be sent per request"
+            )
+
+        encoded_frames = []
+        total_bytes = 0
+
+        for index, frame in enumerate(
+            frames
+        ):
+            if not isinstance(
+                frame,
+                (
+                    bytes,
+                    bytearray,
+                ),
+            ):
+                raise CloudAgentError(
+                    "Vision frame "
+                    f"{index} is not bytes"
+                )
+
+            jpeg = bytes(
+                frame
+            )
+
+            if (
+                len(jpeg) < 4
+                or jpeg[:2]
+                != b"\xff\xd8"
+                or jpeg[-2:]
+                != b"\xff\xd9"
+            ):
+                raise CloudAgentError(
+                    "Vision frame "
+                    f"{index} is not "
+                    "a complete JPEG"
+                )
+
+            if len(jpeg) > 2_000_000:
+                raise CloudAgentError(
+                    "Vision frame "
+                    f"{index} exceeds "
+                    "2 MB"
+                )
+
+            total_bytes += len(
+                jpeg
+            )
+
+            if total_bytes > 5_000_000:
+                raise CloudAgentError(
+                    "Vision frame payload "
+                    "exceeds 5 MB"
+                )
+
+            encoded_frames.append(
+                base64.b64encode(
+                    jpeg
+                ).decode(
+                    "ascii"
+                )
+            )
+
+        return encoded_frames
+
     def _compact_pending(
         self,
     ) -> None:
@@ -269,6 +347,7 @@ class CloudAgentClient:
     def chat(
         self,
         text: str,
+        jpeg_frames: list[bytes] | None = None,
     ) -> AgentReply:
         command = text.strip()
 
@@ -276,6 +355,12 @@ class CloudAgentClient:
             raise CloudAgentError(
                 "Agent command is empty"
             )
+
+        images_jpeg_base64 = (
+            self._encode_jpeg_frames(
+                jpeg_frames
+            )
+        )
 
         try:
             self._compact_pending()
@@ -341,21 +426,35 @@ class CloudAgentClient:
                 flush=True,
             )
 
+        payload = {
+            "text": command,
+            "history": (
+                snapshot.messages
+            ),
+            "memory_summary": (
+                snapshot
+                .memory_summary
+            ),
+            "archive_context": (
+                archive_context
+            ),
+        }
+
+        if images_jpeg_base64:
+            payload[
+                "images_jpeg_base64"
+            ] = images_jpeg_base64
+
+            print(
+                "[VISION] UPLOAD_FRAMES "
+                f"count="
+                f"{len(images_jpeg_base64)}",
+                flush=True,
+            )
+
         data = self._post_json(
             self.endpoint,
-            {
-                "text": command,
-                "history": (
-                    snapshot.messages
-                ),
-                "memory_summary": (
-                    snapshot
-                    .memory_summary
-                ),
-                "archive_context": (
-                    archive_context
-                ),
-            },
+            payload,
         )
 
         reply = str(

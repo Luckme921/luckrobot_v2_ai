@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from pathlib import Path
 from typing import Literal
 
@@ -53,6 +55,12 @@ class ChatRequest(BaseModel):
         max_length=4000,
     )
 
+    images_jpeg_base64: list[
+        str
+    ] = Field(
+        default_factory=list,
+    )
+
     history: list[
         ChatMessage
     ] = Field(
@@ -68,6 +76,127 @@ class ChatRequest(BaseModel):
         default="",
         max_length=30000,
     )
+
+
+MAX_VISION_IMAGES = 5
+MAX_VISION_IMAGE_BYTES = 2_000_000
+MAX_VISION_TOTAL_BYTES = 5_000_000
+MAX_VISION_BASE64_CHARS = 3_000_000
+
+
+def _decode_vision_images(
+    encoded_images: list[str],
+) -> list[str]:
+    if len(encoded_images) > MAX_VISION_IMAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Too many vision images; "
+                f"maximum is "
+                f"{MAX_VISION_IMAGES}"
+            ),
+        )
+
+    data_urls: list[str] = []
+    total_bytes = 0
+
+    for index, encoded in enumerate(
+        encoded_images
+    ):
+        encoded = str(
+            encoded
+        ).strip()
+
+        if not encoded:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Vision image "
+                    f"{index} is empty"
+                ),
+            )
+
+        if (
+            len(encoded)
+            > MAX_VISION_BASE64_CHARS
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Vision image "
+                    f"{index} base64 payload "
+                    "is too large"
+                ),
+            )
+
+        try:
+            jpeg = base64.b64decode(
+                encoded,
+                validate=True,
+            )
+        except (
+            binascii.Error,
+            ValueError,
+        ) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Vision image "
+                    f"{index} has invalid "
+                    "base64 data"
+                ),
+            ) from exc
+
+        if (
+            len(jpeg)
+            > MAX_VISION_IMAGE_BYTES
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Vision image "
+                    f"{index} exceeds "
+                    "the size limit"
+                ),
+            )
+
+        if (
+            len(jpeg) < 4
+            or jpeg[:2] != b"\xff\xd8"
+            or jpeg[-2:] != b"\xff\xd9"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Vision image "
+                    f"{index} is not "
+                    "a complete JPEG"
+                ),
+            )
+
+        total_bytes += len(
+            jpeg
+        )
+
+        if (
+            total_bytes
+            > MAX_VISION_TOTAL_BYTES
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Total vision image "
+                    "payload exceeds "
+                    "the size limit"
+                ),
+            )
+
+        data_urls.append(
+            "data:image/jpeg;base64,"
+            + encoded
+        )
+
+    return data_urls
 
 
 class ChatResponse(BaseModel):
@@ -103,6 +232,12 @@ async def health() -> dict:
 async def chat(
     request: ChatRequest,
 ) -> ChatResponse:
+    image_data_urls = (
+        _decode_vision_images(
+            request.images_jpeg_base64
+        )
+    )
+
     try:
         agent = get_agent()
 
@@ -127,6 +262,9 @@ async def chat(
             ),
             archive_context=(
                 request.archive_context
+            ),
+            image_data_urls=(
+                image_data_urls
             ),
         )
 

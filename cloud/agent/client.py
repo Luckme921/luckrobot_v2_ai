@@ -406,6 +406,42 @@ class GLMAgent:
             cumulative_summary,
         )
 
+    @staticmethod
+    def _build_user_content(
+        text: str,
+        image_data_urls: list[str] | None = None,
+    ) -> str | list[dict]:
+        urls = [
+            str(url).strip()
+            for url in (
+                image_data_urls
+                or []
+            )
+            if str(url).strip()
+        ]
+
+        if not urls:
+            return text
+
+        content: list[dict] = [
+            {
+                "type": "text",
+                "text": text,
+            }
+        ]
+
+        for url in urls:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": url,
+                    },
+                }
+            )
+
+        return content
+
     async def chat(
         self,
         text: str,
@@ -414,6 +450,7 @@ class GLMAgent:
         ] | None = None,
         memory_summary: str = "",
         archive_context: str = "",
+        image_data_urls: list[str] | None = None,
     ) -> str:
         messages: list[dict] = [
             {
@@ -503,7 +540,12 @@ class GLMAgent:
         messages.append(
             {
                 "role": "user",
-                "content": text,
+                "content": (
+                    self._build_user_content(
+                        text,
+                        image_data_urls,
+                    )
+                ),
             }
         )
 

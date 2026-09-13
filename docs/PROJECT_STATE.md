@@ -149,12 +149,13 @@ Cloud TTS is not required for the current baseline.
 
 ## Current task
 
-Phase 4.4B local monocular vision ring buffer: COMPLETE.
+Phase 4.4C1 multimodal vision gateway transport: COMPLETE.
 
 Current focus:
-- connect voice intent to on-demand visual frame selection
-- send user text plus selected JPEG frames to a multimodal Cloud Agent
-- keep continuous camera capture local and upload frames only when needed
+- connect the persistent camera ring buffer to the voice runtime
+- use model-driven visual acquisition instead of brittle keyword routing
+- choose current-frame versus recent multi-frame context on demand
+- keep ordinary non-visual conversation image-free
 - continue response-latency optimization after the visual dialogue baseline
 - continue to keep navigation-related development deferred
 
@@ -875,5 +876,85 @@ Next:
   "我手里拿的是什么？"
   and
   "我刚才做了什么？"
+- real navigation remains deferred
+- AI Jetson must never publish raw /cmd_vel
+
+### Phase 4.4C1 - Multimodal gateway transport COMPLETE
+
+Status: COMPLETE baseline on 2026-09-13.
+
+Purpose:
+- carry selected local JPEG frames through the normal LuckRobot Edge/Cloud path
+- preserve text-only behavior when no visual frame is needed
+- avoid introducing a second vision-model provider
+
+Model validation:
+- GLM-5.3-Flash accepted JPEG image_url input directly
+- test JPEG:
+  1280x720
+  65562 bytes
+- direct multimodal request:
+  3.801 s
+- finish_reason:
+  stop
+- model correctly described the visible person, laptop and air conditioner
+
+Implemented locally:
+- GLMAgent can build a multimodal current-user message containing:
+  - text
+  - one or more image_url items
+- FastAPI /chat accepts base64 JPEG payloads
+- Cloud API validates:
+  - maximum 5 images per request
+  - maximum 2 MB per image
+  - maximum 5 MB total image bytes
+  - valid base64
+  - complete JPEG SOI/EOI markers
+- Edge CloudAgentClient accepts raw JPEG bytes and base64-encodes them
+- text-only requests omit the image payload entirely
+- durable conversation memory stores user text and assistant reply, not image bytes
+
+Gateway end-to-end validation:
+- temporary local FastAPI gateway:
+  HTTP 200
+- Edge log:
+  [VISION] UPLOAD_FRAMES count=1
+- full gateway request:
+  9.475 s
+- model:
+  glm-5.3-flash
+- visual description matched the real camera scene
+- successful exchange was written to Edge memory:
+  MEMORY_TURNS=1
+- smoke result:
+  SMOKE_EXIT=0
+
+Tests:
+- 5 new multimodal payload tests
+- full repository suite:
+  35 tests passing
+- compileall passed
+- git diff --check passed
+
+Privacy / bandwidth behavior:
+- no image is attached to ordinary text-only chat
+- selected JPEG frames are sent only when the caller explicitly supplies them
+- continuous camera video is not uploaded to the Cloud
+
+Latency note:
+- the multimodal gateway request took about 9.5 s in the observed smoke test
+- visual interaction latency remains an optimization target
+- correctness and routing behavior are being established before streaming optimization
+
+Next:
+- Phase 4.4C2:
+  connect the persistent vision ring buffer to the live voice runtime
+- do not use a hard-coded list of words such as
+  "看", "手里", or "刚才" as the visual-intent router
+- use model-driven visual acquisition so the system can decide whether it needs:
+  - no image
+  - the current frame
+  - several recent frames
+- ordinary non-visual conversation must remain image-free
 - real navigation remains deferred
 - AI Jetson must never publish raw /cmd_vel
