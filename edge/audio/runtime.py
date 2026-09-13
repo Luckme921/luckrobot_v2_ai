@@ -46,6 +46,12 @@ from edge.vision.runtime_bridge import (
     capture_turn_snapshot,
     select_turn_snapshot_frames,
 )
+from edge.vision.face_identity import (
+    OwnerFaceScorer,
+)
+from edge.vision.identity_runtime import (
+    classify_turn_identity,
+)
 
 
 def load_config(
@@ -249,6 +255,93 @@ def main() -> None:
                 ),
             )
         )
+
+    identity_cfg = vision_cfg.get(
+        "face_identity",
+        {},
+    )
+
+    identity_scorer = None
+
+    if bool(
+        identity_cfg.get(
+            "enabled",
+            False,
+        )
+    ):
+        if vision_camera is None:
+            print(
+                "[IDENTITY] DISABLED "
+                "reason=vision_camera_disabled",
+                flush=True,
+            )
+
+        else:
+            repo_root = (
+                Path(__file__)
+                .resolve()
+                .parents[2]
+            )
+
+            try:
+                identity_scorer = (
+                    OwnerFaceScorer(
+                        detector_model=(
+                            repo_root
+                            / str(
+                                identity_cfg[
+                                    "detector_model"
+                                ]
+                            )
+                        ),
+                        recognizer_model=(
+                            repo_root
+                            / str(
+                                identity_cfg[
+                                    "recognizer_model"
+                                ]
+                            )
+                        ),
+                        exemplars_path=(
+                            repo_root
+                            / str(
+                                identity_cfg[
+                                    "exemplars_path"
+                                ]
+                            )
+                        ),
+                        centroid_path=(
+                            repo_root
+                            / str(
+                                identity_cfg[
+                                    "centroid_path"
+                                ]
+                            )
+                        ),
+                        detection_threshold=float(
+                            identity_cfg.get(
+                                "detection_threshold",
+                                0.55,
+                            )
+                        ),
+                    )
+                )
+
+                print(
+                    "[INIT] Owner face "
+                    "identity ready.",
+                    flush=True,
+                )
+
+            except Exception as exc:
+                print(
+                    "[IDENTITY] INIT_ERROR "
+                    f"{type(exc).__name__}: "
+                    f"{exc}",
+                    flush=True,
+                )
+
+                identity_scorer = None
 
     tts_cfg = config.get(
         "tts",
@@ -935,9 +1028,84 @@ def main() -> None:
 
                                     # V1 is half duplex.
                                     # Stop microphone capture
-                                    # while the cloud Agent is
-                                    # processing the command.
+                                    # while local perception and
+                                    # the Cloud Agent process
+                                    # this command.
                                     capture.stop()
+
+                                    if (
+                                        identity_scorer
+                                        is not None
+                                        and
+                                        turn_vision_snapshot
+                                        is not None
+                                    ):
+                                        identity_t0 = (
+                                            time.monotonic()
+                                        )
+
+                                        try:
+                                            identity_result = (
+                                                classify_turn_identity(
+                                                    turn_vision_snapshot,
+                                                    identity_scorer,
+                                                    sample_count=int(
+                                                        identity_cfg.get(
+                                                            "sample_count",
+                                                            5,
+                                                        )
+                                                    ),
+                                                    required_votes=int(
+                                                        identity_cfg.get(
+                                                            "required_votes",
+                                                            3,
+                                                        )
+                                                    ),
+                                                    best_threshold=float(
+                                                        identity_cfg.get(
+                                                            "best_threshold",
+                                                            0.34,
+                                                        )
+                                                    ),
+                                                    centroid_threshold=float(
+                                                        identity_cfg.get(
+                                                            "centroid_threshold",
+                                                            0.34,
+                                                        )
+                                                    ),
+                                                    min_area_ratio=float(
+                                                        identity_cfg.get(
+                                                            "min_area_ratio",
+                                                            0.01,
+                                                        )
+                                                    ),
+                                                )
+                                            )
+
+                                            print(
+                                                "[IDENTITY] "
+                                                f"state="
+                                                f"{identity_result.state} "
+                                                f"sampled="
+                                                f"{identity_result.sampled_frames} "
+                                                f"usable="
+                                                f"{identity_result.usable_votes} "
+                                                f"owner_votes="
+                                                f"{identity_result.owner_votes} "
+                                                f"unknown_votes="
+                                                f"{identity_result.unknown_votes} "
+                                                f"latency="
+                                                f"{time.monotonic() - identity_t0:.3f}s",
+                                                flush=True,
+                                            )
+
+                                        except Exception as exc:
+                                            print(
+                                                "[IDENTITY] ERROR "
+                                                f"{type(exc).__name__}: "
+                                                f"{exc}",
+                                                flush=True,
+                                            )
 
                                     playback_happened = False
 

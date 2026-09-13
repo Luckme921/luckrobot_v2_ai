@@ -1234,3 +1234,100 @@ Next:
 - then return to end-to-end latency optimization
 - navigation remains deferred
 - AI Jetson must never publish raw /cmd_vel
+
+### Phase 4.5B - Turn-aligned local identity runtime bridge COMPLETE
+
+Status: COMPLETE local runtime baseline on 2026-09-13.
+Cloud Agent semantic identity integration is NEXT.
+
+Implementation:
+- local owner identity reuses the existing frozen per-turn vision snapshot
+- no second camera process is started
+- identity sampling uses up to the newest 5 frozen recent frames
+- each usable frame votes owner or unknown
+- 3 usable votes are required for a stable turn result
+- output state is:
+  - owner
+  - unknown
+  - uncertain
+- owner exemplars and centroid remain local under private/
+- raw face photos and embeddings are not uploaded
+- this recognition is convenience identity only
+- it is not liveness detection or security authentication
+
+Live validation:
+- different real person:
+  - state=unknown
+  - sampled=5
+  - usable=5
+  - owner_votes=0
+  - unknown_votes=5
+  - latency=0.416s
+- enrolled owner:
+  - state=owner
+  - sampled=5
+  - usable=5
+  - owner_votes=5
+  - unknown_votes=0
+  - latency=0.396s
+- no usable face:
+  - state=uncertain
+  - sampled=5
+  - usable=0
+  - owner_votes=0
+  - unknown_votes=0
+  - latency=0.254s
+
+Current limitation:
+- the local identity result is logged by the edge runtime
+- it is not yet sent as semantic context to the Cloud Agent
+- Agent replies therefore do not yet change based on owner/unknown/uncertain
+
+Next:
+- send only the local semantic identity state to the Cloud Agent
+- never send private enrollment images, embeddings, or similarity scores
+- preserve the same turn-aligned identity state across any vision follow-up
+- navigation remains deferred
+- AI Jetson must never publish raw /cmd_vel
+
+### Kokoro whole-utterance streaming TTS checkpoint
+
+Status: ACCEPTED baseline and optimization paused on 2026-09-13.
+
+Changes:
+- normal robot replies are no longer hard-split by application character count
+- max_chunk_chars was removed from the normal runtime configuration
+- the complete normalized reply is submitted to Kokoro as one logical utterance
+- spaces around Chinese/Latin boundaries are removed before synthesis
+- genuine English-internal spaces such as "OpenAI API" remain intact
+- Kokoro callback audio is sent to one pacat playback stream per utterance
+- repeated paplay operations between application text chunks are no longer used
+  by the normal speak path
+
+Fixed-text production validation:
+- generation: 9.963s
+- returned audio: 9.499s
+- reported first callback/audio queue latency: 0.949s
+- wall time: 13.278s
+- logical chunks reported by the runtime: 1
+- speech was substantially more continuous than the previous
+  application-level multi-chunk playback
+
+Known limitation:
+- early callback production can temporarily run slower than audio playback
+- this can starve the playback stream and create a short gap such as
+  "我是...LuckRobot"
+- a local /tmp experiment tested a 2.6 second startup prebuffer
+- startup prebuffer is NOT integrated into production yet
+- reported first_audio currently represents first generated callback timing,
+  not a calibrated acoustic speaker-onset measurement
+
+Future TTS optimization:
+- add an adaptive or small startup buffer only if needed
+- keep full-text Kokoro context and natural punctuation prosody
+- do not return to fixed 24/36-character hard splitting
+
+Validation after the TTS and identity runtime work:
+- 69 repository tests passing
+- compileall passed
+- git diff --check passed

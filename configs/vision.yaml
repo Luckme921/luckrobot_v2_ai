@@ -12,3 +12,21 @@ vision:
     directory: "/dev/shm/luckrobot_vision"
     seconds: 10
     max_files: 100
+
+  face_identity:
+    enabled: true
+
+    detector_model: "models/face/face_detection_yunet_2023mar.onnx"
+    recognizer_model: "models/face/face_recognition_sface_2021dec.onnx"
+
+    exemplars_path: "private/faces/owner/embeddings/exemplars.npy"
+    centroid_path: "private/faces/owner/embeddings/centroid.npy"
+
+    detection_threshold: 0.55
+
+    min_area_ratio: 0.01
+    best_threshold: 0.34
+    centroid_threshold: 0.34
+
+    sample_count: 5
+    required_votes: 3
