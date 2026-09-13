@@ -621,12 +621,11 @@ Known limitations:
 - Kokoro CPU generation is around real time
 - V1 is half duplex
 - no true acoustic echo cancellation
-- Internet/web search is not connected yet
+- Internet/web search was not connected at the end of Phase 4.1; Phase 4.2 subsequently added controlled Web Search
 - music service is not connected yet
 
 Next:
-- Phase 4.2 controlled Internet/web search
-- enforce a strict search-call budget per user turn
+- continue Lucky wake and voice-session robustness work
 - keep music search/playback as a separate future tool
 - keep navigation-related work deferred until explicitly resumed
 
@@ -691,4 +690,3 @@ Safety:
 - navigation remains deferred and MOCK only
 - Web Search cannot directly control robot motion
 - AI Jetson must never publish raw /cmd_vel
-
