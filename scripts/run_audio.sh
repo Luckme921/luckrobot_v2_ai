@@ -20,4 +20,5 @@ if [[ -n "${SUSPEND_ID}" ]]; then
 fi
 
 exec python -m edge.audio.runtime \
-  --config "$ROOT/configs/audio.yaml"
+  --config "$ROOT/configs/audio.yaml" \
+  --vision-config "$ROOT/configs/vision.yaml"

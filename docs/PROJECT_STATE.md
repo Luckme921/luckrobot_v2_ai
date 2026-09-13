@@ -149,15 +149,14 @@ Cloud TTS is not required for the current baseline.
 
 ## Current task
 
-Phase 4.4C2-A model-driven visual acquisition routing: COMPLETE.
+Phase 4.4C2-B live voice-to-vision interaction: COMPLETE.
 
 Current focus:
-- connect model-driven visual acquisition to the live voice runtime
-- start and stop the persistent camera ring buffer with the interaction runtime
-- fulfill latest/recent vision requests from the local ring buffer
+- anchor visual evidence to the user utterance time instead of post-routing time
+- make recent visual context relative to the user turn
+- reduce Kokoro chunk-to-chunk playback gaps
 - keep ordinary non-visual conversation image-free
-- preserve the V1 half-duplex audio state machine
-- continue response-latency optimization after the visual dialogue baseline
+- optimize visual interaction latency after temporal semantics are correct
 - continue to keep navigation-related development deferred
 
 Navigation / Phase 3.5 status:
@@ -1053,5 +1052,92 @@ Next:
   LISTENING -> THINKING -> SPEAKING -> LISTENING
 - fix the post-TTS guard so it runs only when playback actually occurred
 - validate real voice -> visual request -> camera -> multimodal reply -> TTS
+- navigation remains deferred
+- AI Jetson must never publish raw /cmd_vel
+
+### Phase 4.4C2-B - Live voice-to-vision interaction COMPLETE
+
+Status: COMPLETE baseline on 2026-09-13.
+
+Runtime integration:
+- the interaction camera starts with the audio runtime
+- camera capture remains local in the RAM-backed ring buffer
+- camera failure falls back to voice-only operation
+- model-driven request_vision is fulfilled from the local ring buffer
+- selected JPEG frames are passed through the existing multimodal gateway
+- camera shuts down cleanly when the audio runtime exits
+
+Validated live interaction:
+- Lucky wake word
+- SenseVoice ASR
+- Cloud Agent
+- model-driven visual acquisition
+- local camera frame selection
+- GLM-5.3-Flash multimodal understanding
+- Kokoro local TTS
+- Jieli USB speaker playback
+
+Non-visual validation:
+- "你是谁"
+- Agent answered normally
+- no vision request or image upload occurred
+
+Visual validation:
+- "你看看我手里拿的是什么"
+- Agent requested:
+  latest
+- first attempt correctly reported that the user's hand was no longer visible
+- second attempt correctly recognized a phone when it remained visible
+- "你现在能看到我吗"
+  correctly described the visible person, phone and background
+
+Runtime logs confirmed:
+- [VISION] REQUEST
+- [VISION] FULFILL
+- [VISION] SELECTED_FRAMES
+- [VISION] UPLOAD_FRAMES
+- multimodal Agent reply
+- Kokoro TTS playback
+- POST_TTS_GUARD only after successful playback
+- [VISION] CAMERA_STOPPED on runtime exit
+
+Tests:
+- 4 runtime vision bridge tests added
+- full repository suite:
+  43 tests passing
+- compileall passed
+- run_audio.sh shell syntax check passed
+- git diff --check passed
+
+Known visual timing limitation:
+- latest currently means the newest frame when request_vision is fulfilled
+- the frame is therefore selected after the first Cloud routing call
+- observed first-stage routing can take roughly 4-6 seconds
+- latest is not yet anchored to the instant the user finished speaking
+- this can cause an object to disappear before the selected frame is captured
+
+Planned timing fix:
+- freeze a per-turn visual snapshot in local RAM when the user command is accepted
+- preserve both:
+  - the current frame
+  - several sampled frames from the preceding approximately 5 seconds
+- after model routing:
+  - latest uses the turn-anchored current frame
+  - recent uses the turn-anchored historical sample
+- no images are uploaded unless the Agent actually requests vision
+
+Known TTS UX issue:
+- some replies contain noticeable pauses between synthesized chunks
+- current Kokoro synthesis is chunked and pipelined
+- TTS generation is sometimes near or slower than real-time playback
+- each chunk is currently played as a separate playback operation
+- gapless/persistent PCM playback is a future optimization
+
+Next:
+- implement turn-aligned visual snapshots
+- validate latest after the user lowers the shown object immediately after speaking
+- validate recent temporal questions
+- improve continuous TTS playback
+- then return to end-to-end latency optimization
 - navigation remains deferred
 - AI Jetson must never publish raw /cmd_vel

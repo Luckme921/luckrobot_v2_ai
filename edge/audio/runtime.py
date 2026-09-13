@@ -37,6 +37,14 @@ from edge.audio.wake.kws import (
 from edge.audio.wake.session import (
     InteractionGate,
 )
+from edge.vision.camera import (
+    CameraError,
+    GStreamerCameraRing,
+)
+from edge.vision.runtime_bridge import (
+    VisionSelectionError,
+    select_vision_frames,
+)
 
 
 def load_config(
@@ -94,10 +102,24 @@ def main() -> None:
         default="configs/audio.yaml",
     )
 
+    parser.add_argument(
+        "--vision-config",
+        default="configs/vision.yaml",
+    )
+
     args = parser.parse_args()
 
     config = load_config(
         args.config
+    )
+
+    vision_config = load_config(
+        args.vision_config
+    )
+
+    vision_cfg = vision_config.get(
+        "vision",
+        {},
     )
 
     audio_cfg = config["audio"]
@@ -174,6 +196,57 @@ def main() -> None:
                     6,
                 )
             ),
+        )
+
+    vision_camera = None
+
+    if bool(
+        vision_cfg.get(
+            "enabled",
+            False,
+        )
+    ):
+        camera_cfg = vision_cfg[
+            "camera"
+        ]
+
+        ring_cfg = vision_cfg[
+            "ring_buffer"
+        ]
+
+        vision_camera = (
+            GStreamerCameraRing(
+                device=str(
+                    camera_cfg[
+                        "device"
+                    ]
+                ),
+                width=int(
+                    camera_cfg[
+                        "width"
+                    ]
+                ),
+                height=int(
+                    camera_cfg[
+                        "height"
+                    ]
+                ),
+                fps=int(
+                    camera_cfg[
+                        "fps"
+                    ]
+                ),
+                directory=str(
+                    ring_cfg[
+                        "directory"
+                    ]
+                ),
+                max_files=int(
+                    ring_cfg[
+                        "max_files"
+                    ]
+                ),
+            )
         )
 
     tts_cfg = config.get(
@@ -384,6 +457,42 @@ def main() -> None:
     print(
         "[INIT] SenseVoice ready."
     )
+
+    if vision_camera is not None:
+        print(
+            "[INIT] Starting "
+            "interaction camera...",
+            flush=True,
+        )
+
+        try:
+            vision_camera.start()
+
+            first_frame = (
+                vision_camera
+                .wait_for_frame(
+                    4.0
+                )
+            )
+
+            print(
+                "[VISION] CAMERA_OK "
+                f"bytes="
+                f"{len(first_frame.jpeg_bytes)} "
+                f"buffer="
+                f"{vision_camera.directory}",
+                flush=True,
+            )
+
+        except CameraError as exc:
+            print(
+                "[VISION] CAMERA_ERROR "
+                f"{exc}",
+                flush=True,
+            )
+
+            vision_camera.stop()
+            vision_camera = None
 
     state = None
 
@@ -804,16 +913,111 @@ def main() -> None:
                                     # processing the command.
                                     capture.stop()
 
+                                    playback_happened = False
+
                                     try:
                                         agent_t0 = time.monotonic()
+
+                                        command_text = (
+                                            decision.command
+                                            or ""
+                                        )
 
                                         agent_reply = (
                                             agent_client
                                             .chat(
-                                                decision.command
-                                                or ""
+                                                command_text
                                             )
                                         )
+
+                                        if (
+                                            agent_reply
+                                            .vision_request
+                                            is not None
+                                        ):
+                                            if (
+                                                vision_camera
+                                                is None
+                                                or
+                                                not vision_camera
+                                                .running
+                                            ):
+                                                raise (
+                                                    CloudAgentError(
+                                                        "Vision was "
+                                                        "requested but "
+                                                        "the camera is "
+                                                        "unavailable"
+                                                    )
+                                                )
+
+                                            vision_request = (
+                                                agent_reply
+                                                .vision_request
+                                            )
+
+                                            print(
+                                                "[VISION] FULFILL "
+                                                f"mode="
+                                                f"{vision_request.mode} "
+                                                f"seconds="
+                                                f"{vision_request.seconds:.1f} "
+                                                f"count="
+                                                f"{vision_request.count}",
+                                                flush=True,
+                                            )
+
+                                            vision_t0 = (
+                                                time.monotonic()
+                                            )
+
+                                            frames = (
+                                                select_vision_frames(
+                                                    vision_camera.ring,
+                                                    vision_request,
+                                                )
+                                            )
+
+                                            print(
+                                                "[VISION] "
+                                                "SELECTED_FRAMES "
+                                                f"count="
+                                                f"{len(frames)}",
+                                                flush=True,
+                                            )
+
+                                            agent_reply = (
+                                                agent_client
+                                                .chat(
+                                                    command_text,
+                                                    jpeg_frames=[
+                                                        frame
+                                                        .jpeg_bytes
+                                                        for frame
+                                                        in frames
+                                                    ],
+                                                )
+                                            )
+
+                                            if (
+                                                agent_reply
+                                                .vision_request
+                                                is not None
+                                            ):
+                                                raise (
+                                                    CloudAgentError(
+                                                        "Unexpected "
+                                                        "repeated vision "
+                                                        "request"
+                                                    )
+                                                )
+
+                                            print(
+                                                "[LATENCY] "
+                                                "vision_followup="
+                                                f"{time.monotonic() - vision_t0:.3f}s",
+                                                flush=True,
+                                            )
 
                                         agent_seconds = (
                                             time.monotonic()
@@ -857,6 +1061,8 @@ def main() -> None:
                                                         speaker,
                                                     )
                                                 )
+
+                                                playback_happened = True
 
                                                 rtf = (
                                                     tts_result
@@ -908,7 +1114,10 @@ def main() -> None:
                                                 flush=True,
                                             )
 
-                                    except CloudAgentError as exc:
+                                    except (
+                                        CloudAgentError,
+                                        VisionSelectionError,
+                                    ) as exc:
                                         print(
                                             "[AGENT] ERROR "
                                             f"{exc}",
@@ -935,7 +1144,7 @@ def main() -> None:
                                         )
 
                                         if (
-                                            tts is not None
+                                            playback_happened
                                             and
                                             post_playback_guard_seconds
                                             > 0
@@ -997,6 +1206,15 @@ def main() -> None:
             "\n[STOP] "
             "Audio runtime stopped."
         )
+
+    finally:
+        if vision_camera is not None:
+            vision_camera.stop()
+
+            print(
+                "[VISION] CAMERA_STOPPED",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":
