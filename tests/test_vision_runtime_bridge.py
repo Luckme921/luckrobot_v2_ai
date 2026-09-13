@@ -153,3 +153,186 @@ class VisionRuntimeBridgeTest(
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TurnAlignedVisionTest(
+    unittest.TestCase
+):
+    @staticmethod
+    def _frame(
+        name: str,
+        captured_at: float,
+    ):
+        from pathlib import Path
+
+        from edge.vision.ring_buffer import (
+            VisionFrame,
+        )
+
+        return VisionFrame(
+            path=Path(name),
+            captured_at=captured_at,
+            jpeg_bytes=(
+                b"\xff\xd8"
+                + name.encode("utf-8")
+                + b"\xff\xd9"
+            ),
+        )
+
+    def test_capture_turn_snapshot(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            capture_turn_snapshot,
+        )
+
+        frames = [
+            self._frame(
+                f"f{i}.jpg",
+                100.0 + i,
+            )
+            for i in range(5)
+        ]
+
+        ring = FakeRing(
+            latest=frames[-1],
+            recent=frames,
+        )
+
+        snapshot = capture_turn_snapshot(
+            ring,
+            recent_seconds=5.0,
+            recent_count=10,
+        )
+
+        self.assertEqual(
+            snapshot.latest,
+            frames[-1],
+        )
+
+        self.assertEqual(
+            snapshot.anchor_time,
+            104.0,
+        )
+
+        self.assertEqual(
+            len(snapshot.recent),
+            5,
+        )
+
+    def test_latest_uses_frozen_frame(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            TurnVisionSnapshot,
+            select_turn_snapshot_frames,
+        )
+
+        frozen = self._frame(
+            "frozen.jpg",
+            100.0,
+        )
+
+        snapshot = TurnVisionSnapshot(
+            anchor_time=100.0,
+            latest=frozen,
+            recent=(
+                frozen,
+            ),
+        )
+
+        frames = (
+            select_turn_snapshot_frames(
+                snapshot,
+                Request(
+                    mode="latest",
+                    seconds=0.0,
+                    count=1,
+                ),
+            )
+        )
+
+        self.assertEqual(
+            frames,
+            [frozen],
+        )
+
+    def test_recent_is_relative_to_anchor(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            TurnVisionSnapshot,
+            select_turn_snapshot_frames,
+        )
+
+        frames = [
+            self._frame(
+                f"f{i}.jpg",
+                95.0 + i,
+            )
+            for i in range(6)
+        ]
+
+        snapshot = TurnVisionSnapshot(
+            anchor_time=100.0,
+            latest=frames[-1],
+            recent=tuple(
+                frames
+            ),
+        )
+
+        selected = (
+            select_turn_snapshot_frames(
+                snapshot,
+                Request(
+                    mode="recent",
+                    seconds=2.0,
+                    count=3,
+                ),
+            )
+        )
+
+        self.assertEqual(
+            [
+                frame.captured_at
+                for frame in selected
+            ],
+            [
+                98.0,
+                99.0,
+                100.0,
+            ],
+        )
+
+    def test_capture_adds_latest(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            capture_turn_snapshot,
+        )
+
+        old = self._frame(
+            "old.jpg",
+            99.0,
+        )
+
+        latest = self._frame(
+            "latest.jpg",
+            100.0,
+        )
+
+        ring = FakeRing(
+            latest=latest,
+            recent=[
+                old
+            ],
+        )
+
+        snapshot = capture_turn_snapshot(
+            ring
+        )
+
+        self.assertEqual(
+            snapshot.recent[-1],
+            latest,
+        )

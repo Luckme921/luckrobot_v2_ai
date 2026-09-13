@@ -10,5 +10,5 @@ vision:
 
   ring_buffer:
     directory: "/dev/shm/luckrobot_vision"
-    seconds: 5
-    max_files: 50
+    seconds: 10
+    max_files: 100

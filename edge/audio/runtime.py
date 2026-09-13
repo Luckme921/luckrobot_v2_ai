@@ -43,7 +43,8 @@ from edge.vision.camera import (
 )
 from edge.vision.runtime_bridge import (
     VisionSelectionError,
-    select_vision_frames,
+    capture_turn_snapshot,
+    select_turn_snapshot_frames,
 )
 
 
@@ -907,6 +908,31 @@ def main() -> None:
                                         flush=True,
                                     )
 
+                                    turn_vision_snapshot = None
+
+                                    if (
+                                        vision_camera
+                                        is not None
+                                        and
+                                        vision_camera.running
+                                    ):
+                                        turn_vision_snapshot = (
+                                            capture_turn_snapshot(
+                                                vision_camera.ring,
+                                                recent_seconds=6.0,
+                                                recent_count=16,
+                                            )
+                                        )
+
+                                        print(
+                                            "[VISION] TURN_SNAPSHOT "
+                                            f"latest="
+                                            f"{1 if turn_vision_snapshot.latest is not None else 0} "
+                                            f"recent="
+                                            f"{len(turn_vision_snapshot.recent)}",
+                                            flush=True,
+                                        )
+
                                     # V1 is half duplex.
                                     # Stop microphone capture
                                     # while the cloud Agent is
@@ -936,18 +962,16 @@ def main() -> None:
                                             is not None
                                         ):
                                             if (
-                                                vision_camera
+                                                turn_vision_snapshot
                                                 is None
-                                                or
-                                                not vision_camera
-                                                .running
                                             ):
                                                 raise (
                                                     CloudAgentError(
                                                         "Vision was "
                                                         "requested but "
-                                                        "the camera is "
-                                                        "unavailable"
+                                                        "no turn-aligned "
+                                                        "snapshot is "
+                                                        "available"
                                                     )
                                                 )
 
@@ -972,8 +996,8 @@ def main() -> None:
                                             )
 
                                             frames = (
-                                                select_vision_frames(
-                                                    vision_camera.ring,
+                                                select_turn_snapshot_frames(
+                                                    turn_vision_snapshot,
                                                     vision_request,
                                                 )
                                             )

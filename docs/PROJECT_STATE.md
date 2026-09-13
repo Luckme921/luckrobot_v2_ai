@@ -151,12 +151,35 @@ Cloud TTS is not required for the current baseline.
 
 Phase 4.4C2-B live voice-to-vision interaction: COMPLETE.
 
-Current focus:
-- anchor visual evidence to the user utterance time instead of post-routing time
-- make recent visual context relative to the user turn
+Phase 4.4C2-B visual freshness hardening: COMPLETE.
+
+Validated behavior:
+- camera continuously maintains a local RAM ring buffer
+- ring buffer baseline: about 10 s / 100 JPEG frames
+- every accepted user command freezes a turn-aligned local visual snapshot
+- turn snapshot baseline: about 6 s / 16 candidate frames
+- latest/recent visual evidence is selected relative to the user turn
+- frozen frames survive Cloud routing latency
+- ordinary non-visual conversation uploads no image
+- every new current/recent visual question must acquire fresh current-turn evidence
+- repeated identical visual questions independently request and upload new frames
+- route_turn is an isolated semantic routing stage
+- route_turn sees only the current user utterance plus at most the previous user utterance
+- previous assistant visual descriptions are not exposed to the routing stage
+- the real answering stage still retains full conversation history
+- long Edge conversation memory remains intact
+- current-object questions may occasionally route to recent multi-frame acquisition instead of latest single-frame acquisition; this is a latency/cost optimization item, not a visual-freshness correctness issue
+
+Live acceptance:
+- non-visual identity question returned without vision upload
+- recent-action question acquired five fresh recent frames
+- repeating the same recent-action question after a different action acquired fresh frames again and described the new action
+- current hand gesture acquired fresh visual evidence and correctly identified two fingers
+
+Next focus:
+- Owner Face Enrollment / local identity recognition
 - reduce Kokoro chunk-to-chunk playback gaps
-- keep ordinary non-visual conversation image-free
-- optimize visual interaction latency after temporal semantics are correct
+- optimize Agent and visual interaction latency
 - continue to keep navigation-related development deferred
 
 Navigation / Phase 3.5 status:

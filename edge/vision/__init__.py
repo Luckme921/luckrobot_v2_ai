@@ -7,7 +7,10 @@ from edge.vision.ring_buffer import (
     VisionFrame,
 )
 from edge.vision.runtime_bridge import (
+    TurnVisionSnapshot,
     VisionSelectionError,
+    capture_turn_snapshot,
+    select_turn_snapshot_frames,
     select_vision_frames,
 )
 
@@ -16,6 +19,9 @@ __all__ = [
     "FileRingBuffer",
     "GStreamerCameraRing",
     "VisionFrame",
+    "TurnVisionSnapshot",
     "VisionSelectionError",
+    "capture_turn_snapshot",
+    "select_turn_snapshot_frames",
     "select_vision_frames",
 ]

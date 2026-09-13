@@ -94,6 +94,10 @@ TOOL_SCHEMAS = [
                 "不要调用。"
                 "询问当前物体、人物、环境、手中物品等使用 latest；"
                 "询问刚才的动作、变化或最近发生了什么使用 recent。"
+                "每一个新的当前、刚才或最近视觉问题都必须基于"
+                "当前用户回合的新视觉证据。"
+                "历史对话里的旧视觉描述不能替代本回合的"
+                "request_vision。"
                 "不要凭空猜测摄像头内容。"
             ),
             "parameters": {
@@ -138,6 +142,75 @@ TOOL_SCHEMAS = [
     },
 
 ]
+
+
+TURN_ROUTE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "route_turn",
+        "description": (
+            "对当前用户回合做唯一一次语义路由。"
+            "必须依据当前真实需求选择动作。"
+            "普通聊天选择 respond_text；"
+            "需要观察当前或最近现实画面选择 request_vision；"
+            "需要最新互联网信息选择 web_search；"
+            "明确要求机器人前往地点选择 navigate_to。"
+            "历史视觉描述不能替代当前回合新的视觉证据。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "respond_text",
+                        "request_vision",
+                        "web_search",
+                        "navigate_to",
+                    ],
+                },
+                "vision_mode": {
+                    "type": "string",
+                    "enum": [
+                        "latest",
+                        "recent",
+                    ],
+                },
+                "seconds": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 5,
+                },
+                "count": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 5,
+                },
+                "query": {
+                    "type": "string",
+                    "maxLength": 70,
+                },
+                "recency": {
+                    "type": "string",
+                    "enum": [
+                        "oneDay",
+                        "oneWeek",
+                        "oneMonth",
+                        "oneYear",
+                        "noLimit",
+                    ],
+                },
+                "location": {
+                    "type": "string",
+                },
+            },
+            "required": [
+                "action"
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 @dataclass

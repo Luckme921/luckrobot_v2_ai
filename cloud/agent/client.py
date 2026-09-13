@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 
 from cloud.agent.tool_router import (
     TOOL_SCHEMAS,
+    TURN_ROUTE_SCHEMA,
     ToolCallBudget,
     ToolRouter,
 )
@@ -125,18 +126,28 @@ class GLMAgent:
             f"{profile_text}\n"
             "系统会通过 tools 字段向你提供"
             "当前真正可调用的工具。"
+            "当当前用户回合没有附带图像时，"
+            "第一步必须调用 route_turn 做语义路由。"
+            "route_turn 的 action=respond_text 表示普通聊天；"
+            "action=request_vision 表示需要当前或最近视觉证据；"
+            "action=web_search 表示需要实时互联网信息；"
+            "action=navigate_to 表示明确导航请求。"
+            "不能绕过 route_turn 直接声称看到了现实画面。"
             "当用户请求与某个可用工具匹配时，"
             "必须优先调用工具，"
             "不能只用文字假装执行。"
             "必须根据工具返回的真实结果"
             "向用户说明执行状态。\n"
             "LuckRobot 当前已经具备单目交互相机和"
-            "最近约5秒的本地视觉缓存。"
+            "最近约10秒的本地环形视觉缓存。"
             "当用户的问题必须观察当前或最近画面才能可靠回答，"
             "且当前消息尚未附带图像时，"
             "必须调用 request_vision，不能猜测画面。"
             "当前画面使用 latest；"
             "理解刚才动作或短时间变化使用 recent。"
+            "历史对话中曾经看到的画面只代表过去，"
+            "绝不能当成新用户回合的当前或刚才视觉证据。"
+            "每个新的现实视觉问题都必须重新取得本回合证据。"
             "不需要视觉的信息不要请求摄像头。\n"
             "Edge 端会向你提供近期对话历史。"
             "当前已经具备本地持久对话记忆，"
@@ -438,6 +449,140 @@ class GLMAgent:
         )
 
     @staticmethod
+    def _parse_turn_route_arguments(
+        arguments_json: str,
+    ) -> dict:
+        try:
+            arguments = json.loads(
+                arguments_json
+                or "{}"
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "route_turn arguments "
+                "are invalid JSON"
+            ) from exc
+
+        if not isinstance(
+            arguments,
+            dict,
+        ):
+            raise ValueError(
+                "route_turn arguments "
+                "must be an object"
+            )
+
+        action = str(
+            arguments.get(
+                "action",
+                "",
+            )
+        ).strip()
+
+        if action == "respond_text":
+            return {
+                "action": action,
+            }
+
+        if action == "request_vision":
+            mode = str(
+                arguments.get(
+                    "vision_mode",
+                    "",
+                )
+            ).strip()
+
+            vision_arguments = {
+                "mode": mode,
+                "seconds": arguments.get(
+                    "seconds",
+                    5.0,
+                ),
+                "count": arguments.get(
+                    "count",
+                    5,
+                ),
+            }
+
+            request = (
+                GLMAgent
+                ._parse_vision_request_arguments(
+                    json.dumps(
+                        vision_arguments
+                    )
+                )
+            )
+
+            return {
+                "action": action,
+                "vision_request": request,
+            }
+
+        if action == "web_search":
+            query = str(
+                arguments.get(
+                    "query",
+                    "",
+                )
+            ).strip()
+
+            if not query:
+                raise ValueError(
+                    "route_turn web_search "
+                    "requires query"
+                )
+
+            recency = str(
+                arguments.get(
+                    "recency",
+                    "noLimit",
+                )
+            ).strip()
+
+            if (
+                recency
+                not in
+                ZhipuWebSearch.RECENCY_VALUES
+            ):
+                recency = "noLimit"
+
+            return {
+                "action": action,
+                "tool_name": "web_search",
+                "tool_arguments": {
+                    "query": query,
+                    "recency": recency,
+                },
+            }
+
+        if action == "navigate_to":
+            location = str(
+                arguments.get(
+                    "location",
+                    "",
+                )
+            ).strip()
+
+            if not location:
+                raise ValueError(
+                    "route_turn navigate_to "
+                    "requires location"
+                )
+
+            return {
+                "action": action,
+                "tool_name": "navigate_to",
+                "tool_arguments": {
+                    "location": location,
+                },
+            }
+
+        raise ValueError(
+            "Unsupported route_turn action "
+            f"{action!r}"
+        )
+
+    @staticmethod
     def _parse_vision_request_arguments(
         arguments_json: str,
     ) -> VisionRequest:
@@ -530,6 +675,137 @@ class GLMAgent:
         )
 
     @staticmethod
+    def _current_turn_visual_state_prompt(
+        has_images: bool,
+    ) -> str:
+        if has_images:
+            return (
+                "CURRENT_TURN_VISUAL_EVIDENCE=attached\n"
+                "当前用户回合已经附带由 Edge "
+                "为本回合选择的新视觉证据。"
+                "可以依据这些图像回答当前或最近画面问题。"
+            )
+
+        return (
+            "CURRENT_TURN_VISUAL_EVIDENCE=none\n"
+            "当前用户回合没有附带任何新视觉证据。"
+            "历史对话、记忆摘要和旧助手回复中的视觉描述"
+            "都只能代表过去，不能证明当前或刚才的画面。"
+            "如果当前用户问题需要判断现在、刚才、最近的"
+            "摄像头内容，必须通过 route_turn "
+            "选择 request_vision。"
+            "在取得本回合视觉证据之前，禁止声称"
+            "“我看到了”“我刚回看了”或类似表达。"
+        )
+
+    @staticmethod
+    def _build_route_messages(
+        text: str,
+        history: list[
+            dict[str, str]
+        ] | None = None,
+    ) -> list[dict]:
+        previous_user = ""
+
+        # Routing may use the immediately
+        # preceding USER utterance only.
+        #
+        # Never expose previous assistant
+        # answers to the routing model:
+        # they can act as demonstrations of
+        # direct answering and cause some
+        # GLM responses to ignore even a
+        # specifically forced route_turn call.
+        for item in reversed(
+            history
+            or []
+        ):
+            role = str(
+                item.get(
+                    "role",
+                    "",
+                )
+            )
+
+            content = str(
+                item.get(
+                    "content",
+                    "",
+                )
+            ).strip()
+
+            if (
+                role == "user"
+                and content
+            ):
+                previous_user = content
+                break
+
+        route_input_parts = []
+
+        if previous_user:
+            route_input_parts.extend(
+                [
+                    (
+                        "PREVIOUS_USER_UTTERANCE="
+                        + previous_user
+                    ),
+                    (
+                        "The previous utterance is "
+                        "context for resolving "
+                        "references only. Do not "
+                        "answer it."
+                    ),
+                ]
+            )
+
+        route_input_parts.extend(
+            [
+                (
+                    "CURRENT_USER_UTTERANCE="
+                    + text
+                ),
+                (
+                    "Route the CURRENT utterance "
+                    "by calling route_turn."
+                ),
+            ]
+        )
+
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "你是 LuckRobot 的内部语义路由器。"
+                    "你不负责生成最终聊天回答，"
+                    "只负责调用 route_turn 选择 action。"
+                    "普通聊天、稳定知识或身份问题"
+                    "选择 respond_text。"
+                    "必须观察摄像头当前画面才能回答时"
+                    "选择 request_vision；"
+                    "当前画面使用 latest，"
+                    "刚才动作或最近变化使用 recent。"
+                    "需要最新或实时互联网信息"
+                    "选择 web_search。"
+                    "用户明确要求机器人前往某地点"
+                    "选择 navigate_to。"
+                    "上一条用户话语只能帮助消解"
+                    "当前话语中的指代。"
+                    "历史视觉描述绝不能代替"
+                    "当前回合的新视觉证据。"
+                    "不要直接回答用户，"
+                    "必须调用 route_turn。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "\n".join(
+                    route_input_parts
+                ),
+            },
+        ]
+
+    @staticmethod
     def _build_user_content(
         text: str,
         image_data_urls: list[str] | None = None,
@@ -579,7 +855,18 @@ class GLMAgent:
             {
                 "role": "system",
                 "content": self.system_prompt,
-            }
+            },
+            {
+                "role": "system",
+                "content": (
+                    self
+                    ._current_turn_visual_state_prompt(
+                        bool(
+                            image_data_urls
+                        )
+                    )
+                ),
+            },
         ]
 
         memory_summary = (
@@ -628,6 +915,10 @@ class GLMAgent:
         # Only user/assistant text is accepted;
         # tool/system roles cannot be injected
         # through history.
+        #
+        # This is the FULL conversation context
+        # used by the real answering stage.
+        # route_turn uses its own small context.
         for item in history or []:
             role = str(
                 item.get(
@@ -678,9 +969,18 @@ class GLMAgent:
             .completions
             .create(
                 model=self.model,
-                messages=messages,
+                messages=(
+                    self._build_route_messages(
+                        text,
+                        history,
+                    )
+                    if not image_data_urls
+                    else messages
+                ),
                 tools=(
-                    TOOL_SCHEMAS
+                    [
+                        TURN_ROUTE_SCHEMA
+                    ]
                     if not image_data_urls
                     else [
                         schema
@@ -696,7 +996,16 @@ class GLMAgent:
                         )
                     ]
                 ),
-                tool_choice="auto",
+                tool_choice=(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "route_turn"
+                        },
+                    }
+                    if not image_data_urls
+                    else "auto"
+                ),
                 temperature=(
                     self.temperature
                 ),
@@ -712,35 +1021,242 @@ class GLMAgent:
         choice = response.choices[0]
         message = choice.message
 
-        if (
-            message.tool_calls
-            and
-            not image_data_urls
-        ):
-            for tool_call in (
-                message.tool_calls
+        if not image_data_urls:
+            if (
+                not message.tool_calls
+                or
+                len(message.tool_calls) != 1
+                or
+                message.tool_calls[0]
+                .function
+                .name
+                != "route_turn"
             ):
-                if (
-                    tool_call
+                tool_names = [
+                    call.function.name
+                    for call
+                    in (
+                        message.tool_calls
+                        or []
+                    )
+                ]
+
+                content = (
+                    message.content
+                    or ""
+                )
+
+                raise RuntimeError(
+                    "Agent violated route_turn "
+                    "protocol: "
+                    f"finish_reason="
+                    f"{choice.finish_reason}, "
+                    f"tool_count="
+                    f"{len(message.tool_calls or [])}, "
+                    f"tool_names="
+                    f"{tool_names}, "
+                    f"content_length="
+                    f"{len(content)}"
+                )
+
+            route_call = (
+                message.tool_calls[0]
+            )
+
+            route = (
+                self
+                ._parse_turn_route_arguments(
+                    route_call
                     .function
-                    .name
-                    == "request_vision"
-                ):
-                    request = (
-                        self
-                        ._parse_vision_request_arguments(
-                            tool_call
-                            .function
-                            .arguments
-                            or "{}"
-                        )
+                    .arguments
+                    or "{}"
+                )
+            )
+
+            action = route[
+                "action"
+            ]
+
+            print(
+                "[ROUTE] "
+                f"action={action}",
+                flush=True,
+            )
+
+            if action == "request_vision":
+                raise (
+                    VisionRequestRequired(
+                        route[
+                            "vision_request"
+                        ]
+                    )
+                )
+
+            if action == "respond_text":
+                answer_messages = list(
+                    messages[:-1]
+                )
+
+                answer_messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "ROUTE_DECISION="
+                            "respond_text\n"
+                            "独立语义路由器已经确认："
+                            "当前用户回合不需要新的"
+                            "摄像头证据、联网搜索或导航。"
+                            "现在请依据完整对话历史"
+                            "直接回答当前用户。"
+                            "历史视觉描述只能作为过去事实，"
+                            "不要声称本回合重新看到了画面。"
+                        ),
+                    }
+                )
+
+                answer_messages.append(
+                    messages[-1]
+                )
+
+                final_response = (
+                    await self.client
+                    .chat
+                    .completions
+                    .create(
+                        model=self.model,
+                        messages=answer_messages,
+                        temperature=(
+                            self.temperature
+                        ),
+                        max_tokens=(
+                            self.max_tokens
+                        ),
+                        extra_body=(
+                            self._extra_body()
+                        ),
+                    )
+                )
+
+                content = (
+                    final_response
+                    .choices[0]
+                    .message
+                    .content
+                    or ""
+                ).strip()
+
+                if not content:
+                    raise RuntimeError(
+                        "Full-history Agent "
+                        "returned empty content"
                     )
 
-                    raise (
-                        VisionRequestRequired(
-                            request
-                        )
+                return (
+                    self
+                    ._normalize_reply_text(
+                        content
                     )
+                )
+
+            tool_budget = (
+                ToolCallBudget(
+                    web_search_remaining=1
+                )
+            )
+
+            tool_result = (
+                await self.tool_router.execute(
+                    str(
+                        route[
+                            "tool_name"
+                        ]
+                    ),
+                    dict(
+                        route[
+                            "tool_arguments"
+                        ]
+                    ),
+                    budget=tool_budget,
+                )
+            )
+
+            answer_messages = list(
+                messages[:-1]
+            )
+
+            answer_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "ROUTE_DECISION="
+                        f"{action}\n"
+                        "当前用户回合已经由"
+                        "独立语义路由器选择并执行工具。"
+                        "下面是真实工具结果。"
+                        "请基于结果和完整对话历史"
+                        "回答当前用户，不要假装再次执行工具。\n"
+                        "TOOL_RESULT="
+                        + json.dumps(
+                            tool_result,
+                            ensure_ascii=False,
+                        )
+                    ),
+                }
+            )
+
+            answer_messages.append(
+                messages[-1]
+            )
+
+            routed_final = (
+                await self.client
+                .chat
+                .completions
+                .create(
+                    model=self.model,
+                    messages=answer_messages,
+                    temperature=(
+                        self.temperature
+                    ),
+                    max_tokens=(
+                        self.max_tokens
+                    ),
+                    extra_body=(
+                        self._extra_body()
+                    ),
+                )
+            )
+
+            routed_content = (
+                routed_final
+                .choices[0]
+                .message
+                .content
+                or ""
+            ).strip()
+
+            if routed_content:
+                return (
+                    self
+                    ._normalize_reply_text(
+                        routed_content
+                    )
+                )
+
+            fallback = str(
+                tool_result.get(
+                    "message",
+                    "",
+                )
+            ).strip()
+
+            if fallback:
+                return fallback
+
+            raise RuntimeError(
+                "Routed tool completed "
+                "without final response"
+            )
 
         if not message.tool_calls:
             content = (
