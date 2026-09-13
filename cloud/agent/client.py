@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+
+from cloud.agent.tool_router import (
+    TOOL_SCHEMAS,
+    ToolRouter,
+)
 
 
 class GLMAgent:
@@ -85,10 +91,13 @@ class GLMAgent:
             "下面的角色配置是你的正式产品设定，"
             "必须严格遵守。\n\n"
             f"{profile_text}\n"
-            "普通对话自然回答即可。"
-            "任何现实世界动作都必须等待"
-            "对应工具的实际执行结果，"
-            "不能仅通过语言假装已经执行。"
+            "系统会通过 tools 字段向你提供"
+            "当前真正可调用的工具。"
+            "当用户请求与某个可用工具匹配时，"
+            "必须优先调用工具，"
+            "不能只用文字假装执行。"
+            "必须根据工具返回的真实结果"
+            "向用户说明执行状态。"
         )
 
         self.client = AsyncOpenAI(
@@ -108,64 +117,189 @@ class GLMAgent:
             ),
         )
 
+        self.tool_router = ToolRouter()
+
+    def _extra_body(self) -> dict:
+        return {
+            "thinking": {
+                "type": self.thinking,
+            },
+            "reasoning_effort": (
+                self.reasoning_effort
+            ),
+        }
+
     async def chat(
         self,
         text: str,
     ) -> str:
+        messages: list[dict] = [
+            {
+                "role": "system",
+                "content": self.system_prompt,
+            },
+            {
+                "role": "user",
+                "content": text,
+            },
+        ]
+
         response = (
             await self.client
             .chat
             .completions
             .create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            self.system_prompt
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": text,
-                    },
-                ],
+                messages=messages,
+                tools=TOOL_SCHEMAS,
+                tool_choice="auto",
                 temperature=(
                     self.temperature
                 ),
                 max_tokens=(
                     self.max_tokens
                 ),
-                extra_body={
-                    "thinking": {
-                        "type": self.thinking,
-                    },
-                    "reasoning_effort": (
-                        self.reasoning_effort
-                    ),
-                },
+                extra_body=(
+                    self._extra_body()
+                ),
             )
         )
 
         choice = response.choices[0]
+        message = choice.message
+
+        if not message.tool_calls:
+            content = (
+                message.content
+                or ""
+            ).strip()
+
+            if not content:
+                reasoning = getattr(
+                    message,
+                    "reasoning_content",
+                    "",
+                )
+
+                raise RuntimeError(
+                    "GLM returned empty content: "
+                    f"finish_reason="
+                    f"{choice.finish_reason}, "
+                    f"reasoning_length="
+                    f"{len(reasoning or '')}"
+                )
+
+            return content
+
+        assistant_tool_calls = []
+
+        for tool_call in message.tool_calls:
+            assistant_tool_calls.append(
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": (
+                            tool_call
+                            .function
+                            .name
+                        ),
+                        "arguments": (
+                            tool_call
+                            .function
+                            .arguments
+                        ),
+                    },
+                }
+            )
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": (
+                    message.content
+                    or ""
+                ),
+                "tool_calls": (
+                    assistant_tool_calls
+                ),
+            }
+        )
+
+        tool_results = []
+
+        for tool_call in message.tool_calls:
+            try:
+                arguments = json.loads(
+                    tool_call
+                    .function
+                    .arguments
+                    or "{}"
+                )
+            except json.JSONDecodeError:
+                arguments = {}
+
+            result = (
+                await self.tool_router.execute(
+                    tool_call.function.name,
+                    arguments,
+                )
+            )
+
+            tool_results.append(result)
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": (
+                        tool_call.id
+                    ),
+                    "content": json.dumps(
+                        result,
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+
+        final_response = (
+            await self.client
+            .chat
+            .completions
+            .create(
+                model=self.model,
+                messages=messages,
+                temperature=(
+                    self.temperature
+                ),
+                max_tokens=(
+                    self.max_tokens
+                ),
+                extra_body=(
+                    self._extra_body()
+                ),
+            )
+        )
+
+        final_choice = (
+            final_response.choices[0]
+        )
+
         content = (
-            choice.message.content
+            final_choice
+            .message
+            .content
             or ""
         ).strip()
 
-        if not content:
-            reasoning = getattr(
-                choice.message,
-                "reasoning_content",
-                "",
-            )
+        if content:
+            return content
 
-            raise RuntimeError(
-                "GLM returned empty content: "
-                f"finish_reason="
-                f"{choice.finish_reason}, "
-                f"reasoning_length="
-                f"{len(reasoning or '')}"
-            )
+        if tool_results:
+            return tool_results[-1][
+                "message"
+            ]
 
-        return content
+        raise RuntimeError(
+            "Tool call completed but "
+            "no final response was produced"
+        )

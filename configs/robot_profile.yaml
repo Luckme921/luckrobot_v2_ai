@@ -86,7 +86,7 @@ capabilities:
   navigation:
     state: "tool_required"
     description: "前往机器人地图中的已知地点"
-    current_status: "等待导航 Tool Router 与 ROS2 Nav Gateway 接入"
+    current_status: "Tool Router MOCK 已接入；ROS2 Nav Gateway 尚未接入"
 
   stop_navigation:
     state: "tool_required"

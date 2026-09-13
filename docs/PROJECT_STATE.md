@@ -139,10 +139,11 @@ Local TTS fallback later.
 
 ## Current task
 
-Phase 3.2:
-- finish MOCK Tool Router validation
-- first semantic tool: navigate_to(location)
-- connect validated local voice COMMAND output to Cloud Agent later
+Phase 3.3:
+- connect validated local voice COMMAND output to Cloud Agent
+- preserve Lucky/session state locally
+- keep navigation backend MOCK only
+- add local always-on emergency stop before any real robot motion
 - ROS2 Nav Gateway remains not connected
 - AI Jetson must never publish raw /cmd_vel
 
@@ -354,3 +355,34 @@ Next:
 - tool execution will initially use MOCK backend
 - later connect Tool Router to ROS2 AI Gateway
 - AI Agent must never publish raw /cmd_vel
+
+## Phase 3.2 - MOCK Tool Router COMPLETE
+
+Status: COMPLETE on 2026-09-13.
+
+Implemented:
+- OpenAI-compatible tool calling in GLM Agent
+- semantic tool allowlist
+- first tool: navigate_to(location)
+- Tool Router MOCK navigation backend
+- tool result explicitly reports:
+  - backend: mock
+  - executed: false
+  - status: mock_accepted
+- robot profile reports that Tool Router MOCK is connected
+- ROS2 Nav Gateway remains not connected
+
+Validated through real FastAPI /chat requests:
+- normal identity conversation does not invoke navigation tool
+- navigation request "请带我去实验室。" invokes:
+  navigate_to(location="实验室")
+- runtime log confirmed:
+  [TOOL] navigate_to location='实验室' backend=mock executed=false
+- final Agent response correctly states that actual movement has not been executed
+- Agent does not falsely claim physical navigation
+
+Safety:
+- Tool Router does not publish raw /cmd_vel
+- AI Jetson must never publish raw /cmd_vel
+- real ROS2 motion remains disabled
+- sleeping-state local emergency stop must be implemented before real navigation execution
