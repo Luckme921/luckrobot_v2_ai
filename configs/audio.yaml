@@ -95,3 +95,15 @@ agent_bridge:
   memory_db_path: private/memory/conversation.sqlite3
   compact_batch_turns: 100
   archive_retrieval_limit: 6
+
+tts:
+  enabled: true
+  provider: kokoro
+  model_dir: ~/luckrobot_ai/models/tts/kokoro-multi-lang-v1_0
+  speaker_id: 50
+  num_threads: 6
+  speed: 1.0
+  silence_scale: 0.2
+  volume_percent: 80
+  max_chunk_chars: 24
+  post_playback_guard_seconds: 0.6

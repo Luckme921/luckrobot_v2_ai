@@ -122,8 +122,18 @@ Do not use monocular VLM output as metric map coordinates.
 
 ## TTS
 
-Cloud TTS primary initially.
-Local TTS fallback later.
+Current local TTS baseline:
+- sherpa-onnx Kokoro multi-lang v1.0
+- speaker ID: 50
+- CPU threads: 6
+- output: 24 kHz mono PCM
+- USB speaker volume baseline: 80%
+- sentence/chunk pipeline playback
+- post-playback microphone guard: 0.6 s
+- V1 remains half duplex
+- normal ASR is not active while the robot is speaking
+
+Cloud TTS is not required for the current baseline.
 
 ## System modifications made
 
@@ -139,12 +149,18 @@ Local TTS fallback later.
 
 ## Current task
 
-Phase 3.5:
-- implement an always-on local emergency-stop safety path
-- emergency stop must bypass Cloud Agent and normal dialogue session state
-- make stop detection work while interaction state is SLEEPING and ACTIVE
-- keep navigation backend MOCK while validating the safety path
-- do not connect real ROS2 motion until local stop handling is independent of cloud/session state
+Phase 4.2:
+- add controlled real-time Internet/web-search capability
+- keep web search separate from music-service integration
+- enforce a strict per-turn search-call budget
+- use search only when current/external information is actually required
+- continue to keep navigation-related development deferred
+
+Navigation / Phase 3.5 status:
+- DEFERRED by user on 2026-09-13 while the Navigation Jetson is being optimized
+- navigation Tool Router remains MOCK only
+- ROS2 real-motion integration remains disconnected
+- always-on local emergency-stop work remains required before real motion
 - AI Jetson must never publish raw /cmd_vel
 
 ## Phase 1 - Local ASR validation COMPLETE
@@ -424,11 +440,10 @@ Validated end-to-end:
 - Cloud log confirmed:
   [TOOL] navigate_to location='实验室' backend=mock executed=false
 
-Known limitation:
-- Cloud Agent is currently stateless between /chat requests.
-- Multi-turn linguistic context is not preserved yet.
-- This can cause repeated introductions or loss of conversational references.
-- Phase 3.4 will add session-scoped conversation history.
+Known limitation at the end of Phase 3.3:
+- Cloud Agent API itself was stateless between /chat requests.
+- Multi-turn linguistic context had not yet been preserved.
+- Phase 3.4 subsequently superseded this limitation with persistent Edge-owned conversation memory.
 
 Safety:
 - navigation remains MOCK only
@@ -508,10 +523,99 @@ Known limitations:
 - Archive Retrieval currently uses lightweight local lexical/substring matching
 - semantic embedding retrieval is a future optional upgrade
 - structured personal/profile memory remains a separate future layer
-- TTS remains pending
+- TTS was still pending at the end of Phase 3.4; Phase 4.1 subsequently added local TTS
 
 Safety:
 - navigation backend remains MOCK only
 - ROS2 Nav Gateway remains disconnected
 - AI Jetson must never publish raw /cmd_vel
 - always-on local emergency stop is the next prerequisite before real motion
+
+## Phase 4.1 - Local TTS voice output COMPLETE
+
+Status: COMPLETE baseline on 2026-09-13.
+
+Architecture:
+- local/offline TTS on the Interaction / AI Jetson
+- sherpa-onnx Python runtime
+- Kokoro multi-lang v1.0
+- selected voice:
+  speaker ID 50
+- provider:
+  CPU
+- threads:
+  6
+- output:
+  24000 Hz mono PCM
+- playback:
+  PulseAudio / paplay
+- speaker is dynamically resolved through the existing PulseAudio USB device resolver
+- no ALSA card number is hardcoded
+- speaker volume baseline:
+  80%
+
+V1 dialogue state:
+- LISTENING -> THINKING -> SPEAKING -> LISTENING
+- microphone capture remains stopped while Cloud Agent processing and TTS playback are active
+- true full-duplex barge-in / AEC remains a future V2 task
+
+TTS text handling:
+- removes unsuitable Markdown decoration
+- replaces URLs with a spoken placeholder
+- removes wave-dash endings that caused unnatural intonation
+- splits long replies into smaller spoken chunks
+- long comma-separated replies are split at natural punctuation when possible
+- Agent system prompt now asks for shorter, more natural spoken Chinese replies
+
+Latency optimization:
+- initial whole-response synthesis caused roughly 10 s of additional delay before speech
+- TTS was changed to chunked pipeline generation/playback
+- while one generated chunk is playing, the next chunk is synthesized
+- standalone validation:
+  first audio latency about 2.15 s
+- full runtime validation:
+  first TTS audio latency observed about 1.37-2.18 s
+- Cloud Agent latency observed about 6.18-7.61 s
+- therefore Cloud Agent response time is currently the main contributor to total user-to-first-speech latency
+- further Cloud streaming/model-routing optimization is deferred to a later performance phase
+
+Playback feedback protection:
+- post-playback microphone guard:
+  0.6 s
+- purpose:
+  reduce the chance that speaker tail/reverberation is recognized as a new user utterance after playback
+- full AEC is not implemented yet
+
+Validated end-to-end:
+- Lucky wake
+- local SenseVoice ASR
+- persistent Cloud Agent conversation
+- local Kokoro speech synthesis
+- Jieli USB speaker playback
+- follow-up conversation without repeating Lucky
+- state returns to LISTENING after speech
+- selected voice successfully pronounces mixed Chinese and LuckRobot text
+
+Tests:
+- 18 unit tests passing
+- TTS text normalization tests added
+- TTS chunk-splitting tests added
+- py_compile passed
+- git diff --check passed
+
+Voice/product wording:
+- robot profile now uses "哔哩哔哩 UP主 luckme" instead of the English spelling "Bilibili" so local Chinese TTS reads the identity naturally
+
+Known limitations:
+- total response latency remains longer than desired because Cloud Agent currently takes roughly 6-8 s in observed tests
+- Kokoro CPU generation is around real time
+- V1 is half duplex
+- no true acoustic echo cancellation
+- Internet/web search is not connected yet
+- music service is not connected yet
+
+Next:
+- Phase 4.2 controlled Internet/web search
+- enforce a strict search-call budget per user turn
+- keep music search/playback as a separate future tool
+- keep navigation-related work deferred until explicitly resumed

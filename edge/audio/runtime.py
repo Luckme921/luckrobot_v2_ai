@@ -24,6 +24,10 @@ from edge.audio.device_resolver.pulse import (
     resolve_microphone,
     resolve_speaker,
 )
+from edge.audio.tts.kokoro import (
+    KokoroTts,
+    TtsError,
+)
 from edge.audio.vad.silero import (
     SileroVad,
 )
@@ -171,6 +175,77 @@ def main() -> None:
                 )
             ),
         )
+
+    tts_cfg = config.get(
+        "tts",
+        {},
+    )
+
+    tts_enabled = bool(
+        tts_cfg.get(
+            "enabled",
+            False,
+        )
+    )
+
+    post_playback_guard_seconds = float(
+        tts_cfg.get(
+            "post_playback_guard_seconds",
+            0.6,
+        )
+    )
+
+    tts = None
+
+    if tts_enabled:
+        provider = str(
+            tts_cfg.get(
+                "provider",
+                "kokoro",
+            )
+        ).strip().lower()
+
+        if provider != "kokoro":
+            print(
+                "[TTS] ERROR "
+                f"unsupported provider="
+                f"{provider}",
+                flush=True,
+            )
+        else:
+            print(
+                "[INIT] Loading "
+                "Kokoro TTS...",
+                flush=True,
+            )
+
+            t0 = time.monotonic()
+
+            try:
+                tts = KokoroTts(
+                    tts_cfg
+                )
+
+                print(
+                    "[INIT] Kokoro TTS "
+                    "ready "
+                    f"speaker_id="
+                    f"{tts.speaker_id} "
+                    f"threads="
+                    f"{tts.num_threads} "
+                    f"load="
+                    f"{time.monotonic() - t0:.3f}s",
+                    flush=True,
+                )
+
+            except TtsError as exc:
+                print(
+                    "[TTS] INIT_ERROR "
+                    f"{exc}",
+                    flush=True,
+                )
+
+                tts = None
 
     sample_rate = int(
         audio_cfg["sample_rate"]
@@ -730,12 +805,26 @@ def main() -> None:
                                     capture.stop()
 
                                     try:
+                                        agent_t0 = time.monotonic()
+
                                         agent_reply = (
                                             agent_client
                                             .chat(
                                                 decision.command
                                                 or ""
                                             )
+                                        )
+
+                                        agent_seconds = (
+                                            time.monotonic()
+                                            - agent_t0
+                                        )
+
+                                        print(
+                                            "[LATENCY] "
+                                            f"agent="
+                                            f"{agent_seconds:.3f}s",
+                                            flush=True,
                                         )
 
                                         print(
@@ -750,6 +839,74 @@ def main() -> None:
                                             f"{agent_reply.model}",
                                             flush=True,
                                         )
+
+                                        if (
+                                            tts is not None
+                                            and speaker
+                                            != "<unavailable>"
+                                        ):
+                                            print(
+                                                "[STATE] SPEAKING",
+                                                flush=True,
+                                            )
+
+                                            try:
+                                                tts_result = (
+                                                    tts.speak(
+                                                        agent_reply.text,
+                                                        speaker,
+                                                    )
+                                                )
+
+                                                rtf = (
+                                                    tts_result
+                                                    .generation_seconds
+                                                    / tts_result
+                                                    .audio_seconds
+                                                )
+
+                                                print(
+                                                    "[TTS] OK "
+                                                    f"speaker_id="
+                                                    f"{tts.speaker_id} "
+                                                    f"generation="
+                                                    f"{tts_result.generation_seconds:.3f}s "
+                                                    f"audio="
+                                                    f"{tts_result.audio_seconds:.3f}s "
+                                                    f"rtf={rtf:.3f} "
+                                                    f"sample_rate="
+                                                    f"{tts_result.sample_rate}",
+                                                    flush=True,
+                                                )
+
+                                                print(
+                                                    "[LATENCY] "
+                                                    f"tts_first_audio="
+                                                    f"{tts_result.first_audio_latency_seconds:.3f}s "
+                                                    f"tts_wall="
+                                                    f"{tts_result.wall_seconds:.3f}s "
+                                                    f"chunks="
+                                                    f"{tts_result.chunks} "
+                                                    f"agent_to_voice="
+                                                    f"{agent_seconds + tts_result.first_audio_latency_seconds:.3f}s",
+                                                    flush=True,
+                                                )
+
+                                            except TtsError as exc:
+                                                print(
+                                                    "[TTS] ERROR "
+                                                    f"{exc}",
+                                                    flush=True,
+                                                )
+
+                                        elif (
+                                            tts is not None
+                                        ):
+                                            print(
+                                                "[TTS] ERROR "
+                                                "speaker unavailable",
+                                                flush=True,
+                                            )
 
                                     except CloudAgentError as exc:
                                         print(
@@ -776,6 +933,23 @@ def main() -> None:
                                                 time.monotonic()
                                             )
                                         )
+
+                                        if (
+                                            tts is not None
+                                            and
+                                            post_playback_guard_seconds
+                                            > 0
+                                        ):
+                                            print(
+                                                "[AUDIO] "
+                                                "POST_TTS_GUARD "
+                                                f"{post_playback_guard_seconds:.2f}s",
+                                                flush=True,
+                                            )
+
+                                            time.sleep(
+                                                post_playback_guard_seconds
+                                            )
 
                                         print(
                                             "[STATE] LISTENING",
