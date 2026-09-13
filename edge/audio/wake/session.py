@@ -413,14 +413,39 @@ class InteractionGate:
             )
 
         if self.state == self.ACTIVE:
+            command = self._clean(
+                self._strip_wake_echo(
+                    text
+                )
+            )
+
+            # It is common to say the wake word
+            # again during an active conversation.
+            # Treat a wake-only utterance as noise
+            # instead of sending it to the Agent.
+            if not command:
+                self.deadline = (
+                    now
+                    + self._active_timeout()
+                )
+
+                return GateDecision(
+                    action="awake",
+                    command=None,
+                    wake_detected=False,
+                    state=self.state,
+                    mode=self.mode,
+                    reason="active_wake_echo_only",
+                )
+
             self._activate(
-                text,
+                command,
                 now,
             )
 
             return GateDecision(
                 action="command",
-                command=text,
+                command=command,
                 wake_detected=False,
                 state=self.state,
                 mode=self.mode,

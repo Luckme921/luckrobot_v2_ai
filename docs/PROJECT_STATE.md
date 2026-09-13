@@ -149,11 +149,12 @@ Cloud TTS is not required for the current baseline.
 
 ## Current task
 
-Phase 4.2:
-- add controlled real-time Internet/web-search capability
-- keep web search separate from music-service integration
-- enforce a strict per-turn search-call budget
-- use search only when current/external information is actually required
+Phase 4.2 real-time Web Search: COMPLETE.
+
+Current focus:
+- improve Lucky wake reliability and voice-session robustness
+- reduce wake-word ASR residue reaching the Cloud Agent
+- keep response UX natural without fixed "thinking" filler phrases
 - continue to keep navigation-related development deferred
 
 Navigation / Phase 3.5 status:
@@ -283,11 +284,17 @@ Status: COMPLETE on 2026-09-13.
 
 Wake word:
 - dedicated sherpa-onnx KeywordSpotter
-- keyword: Lucky
 - zh-en 3M Zipformer KWS model
 - CPU / 1 thread
-- keywords_threshold: 0.25
+- keywords_threshold: 0.20
 - keywords_score: 1.0
+- tracked keyword file: configs/keywords_lucky.txt
+- active acoustic keyword variants:
+  - Lucky
+  - 拉克
+  - 那可
+  - 那可以
+  - 拉可
 - wake detection no longer depends on SenseVoice transcription
 
 Interaction session:
@@ -298,6 +305,9 @@ Interaction session:
 - explicit sleep phrases return to SLEEPING
 - follow-up conversation does not require repeating Lucky
 - transcript wake aliases are cleanup only and never trigger wake
+- observed wake-word ASR residue is removed before Cloud Agent dispatch
+- repeated Lucky/wake aliases are also stripped during an ACTIVE session
+- wake-only utterances are ignored instead of being sent to the Agent
 
 ASR robustness:
 - VAD threshold remains frozen at 0.5
@@ -345,7 +355,7 @@ Cloud Agent:
 
 LuckRobot identity:
 - name: LuckRobot
-- developer: Bilibili UP主 luckme
+- developer: 哔哩哔哩 UP主 luckme
 - product type: 家用移动服务机器人
 - not a Bilibili official product
 - supports natural conversation and emotional companionship
@@ -421,7 +431,7 @@ V1 half-duplex behavior:
 - microphone capture restarts after Agent response
 - VAD is recreated after cloud processing to discard stale audio
 - follow-up timeout restarts after robot response finishes
-- TTS is not connected yet
+- TTS was not connected at the end of Phase 3.3; Phase 4.1 subsequently added local Kokoro TTS
 
 Validated end-to-end:
 - "Lucky，你是谁"
@@ -619,3 +629,66 @@ Next:
 - enforce a strict search-call budget per user turn
 - keep music search/playback as a separate future tool
 - keep navigation-related work deferred until explicitly resumed
+
+## Phase 4.2 - Controlled real-time Web Search COMPLETE
+
+Status: COMPLETE on 2026-09-13.
+
+Implemented:
+- Zhipu Web Search integration
+- endpoint:
+  https://open.bigmodel.cn/api/paas/v4/web_search
+- engine: search_std
+- result count: 5
+- search timeout: 15 s
+- compact result content before returning to the Agent
+- web search remains separate from future music-service integration
+
+Cost / call control:
+- hard per-user-turn Web Search budget
+- maximum one real Web Search request per user turn
+- budget is consumed before the external request is sent
+- malformed or rejected tool calls do not consume a paid request
+- ordinary static conversation does not invoke Web Search
+- unit tests use FakeWebSearch and do not consume real search resources
+
+Agent behavior:
+- current/recent information may use web_search
+- static/general knowledge should answer without searching
+- links and media are optional and must never be invented
+- current system/profile/tool capability state takes precedence over
+  stale historical conversation statements
+- old conversation claims such as "联网未接入" are treated as past state
+- developer identity is normalized to:
+  哔哩哔哩 UP主 luckme
+
+Validated:
+- direct Web Search API smoke test returned fresh results
+- direct Agent query for current technology news invoked web_search
+- Cloud log confirmed:
+  [TOOL] web_search ... paid_requests=1
+- static identity request did not invoke web_search
+- voice end-to-end current-news response worked after stale-capability
+  precedence was added
+- full local test suite passed with Web Search budget regression coverage
+
+Voice / wake robustness improvements completed during this phase:
+- KWS threshold adjusted from 0.25 to 0.20
+- multiple acoustic wake variants are tracked in configs/keywords_lucky.txt
+- successful real-device wake validation observed for:
+  - LUCKY
+  - LUCKY_LAKE
+  - LUCKY_NAKE
+  - LUCKY_NAKEYI
+- KWS keyword file can now be loaded from a tracked absolute / ~/ path
+- observed SenseVoice wake-word residue is filtered before Agent dispatch
+- repeated wake words during ACTIVE sessions are also stripped
+- wake-only utterances do not become Cloud commands
+- fixed "好的，我想一下" filler was evaluated and intentionally removed;
+  simple/complex keyword heuristics were rejected as too brittle
+
+Safety:
+- navigation remains deferred and MOCK only
+- Web Search cannot directly control robot motion
+- AI Jetson must never publish raw /cmd_vel
+

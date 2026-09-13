@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
+
+from cloud.agent.web_search import (
+    WebSearchError,
+    ZhipuWebSearch,
+)
 
 
 TOOL_SCHEMAS = [
@@ -30,19 +36,93 @@ TOOL_SCHEMAS = [
                 "additionalProperties": False,
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "搜索互联网中的最新或实时信息。"
+                "仅在问题需要今天、最近、最新、新闻、"
+                "热点或其他可能变化的外部信息时调用。"
+                "稳定的常识问题不要调用。"
+                "音乐播放不要使用此工具。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "maxLength": 70,
+                        "description": (
+                            "简洁的搜索关键词或问题，"
+                            "最多70个字符。"
+                        ),
+                    },
+                    "recency": {
+                        "type": "string",
+                        "enum": [
+                            "oneDay",
+                            "oneWeek",
+                            "oneMonth",
+                            "oneYear",
+                            "noLimit",
+                        ],
+                        "description": (
+                            "搜索时间范围。"
+                            "今天用oneDay，"
+                            "最近一周用oneWeek，"
+                            "一般信息用noLimit。"
+                        ),
+                    },
+                },
+                "required": [
+                    "query"
+                ],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 
+@dataclass
+class ToolCallBudget:
+    # Paid search requests allowed
+    # during ONE user turn.
+    web_search_remaining: int = 1
+
+
 class ToolRouter:
+    def __init__(
+        self,
+        *,
+        web_search: (
+            ZhipuWebSearch | None
+        ) = None,
+    ) -> None:
+        self.web_search = (
+            web_search
+        )
+
     async def execute(
         self,
         name: str,
         arguments: dict[str, Any],
+        *,
+        budget: (
+            ToolCallBudget | None
+        ) = None,
     ) -> dict[str, Any]:
         if name == "navigate_to":
             return self._navigate_to(
                 arguments
+            )
+
+        if name == "web_search":
+            return await self._web_search(
+                arguments,
+                budget=budget,
             )
 
         return {
@@ -51,6 +131,161 @@ class ToolRouter:
             "status": "rejected",
             "executed": False,
             "reason": "unknown_tool",
+        }
+
+    async def _web_search(
+        self,
+        arguments: dict[str, Any],
+        *,
+        budget: (
+            ToolCallBudget | None
+        ),
+    ) -> dict[str, Any]:
+        query = str(
+            arguments.get(
+                "query",
+                "",
+            )
+        ).strip()
+
+        recency = str(
+            arguments.get(
+                "recency",
+                "noLimit",
+            )
+        ).strip()
+
+        if not query:
+            return {
+                "ok": False,
+                "tool": "web_search",
+                "status": "rejected",
+                "executed": False,
+                "paid_requests": 0,
+                "reason": "missing_query",
+            }
+
+        if len(query) > 70:
+            return {
+                "ok": False,
+                "tool": "web_search",
+                "status": "rejected",
+                "executed": False,
+                "paid_requests": 0,
+                "reason": (
+                    "query_too_long"
+                ),
+            }
+
+        if (
+            recency
+            not in
+            ZhipuWebSearch.RECENCY_VALUES
+        ):
+            return {
+                "ok": False,
+                "tool": "web_search",
+                "status": "rejected",
+                "executed": False,
+                "paid_requests": 0,
+                "reason": (
+                    "invalid_recency"
+                ),
+            }
+
+        if self.web_search is None:
+            return {
+                "ok": False,
+                "tool": "web_search",
+                "status": "unavailable",
+                "executed": False,
+                "paid_requests": 0,
+                "reason": (
+                    "web_search_not_configured"
+                ),
+            }
+
+        if (
+            budget is not None
+            and
+            budget.web_search_remaining
+            <= 0
+        ):
+            print(
+                "[TOOL] web_search "
+                "rejected "
+                "reason=per_turn_budget_exceeded",
+                flush=True,
+            )
+
+            return {
+                "ok": False,
+                "tool": "web_search",
+                "status": "rejected",
+                "executed": False,
+                "paid_requests": 0,
+                "reason": (
+                    "per_turn_budget_exceeded"
+                ),
+            }
+
+        # Consume the budget immediately
+        # before the paid network request.
+        if budget is not None:
+            budget.web_search_remaining -= 1
+
+        try:
+            search_result = (
+                await self.web_search.search(
+                    query,
+                    recency=recency,
+                )
+            )
+
+        except WebSearchError as exc:
+            print(
+                "[TOOL] web_search "
+                f"error={exc}",
+                flush=True,
+            )
+
+            return {
+                "ok": False,
+                "tool": "web_search",
+                "status": "error",
+                "executed": True,
+                "paid_requests": 1,
+                "query": query,
+                "reason": str(exc),
+            }
+
+        results = search_result[
+            "results"
+        ]
+
+        print(
+            "[TOOL] web_search "
+            f"query={query!r} "
+            f"recency={recency} "
+            f"results={len(results)} "
+            "paid_requests=1",
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "tool": "web_search",
+            "status": "success",
+            "executed": True,
+            "paid_requests": 1,
+            "query": query,
+            "recency": recency,
+            "request_id": (
+                search_result[
+                    "request_id"
+                ]
+            ),
+            "results": results,
         }
 
     @staticmethod
@@ -70,7 +305,9 @@ class ToolRouter:
                 "tool": "navigate_to",
                 "status": "rejected",
                 "executed": False,
-                "reason": "missing_location",
+                "reason": (
+                    "missing_location"
+                ),
             }
 
         result = {

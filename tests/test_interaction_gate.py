@@ -18,9 +18,26 @@ def create_gate() -> InteractionGate:
             "拉uckk",
             "阿k",
             "l克",
+            "那可",
+            "那可以",
+            "拉克",
+            "拉uck克",
+            "那uck克",
+            "老uck克",
+            "老克",
         ],
         transcript_exact_aliases=[
             "拉",
+            "拉克",
+            "那可",
+            "那可以",
+            "拉uck克",
+            "那uck克",
+            "拉ucky",
+            "老uck克",
+            "老克",
+            "拉客",
+            "那克",
         ],
         chat_mode_triggers=[
             "陪我聊",
@@ -294,6 +311,60 @@ class InteractionGateTest(
         self.assertEqual(
             result.command,
             "拉开窗帘",
+        )
+
+
+    def test_active_repeated_wake_prefix(self):
+        gate = create_gate()
+
+        gate.on_wake(
+            now=0.0,
+        )
+
+        gate.process(
+            "你是谁",
+            now=1.0,
+        )
+
+        result = gate.process(
+            "Lucky,你会什么？",
+            now=3.0,
+        )
+
+        self.assertEqual(
+            result.action,
+            "command",
+        )
+
+        self.assertEqual(
+            result.command,
+            "你会什么",
+        )
+
+    def test_active_wake_only_is_not_command(self):
+        gate = create_gate()
+
+        gate.on_wake(
+            now=0.0,
+        )
+
+        gate.process(
+            "你是谁",
+            now=1.0,
+        )
+
+        result = gate.process(
+            "Lucky。",
+            now=3.0,
+        )
+
+        self.assertEqual(
+            result.action,
+            "awake",
+        )
+
+        self.assertIsNone(
+            result.command
         )
 
 

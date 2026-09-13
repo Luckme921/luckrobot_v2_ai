@@ -43,13 +43,13 @@ interaction:
     encoder: encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx
     decoder: decoder-epoch-13-avg-2-chunk-16-left-64.onnx
     joiner: joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx
-    keywords_file: keywords_lucky.txt
+    keywords_file: ~/luckrobot_ai/configs/keywords_lucky.txt
     provider: cpu
     num_threads: 1
     feature_dim: 80
     max_active_paths: 4
     keywords_score: 1.0
-    keywords_threshold: 0.25
+    keywords_threshold: 0.2
     num_trailing_blanks: 1
     wake_command_timeout_seconds: 8.0
     transcript_aliases:
@@ -60,8 +60,25 @@ interaction:
     - 拉uckk
     - 阿k
     - l克
+    - 那可
+    - 那可以
+    - 拉克
+    - 拉uck克
+    - 那uck克
+    - 老uck克
+    - 老克
     transcript_exact_aliases:
     - 拉
+    - 拉克
+    - 那可
+    - 那可以
+    - 拉uck克
+    - 那uck克
+    - 拉ucky
+    - 老uck克
+    - 老克
+    - 拉客
+    - 那克
   followup:
     normal_timeout_seconds: 12.0
     chat_timeout_seconds: 20.0
@@ -95,7 +112,6 @@ agent_bridge:
   memory_db_path: private/memory/conversation.sqlite3
   compact_batch_turns: 100
   archive_retrieval_limit: 6
-
 tts:
   enabled: true
   provider: kokoro

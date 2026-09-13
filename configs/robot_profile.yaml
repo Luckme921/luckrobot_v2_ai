@@ -103,6 +103,11 @@ capabilities:
     description: "搜索和播放音乐"
     current_status: "等待音乐服务接入"
 
+  web_search:
+    state: "available"
+    description: "查询最新新闻、热点和其他需要实时互联网信息的内容"
+    current_status: "智谱 search_std 已接入；每个用户回合最多一次搜索请求"
+
   vision:
     state: "tool_required"
     description: "理解机器人交互相机当前看到的内容"

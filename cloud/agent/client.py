@@ -10,7 +10,11 @@ from openai import AsyncOpenAI
 
 from cloud.agent.tool_router import (
     TOOL_SCHEMAS,
+    ToolCallBudget,
     ToolRouter,
+)
+from cloud.agent.web_search import (
+    ZhipuWebSearch,
 )
 
 
@@ -49,6 +53,11 @@ class GLMAgent:
             profile = yaml.safe_load(f)
 
         agent_cfg = config["agent"]
+
+        web_search_cfg = config.get(
+            "web_search",
+            {},
+        )
 
         api_key = os.getenv(
             "ZAI_API_KEY"
@@ -118,7 +127,34 @@ class GLMAgent:
             "不要使用波浪号、颜文字、emoji 或 Markdown 装饰。"
             "避免一个句子里堆太多并列成分，"
             "也尽量减少不必要的中英文频繁切换。"
-            "必要的产品名、技术名和专有名词可以保留英文。"
+            "必要的产品名、技术名和专有名词可以保留英文。\n"
+            "当用户询问你是谁、谁开发了你、开发者是谁"
+            "或要求你做自我介绍时，"
+            "回答中必须完整保留“哔哩哔哩 UP主 luckme”"
+            "这一开发者身份，"
+            "不能省略“哔哩哔哩”，"
+            "不能只说“UP主 luckme”，"
+            "也不要改回英文 Bilibili。\n"
+            "当用户询问今天、最新、最近、实时新闻、热点"
+            "或其他会随时间变化的外部信息时，"
+            "可以调用 web_search。"
+            "稳定常识不要为了显得更新而搜索。"
+            "每个用户回合最多允许一次 web_search，"
+            "必须把一次搜索返回的多条结果充分利用。"
+            "不要为了播放音乐而调用 web_search，"
+            "音乐以后由独立的音乐工具处理。"
+            "搜索结果中的链接或媒体字段可能为空，"
+            "绝不能凭空编造来源网址。\n"
+            "机器人能力会随软件升级而变化。"
+            "当前 system prompt、角色配置和 tools 字段"
+            "代表机器人此刻真实能力，优先级高于历史对话。"
+            "如果旧对话、旧记忆或历史助手回复曾说"
+            "“没有联网搜索”“新闻功能尚未接入”"
+            "或其他与当前工具状态冲突的话，"
+            "这些都只是过去的历史状态，不能继续当作当前事实。"
+            "当前 web_search 已正式可用，"
+            "当用户请求最新新闻、热点或实时互联网信息时，"
+            "应该使用 web_search，而不是引用旧历史说无法联网。"
         )
 
         self.client = AsyncOpenAI(
@@ -138,7 +174,60 @@ class GLMAgent:
             ),
         )
 
-        self.tool_router = ToolRouter()
+        web_search_client = None
+
+        if bool(
+            web_search_cfg.get(
+                "enabled",
+                False,
+            )
+        ):
+            web_search_client = (
+                ZhipuWebSearch(
+                    api_key=api_key,
+                    endpoint=str(
+                        web_search_cfg[
+                            "endpoint"
+                        ]
+                    ),
+                    engine=str(
+                        web_search_cfg.get(
+                            "engine",
+                            "search_std",
+                        )
+                    ),
+                    count=int(
+                        web_search_cfg.get(
+                            "count",
+                            5,
+                        )
+                    ),
+                    timeout_seconds=float(
+                        web_search_cfg.get(
+                            "timeout_seconds",
+                            15.0,
+                        )
+                    ),
+                    content_size=str(
+                        web_search_cfg.get(
+                            "content_size",
+                            "medium",
+                        )
+                    ),
+                    max_content_chars=int(
+                        web_search_cfg.get(
+                            "max_content_chars",
+                            700,
+                        )
+                    ),
+                )
+            )
+
+        self.tool_router = ToolRouter(
+            web_search=(
+                web_search_client
+            )
+        )
 
     def _extra_body(self) -> dict:
         return {
@@ -149,6 +238,27 @@ class GLMAgent:
                 self.reasoning_effort
             ),
         }
+
+    @staticmethod
+    def _normalize_reply_text(
+        text: str,
+    ) -> str:
+        # Product/creator wording must be
+        # deterministic for spoken output.
+        # Do not rely only on the LLM to keep
+        # the Chinese Bilibili brand spelling.
+        return (
+            text
+            .replace(
+                "Bilibili",
+                "哔哩哔哩",
+            )
+            .replace(
+                "bilibili",
+                "哔哩哔哩",
+            )
+            .strip()
+        )
 
     async def compact_memory(
         self,
@@ -442,7 +552,9 @@ class GLMAgent:
                     f"{len(reasoning or '')}"
                 )
 
-            return content
+            return self._normalize_reply_text(
+                content
+            )
 
         assistant_tool_calls = []
 
@@ -481,6 +593,14 @@ class GLMAgent:
 
         tool_results = []
 
+        # A fresh paid-tool budget is
+        # created for every user turn.
+        # This enforces at most ONE
+        # real Web Search API request.
+        tool_budget = ToolCallBudget(
+            web_search_remaining=1
+        )
+
         for tool_call in message.tool_calls:
             try:
                 arguments = json.loads(
@@ -496,6 +616,7 @@ class GLMAgent:
                 await self.tool_router.execute(
                     tool_call.function.name,
                     arguments,
+                    budget=tool_budget,
                 )
             )
 
@@ -545,7 +666,9 @@ class GLMAgent:
         ).strip()
 
         if content:
-            return content
+            return self._normalize_reply_text(
+                content
+            )
 
         if tool_results:
             return tool_results[-1][

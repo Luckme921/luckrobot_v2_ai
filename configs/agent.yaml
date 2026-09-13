@@ -8,3 +8,12 @@ agent:
   max_tokens: 2048
   thinking: "enabled"
   reasoning_effort: "low"
+
+web_search:
+  enabled: true
+  endpoint: "https://open.bigmodel.cn/api/paas/v4/web_search"
+  engine: "search_std"
+  count: 5
+  timeout_seconds: 15
+  content_size: "medium"
+  max_content_chars: 700

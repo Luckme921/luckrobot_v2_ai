@@ -30,10 +30,17 @@ class WakeKeywordSpotter:
         def model_file(
             key: str,
         ) -> Path:
-            path = (
-                model_dir
-                / str(config[key])
-            )
+            configured = Path(
+                str(config[key])
+            ).expanduser()
+
+            if configured.is_absolute():
+                path = configured
+            else:
+                path = (
+                    model_dir
+                    / configured
+                )
 
             if not path.is_file():
                 raise FileNotFoundError(
