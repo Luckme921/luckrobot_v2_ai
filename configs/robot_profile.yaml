@@ -110,8 +110,8 @@ capabilities:
 
   vision:
     state: "tool_required"
-    description: "理解机器人交互相机当前看到的内容"
-    current_status: "等待相机与视觉工具接入"
+    description: "理解机器人交互相机当前或最近几秒看到的内容"
+    current_status: "单目相机、本地5秒视觉缓存和多模态网关已接入；按需请求画面"
 
   robot_state:
     state: "tool_required"

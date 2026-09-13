@@ -149,13 +149,14 @@ Cloud TTS is not required for the current baseline.
 
 ## Current task
 
-Phase 4.4C1 multimodal vision gateway transport: COMPLETE.
+Phase 4.4C2-A model-driven visual acquisition routing: COMPLETE.
 
 Current focus:
-- connect the persistent camera ring buffer to the voice runtime
-- use model-driven visual acquisition instead of brittle keyword routing
-- choose current-frame versus recent multi-frame context on demand
+- connect model-driven visual acquisition to the live voice runtime
+- start and stop the persistent camera ring buffer with the interaction runtime
+- fulfill latest/recent vision requests from the local ring buffer
 - keep ordinary non-visual conversation image-free
+- preserve the V1 half-duplex audio state machine
 - continue response-latency optimization after the visual dialogue baseline
 - continue to keep navigation-related development deferred
 
@@ -957,4 +958,100 @@ Next:
   - several recent frames
 - ordinary non-visual conversation must remain image-free
 - real navigation remains deferred
+- AI Jetson must never publish raw /cmd_vel
+
+### Phase 4.4C2-A - Model-driven visual acquisition routing COMPLETE
+
+Status: COMPLETE baseline on 2026-09-13.
+
+Architecture:
+- visual intent is decided by the Cloud Agent through a structured tool request
+- no hard-coded phrase list is used to decide whether camera context is required
+- new semantic tool:
+  request_vision
+- supported acquisition modes:
+  - latest
+  - recent
+
+latest:
+- requests one current frame
+- intended for questions about:
+  - current objects
+  - people
+  - environment
+  - items currently being shown to the robot
+
+recent:
+- requests multiple frames from the recent local ring buffer
+- lookback is clamped to 1-5 seconds
+- frame count is clamped to 2-5
+- intended for recent motion, change or short temporal context
+
+Agent behavior:
+- when no image is attached and visual evidence is required,
+  the Agent returns a structured vision_request instead of guessing
+- request_vision is removed from the available tool list after images
+  have already been attached
+- this prevents repeated vision acquisition loops within the same user request
+- ordinary text-only questions can continue without uploading camera data
+
+Memory behavior:
+- a vision acquisition request is an intermediate internal action
+- it is not stored as a completed conversation turn
+- only the final successful user/assistant exchange is written to durable memory
+
+Robot profile:
+- vision capability now reflects the real implementation:
+  monocular camera, local approximately 5-second buffer and multimodal gateway
+- visual context remains acquired only on demand
+
+Real route smoke:
+- first request contained text only
+- Agent autonomously returned:
+  request_vision(mode=latest)
+- route latency:
+  6.835 s
+- no reply text was produced before visual evidence was acquired
+- memory after the intermediate route:
+  0 turns
+- one current JPEG was selected from the local ring buffer
+- second request uploaded:
+  1 frame
+- visual response latency:
+  6.005 s
+- GLM-5.3-Flash correctly described the actual camera scene
+- final visual request:
+  none
+- durable memory after final reply:
+  1 turn
+- smoke result:
+  SMOKE_EXIT=0
+
+Tests:
+- 4 vision-request protocol tests added
+- full repository suite:
+  39 tests passing
+- compileall passed
+- git diff --check passed
+
+Latency note:
+- the current model-driven path requires two Cloud Agent calls for a new
+  visual request:
+  1. decide whether/what visual context is required
+  2. answer after selected frame(s) are supplied
+- observed Cloud time for the validated visual turn was approximately
+  12.84 seconds before local TTS
+- correctness and privacy are prioritized for the first baseline
+- later optimization should reduce this two-stage latency without falling
+  back to brittle phrase matching
+
+Next:
+- Phase 4.4C2-B:
+  integrate the persistent camera and visual-request fulfillment into
+  edge/audio/runtime.py
+- keep the existing half-duplex state machine:
+  LISTENING -> THINKING -> SPEAKING -> LISTENING
+- fix the post-TTS guard so it runs only when playback actually occurred
+- validate real voice -> visual request -> camera -> multimodal reply -> TTS
+- navigation remains deferred
 - AI Jetson must never publish raw /cmd_vel

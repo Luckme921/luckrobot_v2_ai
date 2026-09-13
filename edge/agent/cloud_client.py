@@ -24,9 +24,19 @@ class CloudAgentError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class VisionRequest:
+    mode: str
+    seconds: float
+    count: int
+
+
+@dataclass(frozen=True)
 class AgentReply:
     text: str
     model: str
+    vision_request: (
+        VisionRequest | None
+    ) = None
 
 
 class CloudAgentClient:
@@ -471,6 +481,63 @@ class CloudAgentClient:
             )
         ).strip()
 
+        vision_data = data.get(
+            "vision_request"
+        )
+
+        if isinstance(
+            vision_data,
+            dict,
+        ):
+            mode = str(
+                vision_data.get(
+                    "mode",
+                    "",
+                )
+            ).strip()
+
+            if mode not in {
+                "latest",
+                "recent",
+            }:
+                raise CloudAgentError(
+                    "Cloud Agent returned "
+                    "invalid vision mode"
+                )
+
+            request = VisionRequest(
+                mode=mode,
+                seconds=float(
+                    vision_data.get(
+                        "seconds",
+                        0.0,
+                    )
+                ),
+                count=int(
+                    vision_data.get(
+                        "count",
+                        1,
+                    )
+                ),
+            )
+
+            print(
+                "[VISION] REQUEST "
+                f"mode={request.mode} "
+                f"seconds={request.seconds:.1f} "
+                f"count={request.count}",
+                flush=True,
+            )
+
+            # A visual acquisition request is
+            # an intermediate Agent action,
+            # not a completed conversation turn.
+            return AgentReply(
+                text="",
+                model=model,
+                vision_request=request,
+            )
+
         if not reply:
             raise CloudAgentError(
                 "Cloud Agent returned "
@@ -487,4 +554,5 @@ class CloudAgentClient:
         return AgentReply(
             text=reply,
             model=model,
+            vision_request=None,
         )

@@ -16,6 +16,7 @@ from pydantic import (
 
 from cloud.agent.client import (
     GLMAgent,
+    VisionRequestRequired,
 )
 
 
@@ -199,9 +200,24 @@ def _decode_vision_images(
     return data_urls
 
 
+class VisionRequestResponse(
+    BaseModel
+):
+    mode: Literal[
+        "latest",
+        "recent",
+    ]
+    seconds: float
+    count: int
+
+
 class ChatResponse(BaseModel):
-    reply: str
+    reply: str = ""
     model: str
+    vision_request: (
+        VisionRequestResponse
+        | None
+    ) = None
 
 
 def get_agent() -> GLMAgent:
@@ -265,6 +281,23 @@ async def chat(
             ),
             image_data_urls=(
                 image_data_urls
+            ),
+        )
+
+    except VisionRequestRequired as exc:
+        vision = exc.request
+
+        return ChatResponse(
+            reply="",
+            model=agent.model,
+            vision_request=(
+                VisionRequestResponse(
+                    mode=vision.mode,
+                    seconds=(
+                        vision.seconds
+                    ),
+                    count=vision.count,
+                )
             ),
         )
 

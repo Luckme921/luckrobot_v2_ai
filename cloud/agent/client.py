@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -16,6 +17,28 @@ from cloud.agent.tool_router import (
 from cloud.agent.web_search import (
     ZhipuWebSearch,
 )
+
+
+@dataclass(frozen=True)
+class VisionRequest:
+    mode: str
+    seconds: float
+    count: int
+
+
+class VisionRequestRequired(
+    RuntimeError
+):
+    def __init__(
+        self,
+        request: VisionRequest,
+    ) -> None:
+        self.request = request
+
+        super().__init__(
+            "Edge vision input required: "
+            f"mode={request.mode}"
+        )
 
 
 class GLMAgent:
@@ -107,6 +130,14 @@ class GLMAgent:
             "不能只用文字假装执行。"
             "必须根据工具返回的真实结果"
             "向用户说明执行状态。\n"
+            "LuckRobot 当前已经具备单目交互相机和"
+            "最近约5秒的本地视觉缓存。"
+            "当用户的问题必须观察当前或最近画面才能可靠回答，"
+            "且当前消息尚未附带图像时，"
+            "必须调用 request_vision，不能猜测画面。"
+            "当前画面使用 latest；"
+            "理解刚才动作或短时间变化使用 recent。"
+            "不需要视觉的信息不要请求摄像头。\n"
             "Edge 端会向你提供近期对话历史。"
             "当前已经具备本地持久对话记忆，"
             "因此不要声称机器人完全没有记忆功能，"
@@ -407,6 +438,98 @@ class GLMAgent:
         )
 
     @staticmethod
+    def _parse_vision_request_arguments(
+        arguments_json: str,
+    ) -> VisionRequest:
+        try:
+            arguments = json.loads(
+                arguments_json
+                or "{}"
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "request_vision arguments "
+                "are invalid JSON"
+            ) from exc
+
+        if not isinstance(
+            arguments,
+            dict,
+        ):
+            raise ValueError(
+                "request_vision arguments "
+                "must be an object"
+            )
+
+        mode = str(
+            arguments.get(
+                "mode",
+                "",
+            )
+        ).strip()
+
+        if mode == "latest":
+            return VisionRequest(
+                mode="latest",
+                seconds=0.0,
+                count=1,
+            )
+
+        if mode != "recent":
+            raise ValueError(
+                "request_vision mode "
+                "must be latest or recent"
+            )
+
+        try:
+            seconds = float(
+                arguments.get(
+                    "seconds",
+                    5.0,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            seconds = 5.0
+
+        try:
+            count = int(
+                arguments.get(
+                    "count",
+                    5,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            count = 5
+
+        seconds = min(
+            5.0,
+            max(
+                1.0,
+                seconds,
+            ),
+        )
+
+        count = min(
+            5,
+            max(
+                2,
+                count,
+            ),
+        )
+
+        return VisionRequest(
+            mode="recent",
+            seconds=seconds,
+            count=count,
+        )
+
+    @staticmethod
     def _build_user_content(
         text: str,
         image_data_urls: list[str] | None = None,
@@ -556,7 +679,23 @@ class GLMAgent:
             .create(
                 model=self.model,
                 messages=messages,
-                tools=TOOL_SCHEMAS,
+                tools=(
+                    TOOL_SCHEMAS
+                    if not image_data_urls
+                    else [
+                        schema
+                        for schema
+                        in TOOL_SCHEMAS
+                        if (
+                            schema[
+                                "function"
+                            ][
+                                "name"
+                            ]
+                            != "request_vision"
+                        )
+                    ]
+                ),
                 tool_choice="auto",
                 temperature=(
                     self.temperature
@@ -572,6 +711,36 @@ class GLMAgent:
 
         choice = response.choices[0]
         message = choice.message
+
+        if (
+            message.tool_calls
+            and
+            not image_data_urls
+        ):
+            for tool_call in (
+                message.tool_calls
+            ):
+                if (
+                    tool_call
+                    .function
+                    .name
+                    == "request_vision"
+                ):
+                    request = (
+                        self
+                        ._parse_vision_request_arguments(
+                            tool_call
+                            .function
+                            .arguments
+                            or "{}"
+                        )
+                    )
+
+                    raise (
+                        VisionRequestRequired(
+                            request
+                        )
+                    )
 
         if not message.tool_calls:
             content = (

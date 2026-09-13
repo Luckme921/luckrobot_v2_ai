@@ -83,6 +83,60 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "request_vision",
+            "description": (
+                "当且仅当回答用户的问题必须观察 LuckRobot "
+                "交互相机当前或最近几秒的画面时调用。"
+                "普通聊天、身份、知识、新闻等不需要视觉的问题"
+                "不要调用。"
+                "询问当前物体、人物、环境、手中物品等使用 latest；"
+                "询问刚才的动作、变化或最近发生了什么使用 recent。"
+                "不要凭空猜测摄像头内容。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "latest",
+                            "recent",
+                        ],
+                        "description": (
+                            "latest 表示当前画面；"
+                            "recent 表示最近几秒多帧。"
+                        ),
+                    },
+                    "seconds": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "description": (
+                            "recent 模式回看秒数，"
+                            "最大5秒。"
+                        ),
+                    },
+                    "count": {
+                        "type": "integer",
+                        "minimum": 2,
+                        "maximum": 5,
+                        "description": (
+                            "recent 模式均匀抽取帧数，"
+                            "最多5帧。"
+                        ),
+                    },
+                },
+                "required": [
+                    "mode"
+                ],
+                "additionalProperties": False,
+            },
+        },
+    },
+
 ]
 
 
