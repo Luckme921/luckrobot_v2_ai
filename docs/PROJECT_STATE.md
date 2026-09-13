@@ -220,12 +220,19 @@ Current identity baseline:
 - both cosine thresholds must pass
 - temporal consensus: 3 votes out of the latest 5 usable identity samples
 - frames without a usable face do not vote owner or unknown
+- identity evidence freshness TTL: 2.0 s
+- short face-detector dropouts preserve the current stable identity
+- if no usable identity evidence arrives for 2.0 s, old votes expire and state returns to uncertain
 - low-resolution / too-small faces remain uncertain instead of being guessed
 
 Live owner validation:
 - owner consistently reaches stable owner state
 - isolated low-score owner frames are tolerated by temporal consensus
 - owner live cosine scores are normally well above the current thresholds
+- live leave-frame test passed:
+  - stable owner remained during a short no-face gap
+  - after about 2 s without usable identity evidence, state expired to uncertain
+  - stale owner votes were cleared to 0/0
 
 Live unknown validation:
 - multiple different non-owner face images were tested
@@ -235,7 +242,7 @@ Live unknown validation:
 - no tested non-owner face reached stable owner
 
 Tests:
-- 60 tests passing
+- 62 tests passing
 - compileall passed
 - git diff --check passed
 

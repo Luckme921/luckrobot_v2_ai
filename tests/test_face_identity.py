@@ -277,3 +277,118 @@ class OwnerTemporalConsensusTest(
             result.state,
             "unknown",
         )
+
+
+class OwnerTemporalFreshnessTest(
+    unittest.TestCase
+):
+    def _owner_result(
+        self,
+    ):
+        from edge.vision.face_identity import (
+            OwnerPresenceResult,
+        )
+
+        return OwnerPresenceResult(
+            owner_present=True,
+            usable_face_count=1,
+            unknown_face_count=0,
+            owner=None,
+        )
+
+    def _no_face_result(
+        self,
+    ):
+        from edge.vision.face_identity import (
+            OwnerPresenceResult,
+        )
+
+        return OwnerPresenceResult(
+            owner_present=False,
+            usable_face_count=0,
+            unknown_face_count=0,
+            owner=None,
+        )
+
+    def test_short_no_face_gap_keeps_owner(
+        self,
+    ):
+        from edge.vision.face_identity import (
+            OwnerTemporalConsensus,
+        )
+
+        tracker = OwnerTemporalConsensus(
+            stale_after_seconds=2.0,
+        )
+
+        tracker.update(
+            self._owner_result(),
+            now=10.0,
+        )
+        tracker.update(
+            self._owner_result(),
+            now=10.1,
+        )
+        result = tracker.update(
+            self._owner_result(),
+            now=10.2,
+        )
+
+        self.assertEqual(
+            result.state,
+            "owner",
+        )
+
+        result = tracker.update(
+            self._no_face_result(),
+            now=11.0,
+        )
+
+        self.assertEqual(
+            result.state,
+            "owner",
+        )
+
+    def test_stale_owner_expires(
+        self,
+    ):
+        from edge.vision.face_identity import (
+            OwnerTemporalConsensus,
+        )
+
+        tracker = OwnerTemporalConsensus(
+            stale_after_seconds=2.0,
+        )
+
+        tracker.update(
+            self._owner_result(),
+            now=20.0,
+        )
+        tracker.update(
+            self._owner_result(),
+            now=20.1,
+        )
+        tracker.update(
+            self._owner_result(),
+            now=20.2,
+        )
+
+        result = tracker.update(
+            self._no_face_result(),
+            now=22.3,
+        )
+
+        self.assertEqual(
+            result.state,
+            "uncertain",
+        )
+
+        self.assertEqual(
+            result.samples,
+            0,
+        )
+
+        self.assertEqual(
+            result.owner_votes,
+            0,
+        )

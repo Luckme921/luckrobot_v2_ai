@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import time
 
 import numpy as np
 
@@ -469,12 +470,16 @@ class OwnerTemporalConsensus:
         *,
         window_size: int = 5,
         required_votes: int = 3,
+        stale_after_seconds: float = 2.0,
     ) -> None:
         self.window_size = int(
             window_size
         )
         self.required_votes = int(
             required_votes
+        )
+        self.stale_after_seconds = float(
+            stale_after_seconds
         )
 
         if self.window_size <= 0:
@@ -491,24 +496,40 @@ class OwnerTemporalConsensus:
                 "invalid required_votes"
             )
 
+        if self.stale_after_seconds <= 0:
+            raise ValueError(
+                "stale_after_seconds must be > 0"
+            )
+
         self._votes: list[bool] = []
+        self._last_evidence_at: (
+            float | None
+        ) = None
 
     def reset(
         self,
     ) -> None:
         self._votes.clear()
+        self._last_evidence_at = None
 
     def update(
         self,
         result: OwnerPresenceResult,
+        *,
+        now: float | None = None,
     ) -> OwnerTemporalResult:
-        # No usable face means there is no new
-        # identity evidence. Do not turn one
-        # dropped detector frame into "unknown".
+        if now is None:
+            now = time.monotonic()
+
+        # A short detector dropout must not
+        # immediately erase identity state.
+        # But old identity evidence must expire.
         if result.usable_face_count > 0:
             self._votes.append(
                 result.owner_present
             )
+
+            self._last_evidence_at = now
 
             if (
                 len(self._votes)
@@ -519,6 +540,18 @@ class OwnerTemporalConsensus:
                         -self.window_size:
                     ]
                 )
+
+        elif (
+            self._last_evidence_at
+            is not None
+            and
+            (
+                now
+                - self._last_evidence_at
+            )
+            >= self.stale_after_seconds
+        ):
+            self.reset()
 
         owner_votes = sum(
             1
