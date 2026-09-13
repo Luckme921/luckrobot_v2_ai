@@ -1,0 +1,14 @@
+vision:
+  enabled: true
+
+  camera:
+    device: "/dev/video0"
+    format: "mjpeg"
+    width: 1280
+    height: 720
+    fps: 10
+
+  ring_buffer:
+    directory: "/dev/shm/luckrobot_vision"
+    seconds: 5
+    max_files: 50

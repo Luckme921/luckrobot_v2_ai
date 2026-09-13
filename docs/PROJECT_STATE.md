@@ -149,12 +149,13 @@ Cloud TTS is not required for the current baseline.
 
 ## Current task
 
-Phase 4.2 real-time Web Search: COMPLETE.
+Phase 4.4B local monocular vision ring buffer: COMPLETE.
 
 Current focus:
-- improve Lucky wake reliability and voice-session robustness
-- reduce wake-word ASR residue reaching the Cloud Agent
-- keep response UX natural without fixed "thinking" filler phrases
+- connect voice intent to on-demand visual frame selection
+- send user text plus selected JPEG frames to a multimodal Cloud Agent
+- keep continuous camera capture local and upload frames only when needed
+- continue response-latency optimization after the visual dialogue baseline
 - continue to keep navigation-related development deferred
 
 Navigation / Phase 3.5 status:
@@ -328,7 +329,7 @@ ASR robustness:
   - explicit sleep request
 
 Tests:
-- InteractionGate: 12 tests passing
+- InteractionGate: 14 tests passing
 - py_compile passed
 - git diff --check passed
 
@@ -647,7 +648,8 @@ Cost / call control:
 - hard per-user-turn Web Search budget
 - maximum one real Web Search request per user turn
 - budget is consumed before the external request is sent
-- malformed or rejected tool calls do not consume a paid request
+- invalid/rejected calls before external dispatch do not consume the per-turn search budget
+- once an external search dispatch is attempted, the per-turn search budget is consumed
 - ordinary static conversation does not invoke Web Search
 - unit tests use FakeWebSearch and do not consume real search resources
 
@@ -679,7 +681,7 @@ Voice / wake robustness improvements completed during this phase:
   - LUCKY_LAKE
   - LUCKY_NAKE
   - LUCKY_NAKEYI
-- KWS keyword file can now be loaded from a tracked absolute / ~/ path
+- KWS keyword file supports expanded ~/ / absolute paths while retaining model_dir-relative paths
 - observed SenseVoice wake-word residue is filtered before Agent dispatch
 - repeated wake words during ACTIVE sessions are also stripped
 - wake-only utterances do not become Cloud commands
@@ -689,4 +691,189 @@ Voice / wake robustness improvements completed during this phase:
 Safety:
 - navigation remains deferred and MOCK only
 - Web Search cannot directly control robot motion
+- AI Jetson must never publish raw /cmd_vel
+
+## Phase 4.3 - Response latency characterization
+
+Status: BASELINE CHARACTERIZED on 2026-09-13.
+
+Purpose:
+- identify whether GLM generation itself, the LuckRobot prompt/tool context,
+  or whole-response buffering is the dominant response-latency source
+- avoid making architectural changes based on one end-to-end timing number
+
+Direct GLM streaming benchmark:
+- model: GLM-5.3-Flash
+- thinking: enabled
+- reasoning_effort: low
+- simple two-sentence identity prompt
+- first readable content:
+  TTFT = 2.144 s
+- total:
+  2.456 s
+- result:
+  raw model generation itself can be relatively fast
+
+LuckRobot prompt + tools benchmark:
+- full production system prompt:
+  4085 characters
+- tools:
+  2
+- observed run:
+  TTFT = 5.531 s
+  total = 6.427 s
+
+Prompt-size A/B benchmark:
+- full prompt:
+  4085 characters
+- compact experimental prompt:
+  1334 characters
+- reduction:
+  67.3%
+- two-run median full-prompt TTFT:
+  4.630 s
+- two-run median compact-prompt TTFT:
+  4.449 s
+- median improvement:
+  0.181 s
+
+Decision:
+- do not replace the production system prompt merely for prompt-size reduction
+- the measured 67.3% prompt reduction produced only a small TTFT improvement
+  relative to observed cloud/request variance
+- preserve complete identity, safety, tool and capability instructions
+- later latency work should measure full memory/context cost and evaluate
+  Cloud-to-Edge response streaming plus earlier TTS playback
+- fixed canned "thinking" filler remains intentionally removed
+
+Notes:
+- these benchmarks did not change production code
+- the direct streaming tests were diagnostic calls and did not write
+  normal Edge conversation memory
+- navigation work remains deferred
+
+
+## Phase 4.4 - Monocular visual dialogue
+
+### Phase 4.4A - Camera hardware validation COMPLETE
+
+Status: COMPLETE on 2026-09-13.
+
+Interaction camera:
+- USB UVC camera
+- product:
+  DECXIN Camera
+- USB ID:
+  1bcf:2d50
+- driver:
+  uvcvideo
+- V4L2 nodes:
+  /dev/video0
+  /dev/video1
+- production node selected for the current baseline:
+  /dev/video0
+
+Validated camera capabilities include:
+- MJPEG 1920x1200
+- MJPEG 1920x1080
+- MJPEG 1280x720
+- MJPEG 640x360
+- YUY2 modes are also exposed
+
+Real capture validation:
+- GStreamer v4l2src successfully captured JPEG from /dev/video0
+- validated frame:
+  1920x1200
+- captured JPEG size in the smoke test:
+  48935 bytes
+
+Dependency decision:
+- Python gi / GStreamer bindings are not currently installed
+- OpenCV is not currently installed in the project venv
+- no new dependency was added for the first visual baseline
+- camera capture uses the already-working GStreamer command-line runtime
+
+
+### Phase 4.4B - Local JPEG ring buffer COMPLETE
+
+Status: COMPLETE baseline on 2026-09-13.
+
+Architecture:
+- camera:
+  /dev/video0
+- capture format:
+  MJPEG
+- resolution:
+  1280x720
+- capture rate:
+  10 FPS
+- buffer duration:
+  approximately 5 seconds
+- maximum retained files:
+  50
+- storage:
+  /dev/shm/luckrobot_vision
+- storage is tmpfs/RAM-backed and does not continuously write the NVMe
+- GStreamer multifilesink automatically deletes old frames after the limit
+
+Implemented:
+- configs/vision.yaml
+- edge/vision/camera.py
+- edge/vision/ring_buffer.py
+- edge/vision/__init__.py
+- scripts/vision_smoke.py
+- tests/test_vision_ring_buffer.py
+
+Visual buffer API:
+- latest_frame()
+- frame_ago(seconds)
+- sample_recent(seconds, count)
+
+JPEG safety:
+- FileRingBuffer verifies JPEG SOI/EOI markers
+- incomplete/currently-being-written frames are skipped
+- frame reads tolerate files disappearing while the rolling sink deletes them
+
+Real hardware smoke validation:
+- first JPEG successfully received from the DECXIN camera
+- first observed smoke frame:
+  77523 bytes
+- after continuous capture:
+  BUFFER_FILES=50
+- current frame lookup succeeded
+- approximately 2-second-old frame lookup succeeded
+- five-frame sampling across the recent window succeeded
+- camera process stopped cleanly
+
+Final direct smoke after script import-path fix:
+- FIRST_FRAME bytes=63961
+- BUFFER_FILES=50
+- latest frame available
+- 2-second historical frame available
+- RECENT_COUNT=5
+- clean STOPPED state
+
+Tests:
+- 5 new FileRingBuffer unit tests passing
+- full repository test suite:
+  30 tests passing
+- compileall passed
+- git diff --check passed
+
+Privacy / bandwidth policy:
+- camera may capture continuously into the local RAM-backed ring buffer
+- continuous raw video is not sent to the cloud
+- only frames needed for an explicit visual interaction should be selected
+  and uploaded
+- ordinary non-visual conversation should not upload camera imagery
+
+Next:
+- Phase 4.4C:
+  connect voice/text intent to visual-frame selection
+- send text plus current/recent JPEG frames to a multimodal Cloud Agent
+- first visual behaviors should support requests such as:
+  "我手里拿的是什么？"
+  and
+  "我刚才做了什么？"
+- real navigation remains deferred
 - AI Jetson must never publish raw /cmd_vel
