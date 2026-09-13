@@ -4,34 +4,86 @@ audio:
   format: s16le
   reconnect_interval_seconds: 1.0
   zero_audio_timeout_seconds: 1.0
-
   microphone:
     match_any:
-      - "alsa_input.usb-Generalplus_Usb_Audio_Device"
-      - "Generalplus"
-      - "1b3f"
-      - "2008"
-
+    - alsa_input.usb-Generalplus_Usb_Audio_Device
+    - Generalplus
+    - 1b3f
+    - '2008'
   speaker:
     match_any:
-      - "alsa_output.usb-Jieli_Technology_CD002-AUDIO"
-      - "Jieli"
-      - "e2b8"
-      - "0811"
-      - "4150344636343011"
-
+    - alsa_output.usb-Jieli_Technology_CD002-AUDIO
+    - Jieli
+    - e2b8
+    - 0811
+    - '4150344636343011'
 vad:
-  model: "~/luckrobot_ai/models/vad/silero_vad.onnx"
+  model: ~/luckrobot_ai/models/vad/silero_vad.onnx
   threshold: 0.5
-  min_silence_duration: 0.40
+  min_silence_duration: 0.4
   min_speech_duration: 0.25
   max_speech_duration: 20
   buffer_size_seconds: 30
   num_threads: 1
-
 asr:
-  model_dir: "~/luckrobot_ai/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-  provider: "cpu"
+  model_dir: ~/luckrobot_ai/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17
+  provider: cpu
   num_threads: 4
-  language: "zh"
+  language: zh
   use_itn: true
+  context_pre_seconds: 0.3
+  context_post_seconds: 0.2
+interaction:
+  debug_log_transcript: false
+  wake:
+    enabled: true
+    keyword: LUCKY
+    model_dir: ~/luckrobot_ai/models/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+    tokens: tokens.txt
+    encoder: encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx
+    decoder: decoder-epoch-13-avg-2-chunk-16-left-64.onnx
+    joiner: joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx
+    keywords_file: keywords_lucky.txt
+    provider: cpu
+    num_threads: 1
+    feature_dim: 80
+    max_active_paths: 4
+    keywords_score: 1.0
+    keywords_threshold: 0.25
+    num_trailing_blanks: 1
+    wake_command_timeout_seconds: 8.0
+    transcript_aliases:
+    - lucky
+    - luck
+    - 拉可
+    - 拉ucky
+    - 拉uckk
+    - 阿k
+    - l克
+    transcript_exact_aliases:
+    - 拉
+  followup:
+    normal_timeout_seconds: 12.0
+    chat_timeout_seconds: 20.0
+  chat_mode_triggers:
+  - 陪我聊
+  - 聊聊天
+  - 聊会儿
+  - 聊一会儿
+  - 说说话
+  - 陪陪我
+  - 跟我聊
+  sleep_phrases:
+  - 不聊了
+  - 先这样吧
+  - 你休息吧
+  - 休息吧
+  - 不用了
+  - 没事了
+  - 再见
+  - 拜拜
+  emergency_stop_phrases:
+  - 停
+  - 停止
+  - 停下来
+  - 别动

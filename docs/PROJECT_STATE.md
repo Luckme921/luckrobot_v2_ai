@@ -1,6 +1,6 @@
 # LuckRobot AI - Project State
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 ## Hardware architecture
 
@@ -99,7 +99,7 @@ Current sherpa-onnx version:
 ## VLM / LLM
 
 Primary:
-- GLM-4.6V-Flash
+- GLM-5.3-Flash
 
 Optional complex reasoning:
 - DeepSeek provider
@@ -139,15 +139,12 @@ Local TTS fallback later.
 
 ## Current task
 
-Build sherpa-onnx v1.13.8 with:
-- Jetson arm64
-- CUDA 12.6
-- cuDNN 9
-- ONNX Runtime 1.18.1
-- GPU enabled
-- PortAudio disabled for first benchmark
-
-Then benchmark SenseVoice CPU vs CUDA.
+Phase 3.2:
+- finish MOCK Tool Router validation
+- first semantic tool: navigate_to(location)
+- connect validated local voice COMMAND output to Cloud Agent later
+- ROS2 Nav Gateway remains not connected
+- AI Jetson must never publish raw /cmd_vel
 
 ## Phase 1 - Local ASR validation COMPLETE
 
@@ -262,6 +259,58 @@ Frozen baseline:
 - VAD min_silence_duration: 0.40 s
 - parec requested latency: 100 ms
 - parec process time: 20 ms
+
+## Phase 2.1 - Lucky wake/session and ASR context COMPLETE
+
+Status: COMPLETE on 2026-09-13.
+
+Wake word:
+- dedicated sherpa-onnx KeywordSpotter
+- keyword: Lucky
+- zh-en 3M Zipformer KWS model
+- CPU / 1 thread
+- keywords_threshold: 0.25
+- keywords_score: 1.0
+- wake detection no longer depends on SenseVoice transcription
+
+Interaction session:
+- SLEEPING -> AWAKE_WAIT_COMMAND -> ACTIVE
+- Lucky is required only to start a session
+- normal follow-up timeout: 12 s
+- chat mode timeout: 20 s
+- explicit sleep phrases return to SLEEPING
+- follow-up conversation does not require repeating Lucky
+- transcript wake aliases are cleanup only and never trigger wake
+
+ASR robustness:
+- VAD threshold remains frozen at 0.5
+- microphone gain remains 100% / 0 dB
+- SenseVoice remains CPU INT8 / 4 threads
+- ASR receives real microphone context around each VAD segment:
+  - pre-roll: 0.30 s
+  - post-roll: 0.20 s
+- A/B validation:
+  - raw tightly-cropped VAD segments: about 3/10 successful in the stress sample
+  - expanded real-audio context: 10/10 successful in the same sample
+- production runtime validation passed for:
+  - Lucky + command in one utterance
+  - Lucky then separate command
+  - continuous follow-up commands
+  - chat mode
+  - automatic timeout sleep
+  - explicit sleep request
+
+Tests:
+- InteractionGate: 12 tests passing
+- py_compile passed
+- git diff --check passed
+
+Privacy:
+- debug_log_transcript disabled after validation.
+
+Safety limitation before real motion:
+- sleeping-state emergency stop is not yet an always-on local detector.
+- Do not connect MOCK navigation to real robot motion until local stop handling is available independently of cloud/session state.
 
 ## Phase 3.1 - Cloud text Agent and robot identity
 

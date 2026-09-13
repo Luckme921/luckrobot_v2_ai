@@ -19,11 +19,25 @@ from edge.audio.device_resolver.pulse import (
     resolve_microphone,
     resolve_speaker,
 )
-from edge.audio.vad.silero import SileroVad
+from edge.audio.vad.silero import (
+    SileroVad,
+)
+from edge.audio.wake.kws import (
+    WakeKeywordSpotter,
+)
+from edge.audio.wake.session import (
+    InteractionGate,
+)
 
 
-def load_config(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+def load_config(
+    path: str,
+) -> dict:
+    with open(
+        path,
+        "r",
+        encoding="utf-8",
+    ) as f:
         return yaml.safe_load(f)
 
 
@@ -38,16 +52,24 @@ def create_vad(
             config["threshold"]
         ),
         min_silence_duration=float(
-            config["min_silence_duration"]
+            config[
+                "min_silence_duration"
+            ]
         ),
         min_speech_duration=float(
-            config["min_speech_duration"]
+            config[
+                "min_speech_duration"
+            ]
         ),
         max_speech_duration=float(
-            config["max_speech_duration"]
+            config[
+                "max_speech_duration"
+            ]
         ),
         buffer_size_seconds=int(
-            config["buffer_size_seconds"]
+            config[
+                "buffer_size_seconds"
+            ]
         ),
         num_threads=int(
             config["num_threads"]
@@ -65,14 +87,41 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config = load_config(
+        args.config
+    )
 
     audio_cfg = config["audio"]
     vad_cfg = config["vad"]
     asr_cfg = config["asr"]
+    interaction_cfg = config[
+        "interaction"
+    ]
+
+    wake_cfg = interaction_cfg[
+        "wake"
+    ]
+
+    followup_cfg = interaction_cfg[
+        "followup"
+    ]
 
     sample_rate = int(
         audio_cfg["sample_rate"]
+    )
+
+    asr_context_pre_seconds = float(
+        asr_cfg.get(
+            "context_pre_seconds",
+            0.30,
+        )
+    )
+
+    asr_context_post_seconds = float(
+        asr_cfg.get(
+            "context_post_seconds",
+            0.20,
+        )
     )
 
     retry_seconds = float(
@@ -82,24 +131,118 @@ def main() -> None:
         )
     )
 
-    print("[INIT] Loading SenseVoice...")
+    wake_enabled = bool(
+        wake_cfg.get(
+            "enabled",
+            True,
+        )
+    )
 
-    # Important:
-    # ASR is loaded only once and remains resident
-    # even when the microphone disconnects.
+    interaction_gate = (
+        InteractionGate(
+            wake_command_timeout_seconds=float(
+                wake_cfg[
+                    "wake_command_timeout_seconds"
+                ]
+            ),
+            normal_timeout_seconds=float(
+                followup_cfg[
+                    "normal_timeout_seconds"
+                ]
+            ),
+            chat_timeout_seconds=float(
+                followup_cfg[
+                    "chat_timeout_seconds"
+                ]
+            ),
+            transcript_aliases=(
+                wake_cfg.get(
+                    "transcript_aliases",
+                    ["lucky"],
+                )
+            ),
+            transcript_exact_aliases=(
+                wake_cfg.get(
+                    "transcript_exact_aliases",
+                    [],
+                )
+            ),
+            chat_mode_triggers=(
+                interaction_cfg[
+                    "chat_mode_triggers"
+                ]
+            ),
+            sleep_phrases=(
+                interaction_cfg[
+                    "sleep_phrases"
+                ]
+            ),
+            emergency_stop_phrases=(
+                interaction_cfg[
+                    "emergency_stop_phrases"
+                ]
+            ),
+            enabled=wake_enabled,
+        )
+    )
+
+    debug_log_transcript = bool(
+        interaction_cfg.get(
+            "debug_log_transcript",
+            False,
+        )
+    )
+
+    wake_kws = None
+
+    if wake_enabled:
+        print(
+            "[INIT] Loading Lucky KWS..."
+        )
+
+        wake_kws = (
+            WakeKeywordSpotter(
+                wake_cfg,
+                sample_rate,
+            )
+        )
+
+        print(
+            "[INIT] Lucky KWS ready."
+        )
+
+    print(
+        "[INIT] Loading SenseVoice..."
+    )
+
+    # Keep ASR resident so the first command
+    # after wake-up does not pay model startup
+    # latency.
     asr = SenseVoiceRecognizer(
-        model_dir=asr_cfg["model_dir"],
-        provider=asr_cfg["provider"],
+        model_dir=asr_cfg[
+            "model_dir"
+        ],
+        provider=asr_cfg[
+            "provider"
+        ],
         num_threads=int(
-            asr_cfg["num_threads"]
+            asr_cfg[
+                "num_threads"
+            ]
         ),
-        language=asr_cfg["language"],
+        language=asr_cfg[
+            "language"
+        ],
         use_itn=bool(
-            asr_cfg["use_itn"]
+            asr_cfg[
+                "use_itn"
+            ]
         ),
     )
 
-    print("[INIT] SenseVoice ready.")
+    print(
+        "[INIT] SenseVoice ready."
+    )
 
     state = None
 
@@ -110,48 +253,66 @@ def main() -> None:
                     "[AUDIO] Resolving USB devices..."
                 )
 
-                microphone = resolve_microphone(
-                    audio_cfg[
-                        "microphone"
-                    ]["match_any"]
+                microphone = (
+                    resolve_microphone(
+                        audio_cfg[
+                            "microphone"
+                        ][
+                            "match_any"
+                        ]
+                    )
                 )
 
-                # Speaker is resolved for system
-                # visibility, but ASR input can keep
-                # working even if the speaker is absent.
                 try:
-                    speaker = resolve_speaker(
-                        audio_cfg[
-                            "speaker"
-                        ]["match_any"]
+                    speaker = (
+                        resolve_speaker(
+                            audio_cfg[
+                                "speaker"
+                            ][
+                                "match_any"
+                            ]
+                        )
                     )
                 except PulseDeviceNotFound:
-                    speaker = "<unavailable>"
+                    speaker = (
+                        "<unavailable>"
+                    )
 
                 print(
-                    f"[AUDIO] microphone={microphone}"
-                )
-                print(
-                    f"[AUDIO] speaker={speaker}"
+                    "[AUDIO] "
+                    f"microphone={microphone}"
                 )
 
-                # Reset VAD whenever a new capture
-                # session starts. This prevents audio
-                # from the old USB stream leaking into
-                # the new session.
+                print(
+                    "[AUDIO] "
+                    f"speaker={speaker}"
+                )
+
                 vad = create_vad(
                     vad_cfg,
                     sample_rate,
+                )
+
+                interaction_gate.reset()
+
+                wake_stream = (
+                    wake_kws.create_stream()
+                    if wake_kws
+                    else None
                 )
 
                 capture = PulseCapture(
                     source=microphone,
                     sample_rate=sample_rate,
                     channels=int(
-                        audio_cfg["channels"]
+                        audio_cfg[
+                            "channels"
+                        ]
                     ),
                     sample_format=(
-                        audio_cfg["format"]
+                        audio_cfg[
+                            "format"
+                        ]
                     ),
                 )
 
@@ -165,14 +326,26 @@ def main() -> None:
                     print(
                         "[STATE] AUDIO_OK"
                     )
+
                     print(
                         "[READY] Listening..."
                     )
+
                     print(
-                        "[READY] Press Ctrl+C to stop."
+                        "[READY] "
+                        "Press Ctrl+C to stop."
                     )
 
+                    if wake_enabled:
+                        print(
+                            '[STATE] SLEEPING'
+                        )
+                        print(
+                            '[WAKE] Waiting for "Lucky".'
+                        )
+
                     zero_audio_samples = 0
+
                     zero_audio_limit = int(
                         sample_rate
                         * float(
@@ -186,29 +359,34 @@ def main() -> None:
                     for pcm in capture.chunks(
                         vad.window_size
                     ):
-                        samples = np.frombuffer(
-                            pcm,
-                            dtype=np.int16,
-                        )
-
                         samples = (
-                            samples.astype(
+                            np.frombuffer(
+                                pcm,
+                                dtype=np.int16,
+                            )
+                            .astype(
                                 np.float32
                             )
                             / 32768.0
                         )
 
-                        if np.any(samples):
+                        if np.any(
+                            samples
+                        ):
                             if (
                                 zero_audio_samples
                                 >= zero_audio_limit
                                 and state
                                 == "AUDIO_DEGRADED"
                             ):
-                                state = "AUDIO_OK"
+                                state = (
+                                    "AUDIO_OK"
+                                )
+
                                 print(
                                     "[STATE] AUDIO_OK"
                                 )
+
                                 print(
                                     "[AUDIO] "
                                     "PCM stream recovered",
@@ -216,9 +394,10 @@ def main() -> None:
                                 )
 
                             zero_audio_samples = 0
+
                         else:
-                            zero_audio_samples += len(
-                                samples
+                            zero_audio_samples += (
+                                len(samples)
                             )
 
                             if (
@@ -230,10 +409,12 @@ def main() -> None:
                                 state = (
                                     "AUDIO_DEGRADED"
                                 )
+
                                 print(
                                     "[STATE] "
                                     "AUDIO_DEGRADED"
                                 )
+
                                 print(
                                     "[AUDIO] "
                                     "PCM stream is "
@@ -241,12 +422,92 @@ def main() -> None:
                                     flush=True,
                                 )
 
-                        vad.accept(samples)
+                        now = (
+                            time.monotonic()
+                        )
+
+                        if (
+                            interaction_gate
+                            .expire_if_needed(
+                                now
+                            )
+                        ):
+                            print(
+                                "[STATE] SLEEPING "
+                                "reason=timeout",
+                                flush=True,
+                            )
+
+                            if wake_kws:
+                                wake_stream = (
+                                    wake_kws
+                                    .create_stream()
+                                )
+
+                        if (
+                            wake_kws
+                            and wake_stream
+                            and interaction_gate.state
+                            == InteractionGate.SLEEPING
+                        ):
+                            keyword = (
+                                wake_kws.accept(
+                                    wake_stream,
+                                    samples,
+                                )
+                            )
+
+                            if keyword:
+                                interaction_gate.on_wake(
+                                    now
+                                )
+
+                                print(
+                                    "[WAKE] "
+                                    "KWS_DETECTED "
+                                    f"keyword={keyword}",
+                                    flush=True,
+                                )
+
+                                print(
+                                    "[STATE] "
+                                    "AWAKE_WAIT_COMMAND",
+                                    flush=True,
+                                )
+
+                        # VAD is kept lightweight and
+                        # continuously fed so the segment
+                        # containing Lucky + command can
+                        # still be recovered.
+                        vad.accept(
+                            samples
+                        )
 
                         while vad.has_segment():
-                            segment = (
-                                vad.pop_segment()
+                            (
+                                segment,
+                                asr_samples,
+                            ) = (
+                                vad.pop_segment_with_context(
+                                    pre_seconds=(
+                                        asr_context_pre_seconds
+                                    ),
+                                    post_seconds=(
+                                        asr_context_post_seconds
+                                    ),
+                                )
                             )
+
+                            # While sleeping, ambient
+                            # speech is discarded without
+                            # invoking SenseVoice.
+                            if (
+                                wake_enabled
+                                and
+                                interaction_gate.state
+                                == InteractionGate.SLEEPING
+                            ):
+                                continue
 
                             start_sec = (
                                 segment.start
@@ -260,11 +521,13 @@ def main() -> None:
                                 / sample_rate
                             )
 
-                            t0 = time.monotonic()
+                            t0 = (
+                                time.monotonic()
+                            )
 
                             text = (
                                 asr.transcribe(
-                                    segment.samples,
+                                    asr_samples,
                                     sample_rate,
                                 )
                             )
@@ -274,19 +537,82 @@ def main() -> None:
                                 - t0
                             )
 
-                            if text:
+                            if not text:
+                                continue
+
+                            print(
+                                "[ASR] "
+                                f"start={start_sec:.2f}s "
+                                f"duration={duration_sec:.2f}s "
+                                f"inference={elapsed:.3f}s"
+                            )
+
+                            if (
+                                debug_log_transcript
+                            ):
                                 print(
-                                    "[ASR] "
-                                    f"start="
-                                    f"{start_sec:.2f}s "
-                                    f"duration="
-                                    f"{duration_sec:.2f}s "
-                                    f"inference="
-                                    f"{elapsed:.3f}s"
+                                    "[ASR_TEXT] "
+                                    f"{text}",
+                                    flush=True,
+                                )
+
+                            decision = (
+                                interaction_gate
+                                .process(
+                                    text,
+                                    now=time.monotonic(),
+                                )
+                            )
+
+                            if (
+                                decision.action
+                                == "emergency_stop"
+                            ):
+                                print(
+                                    "[EMERGENCY] "
+                                    "LOCAL_STOP_REQUESTED",
+                                    flush=True,
+                                )
+
+                            elif (
+                                decision.action
+                                == "awake"
+                            ):
+                                print(
+                                    "[STATE] "
+                                    "AWAKE_WAIT_COMMAND",
+                                    flush=True,
+                                )
+
+                            elif (
+                                decision.action
+                                == "sleep"
+                            ):
+                                print(
+                                    "[STATE] SLEEPING "
+                                    "reason=user_request",
+                                    flush=True,
+                                )
+
+                                if wake_kws:
+                                    wake_stream = (
+                                        wake_kws
+                                        .create_stream()
+                                    )
+
+                            elif (
+                                decision.action
+                                == "command"
+                            ):
+                                print(
+                                    "[COMMAND] "
+                                    f"{decision.command}",
+                                    flush=True,
                                 )
 
                                 print(
-                                    f"[TEXT] {text}",
+                                    "[SESSION] "
+                                    f"mode={decision.mode}",
                                     flush=True,
                                 )
 
@@ -295,13 +621,18 @@ def main() -> None:
                 PulseCaptureError,
                 subprocess.CalledProcessError,
             ) as exc:
-                if state != "AUDIO_DEGRADED":
+                if (
+                    state
+                    != "AUDIO_DEGRADED"
+                ):
                     print(
                         "[STATE] "
                         "AUDIO_DEGRADED"
                     )
 
-                state = "AUDIO_DEGRADED"
+                state = (
+                    "AUDIO_DEGRADED"
+                )
 
                 print(
                     "[AUDIO] "
@@ -321,7 +652,8 @@ def main() -> None:
 
     except KeyboardInterrupt:
         print(
-            "\n[STOP] Audio runtime stopped."
+            "\n[STOP] "
+            "Audio runtime stopped."
         )
 
 
