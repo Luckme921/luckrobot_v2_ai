@@ -87,3 +87,7 @@ interaction:
   - 停止
   - 停下来
   - 别动
+agent_bridge:
+  enabled: true
+  endpoint: http://127.0.0.1:8000/chat
+  timeout_seconds: 35.0

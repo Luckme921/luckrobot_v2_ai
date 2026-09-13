@@ -7,6 +7,10 @@ import time
 import numpy as np
 import yaml
 
+from edge.agent.cloud_client import (
+    CloudAgentClient,
+    CloudAgentError,
+)
 from edge.audio.asr.sensevoice import (
     SenseVoiceRecognizer,
 )
@@ -105,6 +109,35 @@ def main() -> None:
     followup_cfg = interaction_cfg[
         "followup"
     ]
+
+    agent_bridge_cfg = config.get(
+        "agent_bridge",
+        {},
+    )
+
+    agent_bridge_enabled = bool(
+        agent_bridge_cfg.get(
+            "enabled",
+            False,
+        )
+    )
+
+    agent_client = None
+
+    if agent_bridge_enabled:
+        agent_client = CloudAgentClient(
+            endpoint=str(
+                agent_bridge_cfg[
+                    "endpoint"
+                ]
+            ),
+            timeout_seconds=float(
+                agent_bridge_cfg.get(
+                    "timeout_seconds",
+                    35.0,
+                )
+            ),
+        )
 
     sample_rate = int(
         audio_cfg["sample_rate"]
@@ -615,6 +648,73 @@ def main() -> None:
                                     f"mode={decision.mode}",
                                     flush=True,
                                 )
+
+                                if (
+                                    agent_client
+                                    is not None
+                                ):
+                                    print(
+                                        "[STATE] THINKING",
+                                        flush=True,
+                                    )
+
+                                    # V1 is half duplex.
+                                    # Stop microphone capture
+                                    # while the cloud Agent is
+                                    # processing the command.
+                                    capture.stop()
+
+                                    try:
+                                        agent_reply = (
+                                            agent_client
+                                            .chat(
+                                                decision.command
+                                                or ""
+                                            )
+                                        )
+
+                                        print(
+                                            "[AGENT_REPLY] "
+                                            f"{agent_reply.text}",
+                                            flush=True,
+                                        )
+
+                                        print(
+                                            "[AGENT] "
+                                            f"model="
+                                            f"{agent_reply.model}",
+                                            flush=True,
+                                        )
+
+                                    except CloudAgentError as exc:
+                                        print(
+                                            "[AGENT] ERROR "
+                                            f"{exc}",
+                                            flush=True,
+                                        )
+
+                                    finally:
+                                        # Start a clean VAD
+                                        # context after THINKING,
+                                        # so buffered/stale audio
+                                        # cannot become a follow-up.
+                                        vad = create_vad(
+                                            vad_cfg,
+                                            sample_rate,
+                                        )
+
+                                        zero_audio_samples = 0
+
+                                        interaction_gate                                             .on_robot_reply_finished(
+                                                time.monotonic()
+                                            )
+
+                                        print(
+                                            "[STATE] LISTENING",
+                                            flush=True,
+                                        )
+
+                                        capture.start()
 
             except (
                 PulseDeviceNotFound,

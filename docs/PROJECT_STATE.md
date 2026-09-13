@@ -139,12 +139,14 @@ Local TTS fallback later.
 
 ## Current task
 
-Phase 3.3:
-- connect validated local voice COMMAND output to Cloud Agent
-- preserve Lucky/session state locally
+Phase 3.4:
+- add multi-turn Cloud Agent conversation context
+- keep one dialogue context during the active Lucky session
+- reset dialogue context when the local interaction session sleeps
+- preserve Tool Router behavior with conversation history
 - keep navigation backend MOCK only
-- add local always-on emergency stop before any real robot motion
-- ROS2 Nav Gateway remains not connected
+- TTS remains pending
+- real ROS2 motion remains disabled
 - AI Jetson must never publish raw /cmd_vel
 
 ## Phase 1 - Local ASR validation COMPLETE
@@ -386,3 +388,52 @@ Safety:
 - AI Jetson must never publish raw /cmd_vel
 - real ROS2 motion remains disabled
 - sleeping-state local emergency stop must be implemented before real navigation execution
+
+## Phase 3.3 - Voice to Cloud Agent bridge COMPLETE
+
+Status: COMPLETE on 2026-09-13.
+
+Implemented:
+- local edge CloudAgentClient
+- standard-library HTTP client to local FastAPI gateway
+- endpoint:
+  http://127.0.0.1:8000/chat
+- local ASR COMMAND output is sent to GLM Agent
+- Agent reply is returned to the audio runtime
+- no additional HTTP dependency required
+
+V1 half-duplex behavior:
+- microphone capture stops while Agent is THINKING
+- microphone capture restarts after Agent response
+- VAD is recreated after cloud processing to discard stale audio
+- follow-up timeout restarts after robot response finishes
+- TTS is not connected yet
+
+Validated end-to-end:
+- "Lucky，你是谁"
+  -> local wake
+  -> ASR command
+  -> GLM Agent reply
+- follow-up "你可以做什么"
+  -> no repeated Lucky required
+  -> GLM Agent reply
+- interaction session returns to SLEEPING after timeout
+- "Lucky，请带我去实验室"
+  -> GLM tool call
+  -> Tool Router navigate_to(location="实验室")
+  -> MOCK backend
+  -> executed=false
+- Cloud log confirmed:
+  [TOOL] navigate_to location='实验室' backend=mock executed=false
+
+Known limitation:
+- Cloud Agent is currently stateless between /chat requests.
+- Multi-turn linguistic context is not preserved yet.
+- This can cause repeated introductions or loss of conversational references.
+- Phase 3.4 will add session-scoped conversation history.
+
+Safety:
+- navigation remains MOCK only
+- ROS2 Nav Gateway is not connected
+- AI Jetson does not publish raw /cmd_vel
+- always-on local emergency stop is required before any real navigation execution
