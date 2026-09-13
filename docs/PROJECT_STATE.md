@@ -177,10 +177,73 @@ Live acceptance:
 - current hand gesture acquired fresh visual evidence and correctly identified two fingers
 
 Next focus:
-- Owner Face Enrollment / local identity recognition
+- integrate local owner identity state into the interaction runtime / Agent context
+- prepare AI Jetson YOLO semantic perception
 - reduce Kokoro chunk-to-chunk playback gaps
 - optimize Agent and visual interaction latency
 - continue to keep navigation-related development deferred
+
+## Phase 4.5 - Local owner face identity baseline COMPLETE
+
+Status: LOCAL IDENTITY BASELINE COMPLETE on 2026-09-13.
+
+Architecture:
+- face enrollment photos remain local under private/faces/owner/raw/
+- face embeddings remain local under private/faces/owner/embeddings/
+- private/ remains excluded from Git
+- face models remain local under models/face/
+- owner identity recognition is performed locally on the AI Jetson
+- registration photos do not need to be uploaded to the Cloud Agent
+
+Face stack:
+- Python OpenCV: 4.12.0.88
+- detector: YuNet face_detection_yunet_2023mar.onnx
+- recognizer: SFace face_recognition_sface_2021dec.onnx
+- embedding dimension: 128
+- cosine similarity
+- L2-normalized embeddings
+
+Enrollment:
+- seven owner enrollment photos were evaluated
+- robust owner gallery uses five internally coherent exemplars
+- two hard/outlier enrollment samples are excluded from the production core
+- production owner gallery:
+  - 5 exemplar embeddings
+  - robust centroid
+- private enrollment data is never committed
+
+Current identity baseline:
+- YuNet detection threshold: 0.55
+- minimum usable identity face area ratio: 0.01
+- owner best-exemplar cosine threshold: 0.34
+- owner centroid cosine threshold: 0.34
+- both cosine thresholds must pass
+- temporal consensus: 3 votes out of the latest 5 usable identity samples
+- frames without a usable face do not vote owner or unknown
+- low-resolution / too-small faces remain uncertain instead of being guessed
+
+Live owner validation:
+- owner consistently reaches stable owner state
+- isolated low-score owner frames are tolerated by temporal consensus
+- owner live cosine scores are normally well above the current thresholds
+
+Live unknown validation:
+- multiple different non-owner face images were tested
+- tested usable non-owner faces remained below owner thresholds
+- repeated tests reached stable unknown with 0 owner votes / 5 unknown votes
+- one very-small-face test remained uncertain because no face passed the minimum usable area threshold
+- no tested non-owner face reached stable owner
+
+Tests:
+- 60 tests passing
+- compileall passed
+- git diff --check passed
+
+Next:
+- integrate local identity state into the live interaction runtime
+- expose only semantic local identity state to the Agent
+- do not upload enrollment photos or embeddings to the Cloud Agent
+- continue collecting real-world validation data without treating this as security-grade biometric authentication
 
 Navigation / Phase 3.5 status:
 - DEFERRED by user on 2026-09-13 while the Navigation Jetson is being optimized
