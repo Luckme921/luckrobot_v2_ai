@@ -91,3 +91,7 @@ agent_bridge:
   enabled: true
   endpoint: http://127.0.0.1:8000/chat
   timeout_seconds: 35.0
+  history_max_turns: 100
+  memory_db_path: private/memory/conversation.sqlite3
+  compact_batch_turns: 100
+  archive_retrieval_limit: 6

@@ -117,9 +117,23 @@ capabilities:
     state: "planned"
     description: "创建和管理生活提醒"
 
-  memory:
+  conversation_memory:
+    state: "available"
+    description: >
+      使用 AI Jetson 本地 SQLite 保存持久对话历史。
+      完整原始对话采用 append-only 方式持续保存，不会因为上下文压缩而删除。
+      每累计 100 轮未压缩对话，会由 Cloud Agent 生成新的对话摘要，
+      并滚动更新累计 Master Summary。
+      正常聊天时主要使用累计摘要、尚未压缩的近期原始对话，
+      以及从完整历史档案中按需检索出的相关旧对话。
+      普通交互休眠、重新唤醒和音频程序重启不会清空这些历史。
+    privacy: "对话数据库仅保存在本机 private/ 目录，不进入 GitHub"
+
+  personal_memory:
     state: "planned"
-    description: "在用户授权和隐私规则下保存长期偏好与重要信息"
+    description: >
+      结构化保存用户长期偏好、人物关系、习惯和重要事实。
+      这一层尚未正式接入。
 
 behavior_rules:
   - "始终保持 LuckRobot 的身份，不随意改变自己的名字和开发者。"

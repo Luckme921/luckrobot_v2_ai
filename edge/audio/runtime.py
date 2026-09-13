@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import subprocess
 import time
 
@@ -135,6 +136,38 @@ def main() -> None:
                 agent_bridge_cfg.get(
                     "timeout_seconds",
                     35.0,
+                )
+            ),
+            history_max_turns=int(
+                agent_bridge_cfg.get(
+                    "history_max_turns",
+                    100,
+                )
+            ),
+            memory_db_path=(
+                Path(__file__)
+                .resolve()
+                .parents[2]
+                / str(
+                    agent_bridge_cfg.get(
+                        "memory_db_path",
+                        (
+                            "private/memory/"
+                            "conversation.sqlite3"
+                        ),
+                    )
+                )
+            ),
+            compact_batch_turns=int(
+                agent_bridge_cfg.get(
+                    "compact_batch_turns",
+                    100,
+                )
+            ),
+            archive_retrieval_limit=int(
+                agent_bridge_cfg.get(
+                    "archive_retrieval_limit",
+                    6,
                 )
             ),
         )
@@ -471,6 +504,15 @@ def main() -> None:
                                 flush=True,
                             )
 
+                            if agent_client is not None:
+                                print(
+                                    "[AGENT_MEMORY] PRESERVED "
+                                    "reason=interaction_timeout "
+                                    f"messages="
+                                    f"{agent_client.history_messages}",
+                                    flush=True,
+                                )
+
                             if wake_kws:
                                 wake_stream = (
                                     wake_kws
@@ -491,6 +533,17 @@ def main() -> None:
                             )
 
                             if keyword:
+                                if (
+                                    agent_client
+                                    is not None
+                                ):
+                                    print(
+                                        "[AGENT_MEMORY] RESUME "
+                                        f"messages="
+                                        f"{agent_client.history_messages}",
+                                        flush=True,
+                                    )
+
                                 interaction_gate.on_wake(
                                     now
                                 )
@@ -627,6 +680,18 @@ def main() -> None:
                                     flush=True,
                                 )
 
+                                if (
+                                    agent_client
+                                    is not None
+                                ):
+                                    print(
+                                        "[AGENT_MEMORY] PRESERVED "
+                                        "reason=user_sleep "
+                                        f"messages="
+                                        f"{agent_client.history_messages}",
+                                        flush=True,
+                                    )
+
                                 if wake_kws:
                                     wake_stream = (
                                         wake_kws
@@ -705,9 +770,12 @@ def main() -> None:
 
                                         zero_audio_samples = 0
 
-                                        interaction_gate                                             .on_robot_reply_finished(
+                                        (
+                                            interaction_gate
+                                            .on_robot_reply_finished(
                                                 time.monotonic()
                                             )
+                                        )
 
                                         print(
                                             "[STATE] LISTENING",

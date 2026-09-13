@@ -139,14 +139,12 @@ Local TTS fallback later.
 
 ## Current task
 
-Phase 3.4:
-- add multi-turn Cloud Agent conversation context
-- keep one dialogue context during the active Lucky session
-- reset dialogue context when the local interaction session sleeps
-- preserve Tool Router behavior with conversation history
-- keep navigation backend MOCK only
-- TTS remains pending
-- real ROS2 motion remains disabled
+Phase 3.5:
+- implement an always-on local emergency-stop safety path
+- emergency stop must bypass Cloud Agent and normal dialogue session state
+- make stop detection work while interaction state is SLEEPING and ACTIVE
+- keep navigation backend MOCK while validating the safety path
+- do not connect real ROS2 motion until local stop handling is independent of cloud/session state
 - AI Jetson must never publish raw /cmd_vel
 
 ## Phase 1 - Local ASR validation COMPLETE
@@ -437,3 +435,83 @@ Safety:
 - ROS2 Nav Gateway is not connected
 - AI Jetson does not publish raw /cmd_vel
 - always-on local emergency stop is required before any real navigation execution
+
+## Phase 3.4 - Persistent long-conversation memory COMPLETE
+
+Status: COMPLETE on 2026-09-13.
+
+Architecture:
+- conversation memory is owned by the AI Jetson Edge side
+- SQLite database:
+  private/memory/conversation.sqlite3
+- private/ is excluded from Git
+- Cloud API remains stateless between requests
+- raw conversation turns are stored persistently on the AI Jetson
+
+Memory V2:
+- Raw Archive:
+  all successful user/assistant turns are stored in SQLite
+- raw history is append-only and is not deleted by compaction
+- Compaction:
+  each batch of 100 unsummarized turns is summarized by the Cloud Agent
+- Block Summary:
+  records the information extracted from one 100-turn batch
+- Master Summary:
+  combines previous accumulated memory with the newest block summary
+- Recent Context:
+  unsummarized recent raw turns are sent directly to the Agent
+- Archive Retrieval:
+  relevant old raw turns can be retrieved from SQLite and supplied to the Agent
+  even when the Master Summary omitted that detail
+- normal Lucky sleep does not erase memory
+- audio runtime restart does not erase memory
+
+Context sent to the Agent can contain:
+1. robot system/persona prompt
+2. accumulated Master Summary
+3. retrieved relevant old archive turns
+4. unsummarized recent raw conversation
+5. current user request
+
+Validated:
+- local SQLite conversation persistence survives audio runtime restart
+- 100-turn GLM compaction completed successfully
+- first-turn fact "海鸥计划的测试编号是31415" survived compaction
+- after 100 turns:
+  summarized_through_turn_id=100
+- turn 101 continued with only one active unsummarized raw turn
+- raw archive remained intact after compaction
+- archive retrieval recovered Q7X9 from turn 1 even when the Master Summary
+  deliberately did not contain Q7X9
+- Agent correctly answered Q7X9 using retrieved raw history
+- contextual navigation follow-up remained functional:
+  "请带我去实验室。" -> navigate_to(location="实验室")
+  "那厨房呢？" -> navigate_to(location="厨房")
+- both navigation calls remained MOCK:
+  backend=mock
+  executed=false
+- 15 unit tests passed
+- py_compile passed
+- git diff --check passed
+
+Failure behavior:
+- memory compaction is fail-open for normal conversation
+- a compaction failure does not intentionally block ordinary dialogue
+- raw SQLite archive remains the source of truth
+
+Privacy:
+- raw conversation database stays under private/
+- private/ is ignored by Git
+- no local conversation database should be committed to GitHub
+
+Known limitations:
+- Archive Retrieval currently uses lightweight local lexical/substring matching
+- semantic embedding retrieval is a future optional upgrade
+- structured personal/profile memory remains a separate future layer
+- TTS remains pending
+
+Safety:
+- navigation backend remains MOCK only
+- ROS2 Nav Gateway remains disconnected
+- AI Jetson must never publish raw /cmd_vel
+- always-on local emergency stop is the next prerequisite before real motion
