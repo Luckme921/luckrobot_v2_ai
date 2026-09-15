@@ -70,6 +70,7 @@ def capture_turn_snapshot(
     *,
     recent_seconds: float = 6.0,
     recent_count: int = 16,
+    now: float | None = None,
 ) -> TurnVisionSnapshot:
     if recent_seconds <= 0:
         raise ValueError(
@@ -81,14 +82,35 @@ def capture_turn_snapshot(
             "recent_count must be >= 2"
         )
 
+    if now is None:
+        now = time.time()
+
     latest = (
         ring.latest_frame()
     )
+
+    # Never treat an old frame from a dead/stalled
+    # camera process as current turn evidence.
+    max_latest_age_seconds = min(
+        2.0,
+        float(recent_seconds),
+    )
+
+    if (
+        latest is not None
+        and (
+            now
+            - latest.captured_at
+        )
+        > max_latest_age_seconds
+    ):
+        latest = None
 
     recent = list(
         ring.sample_recent(
             recent_seconds,
             recent_count,
+            now=now,
         )
     )
 
@@ -119,9 +141,7 @@ def capture_turn_snapshot(
             .captured_at
         )
     else:
-        anchor_time = (
-            time.time()
-        )
+        anchor_time = now
 
     return TurnVisionSnapshot(
         anchor_time=anchor_time,

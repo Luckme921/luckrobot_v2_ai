@@ -40,6 +40,8 @@ class FakeRing:
         self,
         seconds,
         count,
+        *,
+        now=None,
     ):
         self.recent_args = (
             seconds,
@@ -203,6 +205,7 @@ class TurnAlignedVisionTest(
             ring,
             recent_seconds=5.0,
             recent_count=10,
+            now=104.0,
         )
 
         self.assertEqual(
@@ -218,6 +221,42 @@ class TurnAlignedVisionTest(
         self.assertEqual(
             len(snapshot.recent),
             5,
+        )
+
+    def test_capture_rejects_stale_latest(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            capture_turn_snapshot,
+        )
+
+        stale = self._frame(
+            "stale.jpg",
+            100.0,
+        )
+
+        ring = FakeRing(
+            latest=stale,
+            recent=[],
+        )
+
+        snapshot = capture_turn_snapshot(
+            ring,
+            now=103.0,
+        )
+
+        self.assertIsNone(
+            snapshot.latest
+        )
+
+        self.assertEqual(
+            snapshot.recent,
+            (),
+        )
+
+        self.assertEqual(
+            snapshot.anchor_time,
+            103.0,
         )
 
     def test_latest_uses_frozen_frame(
@@ -329,7 +368,8 @@ class TurnAlignedVisionTest(
         )
 
         snapshot = capture_turn_snapshot(
-            ring
+            ring,
+            now=100.0,
         )
 
         self.assertEqual(
