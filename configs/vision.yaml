@@ -2,7 +2,7 @@ vision:
   enabled: true
 
   camera:
-    device: "/dev/video0"
+    device: "/dev/v4l/by-id/usb-DECXIN_DECXIN_Camera_01.00.000-video-index0"
     format: "mjpeg"
     width: 1280
     height: 720
