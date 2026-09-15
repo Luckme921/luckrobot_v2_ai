@@ -68,6 +68,7 @@ interaction:
     - 那uck克
     - 老uck克
     - 老克
+    - 拉卡
     transcript_exact_aliases:
     - 拉
     - 拉克
@@ -80,6 +81,7 @@ interaction:
     - 老克
     - 拉客
     - 那克
+    - 拉卡
   followup:
     normal_timeout_seconds: 12.0
     chat_timeout_seconds: 20.0
