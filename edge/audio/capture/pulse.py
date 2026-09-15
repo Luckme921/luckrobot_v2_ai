@@ -16,12 +16,72 @@ class PulseCapture:
         sample_rate: int = 16000,
         channels: int = 1,
         sample_format: str = "s16le",
+        input_channels: int | None = None,
+        selected_channel: int | None = None,
     ) -> None:
         self.source = source
         self.sample_rate = sample_rate
+
+        # Number of channels delivered to the
+        # rest of LuckRobot.
         self.channels = channels
+
+        # Number of channels requested from the
+        # physical/PulseAudio capture device.
+        self.input_channels = (
+            channels
+            if input_channels is None
+            else int(input_channels)
+        )
+
+        self.selected_channel = (
+            selected_channel
+        )
+
         self.sample_format = sample_format
         self._process: subprocess.Popen[bytes] | None = None
+
+        if self.channels <= 0:
+            raise ValueError(
+                "channels must be positive"
+            )
+
+        if self.input_channels <= 0:
+            raise ValueError(
+                "input_channels must be positive"
+            )
+
+        if (
+            self.selected_channel is None
+            and self.input_channels != self.channels
+        ):
+            raise ValueError(
+                "input_channels must match channels "
+                "when selected_channel is not set"
+            )
+
+        if self.selected_channel is not None:
+            if self.sample_format != "s16le":
+                raise ValueError(
+                    "channel selection currently "
+                    "requires s16le"
+                )
+
+            if self.channels != 1:
+                raise ValueError(
+                    "selected_channel requires "
+                    "mono output"
+                )
+
+            if not (
+                0
+                <= self.selected_channel
+                < self.input_channels
+            ):
+                raise ValueError(
+                    "selected_channel is outside "
+                    "input channel range"
+                )
 
     def start(self) -> None:
         if self._process is not None:
@@ -35,7 +95,7 @@ class PulseCapture:
             "--process-time-msec=20",
             f"--format={self.sample_format}",
             f"--rate={self.sample_rate}",
-            f"--channels={self.channels}",
+            f"--channels={self.input_channels}",
         ]
 
         self._process = subprocess.Popen(
@@ -87,9 +147,14 @@ class PulseCapture:
             )
 
         # PCM16 = 2 bytes per sample.
-        bytes_per_chunk = (
+        #
+        # Read complete frames from the physical
+        # input first. If selected_channel is set,
+        # one logical channel is then extracted
+        # before yielding to KWS/VAD/ASR.
+        input_bytes_per_chunk = (
             samples_per_chunk
-            * self.channels
+            * self.input_channels
             * 2
         )
 
@@ -97,7 +162,7 @@ class PulseCapture:
 
         while True:
             needed = (
-                bytes_per_chunk
+                input_bytes_per_chunk
                 - len(pending)
             )
 
@@ -122,9 +187,64 @@ class PulseCapture:
 
             pending.extend(data)
 
-            if len(pending) == bytes_per_chunk:
-                yield bytes(pending)
+            if (
+                len(pending)
+                == input_bytes_per_chunk
+            ):
+                raw = bytes(
+                    pending
+                )
+
                 pending.clear()
+
+                if (
+                    self.selected_channel
+                    is None
+                ):
+                    yield raw
+                    continue
+
+                # Interleaved S16_LE:
+                #
+                # ch0 ch1 ch0 ch1 ...
+                #
+                # XVF3800 default USB routing uses
+                # channel 1 (Right) as its ASR
+                # auto-selected-beam output.
+                frame_bytes = (
+                    self.input_channels
+                    * 2
+                )
+
+                offset = (
+                    self.selected_channel
+                    * 2
+                )
+
+                selected = bytearray(
+                    samples_per_chunk
+                    * 2
+                )
+
+                out = 0
+
+                for frame in range(
+                    0,
+                    len(raw),
+                    frame_bytes,
+                ):
+                    selected[
+                        out:out + 2
+                    ] = raw[
+                        frame + offset:
+                        frame + offset + 2
+                    ]
+
+                    out += 2
+
+                yield bytes(
+                    selected
+                )
 
     def stop(self) -> None:
         if self._process is None:

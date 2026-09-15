@@ -5,18 +5,19 @@ audio:
   reconnect_interval_seconds: 1.0
   zero_audio_timeout_seconds: 1.0
   microphone:
+    input_channels: 2
+    selected_channel: 1
     match_any:
-    - alsa_input.usb-Generalplus_Usb_Audio_Device
-    - Generalplus
-    - 1b3f
-    - '2008'
+    - alsa_input.usb-Seeed_Studio_reSpeaker_XVF3800_4-Mic_Array
+    - reSpeaker_XVF3800_4-Mic_Array
+    - Seeed_Studio_reSpeaker
+    - XVF3800
   speaker:
     match_any:
-    - alsa_output.usb-Jieli_Technology_CD002-AUDIO
-    - Jieli
-    - e2b8
-    - 0811
-    - '4150344636343011'
+    - alsa_output.usb-Seeed_Studio_reSpeaker_XVF3800_4-Mic_Array
+    - reSpeaker_XVF3800_4-Mic_Array
+    - Seeed_Studio_reSpeaker
+    - XVF3800
 vad:
   model: ~/luckrobot_ai/models/vad/silero_vad.onnx
   threshold: 0.5

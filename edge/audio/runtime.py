@@ -645,6 +645,18 @@ def main() -> None:
                     else None
                 )
 
+                microphone_cfg = (
+                    audio_cfg[
+                        "microphone"
+                    ]
+                )
+
+                selected_channel = (
+                    microphone_cfg.get(
+                        "selected_channel"
+                    )
+                )
+
                 capture = PulseCapture(
                     source=microphone,
                     sample_rate=sample_rate,
@@ -657,6 +669,22 @@ def main() -> None:
                         audio_cfg[
                             "format"
                         ]
+                    ),
+                    input_channels=int(
+                        microphone_cfg.get(
+                            "input_channels",
+                            audio_cfg[
+                                "channels"
+                            ],
+                        )
+                    ),
+                    selected_channel=(
+                        None
+                        if selected_channel
+                        is None
+                        else int(
+                            selected_channel
+                        )
                     ),
                 )
 
