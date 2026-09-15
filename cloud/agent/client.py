@@ -699,11 +699,160 @@ class GLMAgent:
         )
 
     @staticmethod
+    def _current_turn_identity_state_prompt(
+        local_identity: str,
+    ) -> str:
+        state = str(
+            local_identity
+        ).strip().lower()
+
+        if state not in {
+            "owner",
+            "unknown",
+            "uncertain",
+        }:
+            raise ValueError(
+                "Invalid local identity state"
+            )
+
+        if state == "owner":
+            detail = (
+                "Edge 已对本回合冻结视觉快照"
+                "进行本地人脸识别，"
+                "结果与登记主人匹配。"
+                "这只是便利交互识别，"
+                "不是活体检测或安全认证。"
+                "如果用户询问你是否认识他"
+                "或知道他是谁，"
+                "可以依据这个本回合状态回答。"
+                "不要声称百分之百确认现实身份，"
+                "也不要透露相似度、embedding"
+                "或私有人脸资料。"
+            )
+
+        elif state == "unknown":
+            detail = (
+                "Edge 本回合检测到了可用人脸证据，"
+                "但没有与登记主人匹配。"
+                "unknown 只表示未匹配主人，"
+                "不表示知道对方的姓名或真实身份。"
+                "不要猜测对方是谁。"
+                "尤其不得因为历史中出现主人或 luckme，"
+                "就把当前这个人称为主人或 luckme。"
+            )
+
+        else:
+            detail = (
+                "Edge 本回合没有足够可靠的"
+                "本地身份识别证据。"
+                "可能是没有可用人脸、"
+                "证据不足或结果不稳定。"
+                "不得据此判断当前人是主人"
+                "或某个陌生人。"
+                "不得因为历史中出现主人或 luckme，"
+                "就推断当前这个人是主人、luckme"
+                "或其他具体身份。"
+            )
+
+        authority = (
+            "这是当前回合关于“当前面前的人是谁”的"
+            "权威本地身份状态。"
+            "对于当前身份判断，它优先于 history、"
+            "memory_summary、archive_context"
+            "以及过去 assistant 的回答。"
+            "这些历史内容可以描述过去的人或事实，"
+            "但不得覆盖、改写或推断本回合的"
+            "CURRENT_LOCAL_IDENTITY。"
+        )
+
+        return (
+            f"CURRENT_LOCAL_IDENTITY={state}\n"
+            + detail
+            + authority
+        )
+
+    @staticmethod
+    def _identity_authority_response(
+        text: str,
+        local_identity: str,
+    ) -> str | None:
+        """Return a deterministic answer for current-user identity queries.
+
+        Current-turn local identity is authoritative for questions about
+        who is physically present now. Historical conversation, memory,
+        archive context, and previous assistant answers must never
+        override this state.
+        """
+        query = str(text).strip().lower()
+        compact = "".join(query.split())
+
+        identity_markers = (
+            "我是谁",
+            "我叫什么",
+            "我的身份",
+            "你认识我",
+            "你认得我",
+            "你认出我",
+            "你知道我是谁",
+            "你知道我叫什么",
+            "你知道我的身份",
+            "我是主人吗",
+            "我是owner吗",
+            "我是luckme吗",
+            "whoami",
+            "doyouknowme",
+            "doyouknowwhoiam",
+            "amitheowner",
+            "amiyourowner",
+        )
+
+        if not any(
+            marker in compact
+            for marker in identity_markers
+        ):
+            return None
+
+        state = str(
+            local_identity
+        ).strip().lower()
+
+        if state not in {
+            "owner",
+            "unknown",
+            "uncertain",
+        }:
+            raise ValueError(
+                "Invalid local identity state"
+            )
+
+        if state == "owner":
+            return (
+                "当前本地识别结果与登记主人匹配。"
+                "这个识别只用于交互便利，"
+                "不是活体检测或安全认证。"
+            )
+
+        if state == "unknown":
+            return (
+                "当前本地检测到了可用人脸，"
+                "但没有与登记主人匹配。"
+                "我无法确认你是谁。"
+            )
+
+        return (
+            "当前这一回合没有足够可靠的"
+            "本地身份识别证据。"
+            "我现在无法确认你是谁，"
+            "也不能根据历史记录推断身份。"
+        )
+
+    @staticmethod
     def _build_route_messages(
         text: str,
         history: list[
             dict[str, str]
         ] | None = None,
+        local_identity: str = "uncertain",
     ) -> list[dict]:
         previous_user = ""
 
@@ -798,6 +947,15 @@ class GLMAgent:
                 ),
             },
             {
+                "role": "system",
+                "content": (
+                    GLMAgent
+                    ._current_turn_identity_state_prompt(
+                        local_identity
+                    )
+                ),
+            },
+            {
                 "role": "user",
                 "content": "\n".join(
                     route_input_parts
@@ -850,7 +1008,18 @@ class GLMAgent:
         memory_summary: str = "",
         archive_context: str = "",
         image_data_urls: list[str] | None = None,
+        local_identity: str = "uncertain",
     ) -> str:
+        authority_response = (
+            self._identity_authority_response(
+                text,
+                local_identity,
+            )
+        )
+
+        if authority_response is not None:
+            return authority_response
+
         messages: list[dict] = [
             {
                 "role": "system",
@@ -864,6 +1033,15 @@ class GLMAgent:
                         bool(
                             image_data_urls
                         )
+                    )
+                ),
+            },
+            {
+                "role": "system",
+                "content": (
+                    self
+                    ._current_turn_identity_state_prompt(
+                        local_identity
                     )
                 ),
             },
@@ -973,6 +1151,9 @@ class GLMAgent:
                     self._build_route_messages(
                         text,
                         history,
+                        local_identity=(
+                            local_identity
+                        ),
                     )
                     if not image_data_urls
                     else messages

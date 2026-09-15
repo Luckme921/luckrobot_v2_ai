@@ -1033,6 +1033,14 @@ def main() -> None:
                                     # this command.
                                     capture.stop()
 
+                                    # One semantic identity state is
+                                    # frozen for this complete turn.
+                                    # The same value is reused if the
+                                    # Agent later requests vision.
+                                    turn_identity_state = (
+                                        "uncertain"
+                                    )
+
                                     if (
                                         identity_scorer
                                         is not None
@@ -1082,6 +1090,10 @@ def main() -> None:
                                                 )
                                             )
 
+                                            turn_identity_state = (
+                                                identity_result.state
+                                            )
+
                                             print(
                                                 "[IDENTITY] "
                                                 f"state="
@@ -1120,7 +1132,10 @@ def main() -> None:
                                         agent_reply = (
                                             agent_client
                                             .chat(
-                                                command_text
+                                                command_text,
+                                                local_identity=(
+                                                    turn_identity_state
+                                                ),
                                             )
                                         )
 
@@ -1188,6 +1203,9 @@ def main() -> None:
                                                         for frame
                                                         in frames
                                                     ],
+                                                    local_identity=(
+                                                        turn_identity_state
+                                                    ),
                                                 )
                                             )
 

@@ -354,10 +354,31 @@ class CloudAgentClient:
                 flush=True,
             )
 
+    @staticmethod
+    def _normalize_local_identity(
+        local_identity: str,
+    ) -> str:
+        state = str(
+            local_identity
+        ).strip().lower()
+
+        if state not in {
+            "owner",
+            "unknown",
+            "uncertain",
+        }:
+            raise CloudAgentError(
+                "local_identity must be "
+                "owner, unknown, or uncertain"
+            )
+
+        return state
+
     def chat(
         self,
         text: str,
         jpeg_frames: list[bytes] | None = None,
+        local_identity: str = "uncertain",
     ) -> AgentReply:
         command = text.strip()
 
@@ -365,6 +386,12 @@ class CloudAgentClient:
             raise CloudAgentError(
                 "Agent command is empty"
             )
+
+        local_identity = (
+            self._normalize_local_identity(
+                local_identity
+            )
+        )
 
         images_jpeg_base64 = (
             self._encode_jpeg_frames(
@@ -438,6 +465,9 @@ class CloudAgentClient:
 
         payload = {
             "text": command,
+            "local_identity": (
+                local_identity
+            ),
             "history": (
                 snapshot.messages
             ),

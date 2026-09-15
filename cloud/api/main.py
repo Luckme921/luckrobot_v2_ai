@@ -56,6 +56,12 @@ class ChatRequest(BaseModel):
         max_length=4000,
     )
 
+    local_identity: Literal[
+        "owner",
+        "unknown",
+        "uncertain",
+    ] = "uncertain"
+
     images_jpeg_base64: list[
         str
     ] = Field(
@@ -273,6 +279,9 @@ async def chat(
         reply = await agent.chat(
             request.text,
             history=history,
+            local_identity=(
+                request.local_identity
+            ),
             memory_summary=(
                 request.memory_summary
             ),
