@@ -19,6 +19,6 @@ if [[ -n "${SUSPEND_ID}" ]]; then
   pactl unload-module "${SUSPEND_ID}" >/dev/null || true
 fi
 
-exec python -m edge.audio.runtime \
+exec python -u -m edge.audio.runtime \
   --config "$ROOT/configs/audio.yaml" \
   --vision-config "$ROOT/configs/vision.yaml"
