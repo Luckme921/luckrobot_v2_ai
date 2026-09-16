@@ -53,6 +53,59 @@ class FakeRing:
         )
 
 
+class ExplicitLatestVisionIntentTest(
+    unittest.TestCase
+):
+    def test_explicit_current_visual_commands(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            is_explicit_latest_vision_command,
+        )
+
+        commands = (
+            "看这里",
+            "看看我",
+            "看一下当前画面",
+            "你看到什么",
+            "你能看见什么",
+            "看一下镜头",
+            "看这里清人间",
+        )
+
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertTrue(
+                    is_explicit_latest_vision_command(
+                        command
+                    )
+                )
+
+    def test_non_visual_or_recent_commands_do_not_fast_path(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            is_explicit_latest_vision_command,
+        )
+
+        commands = (
+            "我是谁",
+            "你认识我吗",
+            "今天天气怎么样",
+            "刚才发生了什么",
+            "过去五秒我做了什么",
+            "回顾一下刚才的画面",
+        )
+
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertFalse(
+                    is_explicit_latest_vision_command(
+                        command
+                    )
+                )
+
+
 class VisionRuntimeBridgeTest(
     unittest.TestCase
 ):

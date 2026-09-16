@@ -44,6 +44,7 @@ from edge.vision.camera import (
 from edge.vision.runtime_bridge import (
     VisionSelectionError,
     capture_turn_snapshot,
+    is_explicit_latest_vision_command,
     select_turn_snapshot_frames,
 )
 from edge.vision.face_identity import (
@@ -1157,15 +1158,50 @@ def main() -> None:
                                             or ""
                                         )
 
-                                        agent_reply = (
-                                            agent_client
-                                            .chat(
-                                                command_text,
-                                                local_identity=(
-                                                    turn_identity_state
-                                                ),
+                                        fast_path_latest = (
+                                            turn_vision_snapshot
+                                            is not None
+                                            and
+                                            turn_vision_snapshot.latest
+                                            is not None
+                                            and
+                                            is_explicit_latest_vision_command(
+                                                command_text
                                             )
                                         )
+
+                                        if fast_path_latest:
+                                            print(
+                                                "[VISION] FAST_PATH "
+                                                "mode=latest count=1",
+                                                flush=True,
+                                            )
+
+                                            agent_reply = (
+                                                agent_client
+                                                .chat(
+                                                    command_text,
+                                                    jpeg_frames=[
+                                                        turn_vision_snapshot
+                                                        .latest
+                                                        .jpeg_bytes
+                                                    ],
+                                                    local_identity=(
+                                                        turn_identity_state
+                                                    ),
+                                                )
+                                            )
+
+                                        else:
+                                            agent_reply = (
+                                                agent_client
+                                                .chat(
+                                                    command_text,
+                                                    local_identity=(
+                                                        turn_identity_state
+                                                    ),
+                                                )
+                                            )
 
                                         if (
                                             agent_reply
