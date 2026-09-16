@@ -205,6 +205,69 @@ class ExplicitVisionFastPathInferenceTest(
         )
 
 
+class VisionFastPathToolPolicyTest(
+    unittest.TestCase
+):
+    def test_pure_visual_disables_tools(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            explicit_vision_fast_path_tool_mode,
+        )
+
+        for command in (
+            "我现在在做什么",
+            "看一下当前画面简单描述",
+            "刚才发生了什么",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    explicit_vision_fast_path_tool_mode(
+                        command
+                    ),
+                    "none",
+                )
+
+    def test_web_compound_preserves_tools(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            explicit_vision_fast_path_tool_mode,
+        )
+
+        for command in (
+            "看这里，查一下这个东西多少钱",
+            "看这里，搜一下这个东西最新价格",
+            "看看我，顺便查一下今天的天气",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    explicit_vision_fast_path_tool_mode(
+                        command
+                    ),
+                    "auto",
+                )
+
+    def test_navigation_compound_preserves_tools(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            explicit_vision_fast_path_tool_mode,
+        )
+
+        for command in (
+            "看这里然后带我去实验室",
+            "看看这里再导航到厨房",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    explicit_vision_fast_path_tool_mode(
+                        command
+                    ),
+                    "auto",
+                )
+
+
 class VisionRuntimeBridgeTest(
     unittest.TestCase
 ):

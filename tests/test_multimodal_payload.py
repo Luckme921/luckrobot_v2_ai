@@ -130,5 +130,72 @@ class MultimodalPayloadTest(
             )
 
 
+class VisualCompletionToolPolicyTest(
+    unittest.TestCase
+):
+    def test_visual_none_has_no_tools(
+        self,
+    ) -> None:
+        options = (
+            GLMAgent
+            ._completion_tool_options(
+                has_images=True,
+                tool_mode="none",
+            )
+        )
+
+        self.assertEqual(
+            options,
+            {},
+        )
+
+    def test_visual_auto_keeps_web_and_navigation(
+        self,
+    ) -> None:
+        options = (
+            GLMAgent
+            ._completion_tool_options(
+                has_images=True,
+                tool_mode="auto",
+            )
+        )
+
+        names = {
+            item["function"]["name"]
+            for item
+            in options["tools"]
+        }
+
+        self.assertIn(
+            "web_search",
+            names,
+        )
+        self.assertIn(
+            "navigate_to",
+            names,
+        )
+        self.assertNotIn(
+            "request_vision",
+            names,
+        )
+
+    def test_text_turn_cannot_bypass_router(
+        self,
+    ) -> None:
+        options = (
+            GLMAgent
+            ._completion_tool_options(
+                has_images=False,
+                tool_mode="none",
+            )
+        )
+
+        self.assertEqual(
+            options["tools"][0]
+            ["function"]["name"],
+            "route_turn",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

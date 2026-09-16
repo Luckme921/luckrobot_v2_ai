@@ -379,6 +379,7 @@ class CloudAgentClient:
         text: str,
         jpeg_frames: list[bytes] | None = None,
         local_identity: str = "uncertain",
+        tool_mode: str = "auto",
     ) -> AgentReply:
         command = text.strip()
 
@@ -392,6 +393,19 @@ class CloudAgentClient:
                 local_identity
             )
         )
+
+        tool_mode = str(
+            tool_mode
+        ).strip().lower()
+
+        if tool_mode not in {
+            "auto",
+            "none",
+        }:
+            raise CloudAgentError(
+                "tool_mode must be "
+                "auto or none"
+            )
 
         images_jpeg_base64 = (
             self._encode_jpeg_frames(
@@ -468,6 +482,7 @@ class CloudAgentClient:
             "local_identity": (
                 local_identity
             ),
+            "tool_mode": tool_mode,
             "history": (
                 snapshot.messages
             ),

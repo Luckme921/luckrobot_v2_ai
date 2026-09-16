@@ -111,6 +111,62 @@ def infer_explicit_vision_fast_path(
     return None
 
 
+_EXTERNAL_TOOL_HINTS = (
+    # Web / current external information.
+    "最新",
+    "实时",
+    "新闻",
+    "天气",
+    "汇率",
+    "价格",
+    "多少钱",
+    "搜索",
+    "搜一下",
+    "查一下",
+    "查询",
+    "联网",
+    "上网",
+    "网上",
+
+    # Navigation.
+    "导航",
+    "前往",
+    "带我去",
+    "带路",
+)
+
+
+def explicit_vision_fast_path_tool_mode(
+    text: str,
+) -> str:
+    request = (
+        infer_explicit_vision_fast_path(
+            text
+        )
+    )
+
+    if request is None:
+        return "auto"
+
+    compact = (
+        _compact_visual_command(
+            text
+        )
+    )
+
+    # Be conservative. If the utterance also
+    # looks like it may need web/navigation,
+    # preserve the full tool set.
+    if any(
+        marker in compact
+        for marker
+        in _EXTERNAL_TOOL_HINTS
+    ):
+        return "auto"
+
+    return "none"
+
+
 def is_explicit_latest_vision_command(
     text: str,
 ) -> bool:

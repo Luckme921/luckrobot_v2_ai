@@ -44,6 +44,7 @@ from edge.vision.camera import (
 from edge.vision.runtime_bridge import (
     VisionSelectionError,
     capture_turn_snapshot,
+    explicit_vision_fast_path_tool_mode,
     infer_explicit_vision_fast_path,
     select_turn_snapshot_frames,
 )
@@ -1195,10 +1196,17 @@ def main() -> None:
                                             is not None
                                             and fast_path_frames
                                         ):
+                                            fast_path_tool_mode = (
+                                                explicit_vision_fast_path_tool_mode(
+                                                    command_text
+                                                )
+                                            )
+
                                             print(
                                                 "[VISION] FAST_PATH "
                                                 f"mode={fast_path_request.mode} "
-                                                f"count={len(fast_path_frames)}",
+                                                f"count={len(fast_path_frames)} "
+                                                f"tools={fast_path_tool_mode}",
                                                 flush=True,
                                             )
 
@@ -1213,6 +1221,9 @@ def main() -> None:
                                                     ],
                                                     local_identity=(
                                                         turn_identity_state
+                                                    ),
+                                                    tool_mode=(
+                                                        fast_path_tool_mode
                                                     ),
                                                 )
                                             )

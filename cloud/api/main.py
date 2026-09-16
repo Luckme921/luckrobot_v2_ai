@@ -62,6 +62,11 @@ class ChatRequest(BaseModel):
         "uncertain",
     ] = "uncertain"
 
+    tool_mode: Literal[
+        "auto",
+        "none",
+    ] = "auto"
+
     images_jpeg_base64: list[
         str
     ] = Field(
@@ -281,6 +286,9 @@ async def chat(
             history=history,
             local_identity=(
                 request.local_identity
+            ),
+            tool_mode=(
+                request.tool_mode
             ),
             memory_summary=(
                 request.memory_summary

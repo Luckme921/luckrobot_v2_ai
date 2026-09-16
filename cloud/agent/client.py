@@ -999,6 +999,79 @@ class GLMAgent:
 
         return content
 
+    @staticmethod
+    def _normalize_tool_mode(
+        tool_mode: str,
+    ) -> str:
+        mode = str(
+            tool_mode
+        ).strip().lower()
+
+        if mode not in {
+            "auto",
+            "none",
+        }:
+            raise ValueError(
+                "tool_mode must be "
+                "auto or none"
+            )
+
+        return mode
+
+    @staticmethod
+    def _completion_tool_options(
+        *,
+        has_images: bool,
+        tool_mode: str,
+    ) -> dict:
+        mode = (
+            GLMAgent
+            ._normalize_tool_mode(
+                tool_mode
+            )
+        )
+
+        # Text-only turns MUST always keep
+        # the mandatory route_turn protocol.
+        # tool_mode cannot bypass routing.
+        if not has_images:
+            return {
+                "tools": [
+                    TURN_ROUTE_SCHEMA
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {
+                        "name": "route_turn",
+                    },
+                },
+            }
+
+        # Edge may mark an already-resolved
+        # pure visual answer as tool-free.
+        if mode == "none":
+            return {}
+
+        # Multimodal auto mode preserves
+        # navigation and web-search tools.
+        return {
+            "tools": [
+                schema
+                for schema
+                in TOOL_SCHEMAS
+                if (
+                    schema[
+                        "function"
+                    ][
+                        "name"
+                    ]
+                    != "request_vision"
+                )
+            ],
+            "tool_choice": "auto",
+        }
+
+
     async def chat(
         self,
         text: str,
@@ -1009,7 +1082,14 @@ class GLMAgent:
         archive_context: str = "",
         image_data_urls: list[str] | None = None,
         local_identity: str = "uncertain",
+        tool_mode: str = "auto",
     ) -> str:
+        tool_mode = (
+            self._normalize_tool_mode(
+                tool_mode
+            )
+        )
+
         authority_response = (
             self._identity_authority_response(
                 text,
@@ -1158,34 +1238,13 @@ class GLMAgent:
                     if not image_data_urls
                     else messages
                 ),
-                tools=(
-                    [
-                        TURN_ROUTE_SCHEMA
-                    ]
-                    if not image_data_urls
-                    else [
-                        schema
-                        for schema
-                        in TOOL_SCHEMAS
-                        if (
-                            schema[
-                                "function"
-                            ][
-                                "name"
-                            ]
-                            != "request_vision"
-                        )
-                    ]
-                ),
-                tool_choice=(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "route_turn"
-                        },
-                    }
-                    if not image_data_urls
-                    else "auto"
+                **(
+                    self._completion_tool_options(
+                        has_images=bool(
+                            image_data_urls
+                        ),
+                        tool_mode=tool_mode,
+                    )
                 ),
                 temperature=(
                     self.temperature
