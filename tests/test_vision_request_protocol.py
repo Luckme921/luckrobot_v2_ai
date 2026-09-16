@@ -219,7 +219,7 @@ class VisionRequestProtocolTest(
 
         self.assertEqual(
             len(messages),
-            2,
+            3,
         )
 
         self.assertEqual(
@@ -228,6 +228,7 @@ class VisionRequestProtocolTest(
                 for item in messages
             ],
             [
+                "system",
                 "system",
                 "user",
             ],
@@ -258,6 +259,11 @@ class VisionRequestProtocolTest(
         )
         self.assertIn(
             "CURRENT_USER",
+            joined,
+        )
+
+        self.assertIn(
+            "CURRENT_LOCAL_IDENTITY=uncertain",
             joined,
         )
 
