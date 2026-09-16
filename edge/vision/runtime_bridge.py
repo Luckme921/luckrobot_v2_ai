@@ -33,17 +33,89 @@ _EXPLICIT_LATEST_VISION_PHRASES = (
     "看一下镜头",
     "看看眼前",
     "看一下眼前",
+    "我现在在做什么",
+    "现在我在做什么",
+    "我现在正在做什么",
+    "我在做什么",
+    "我现在干什么",
+    "我在干什么",
 )
+
+
+_EXPLICIT_RECENT_VISION_PHRASES = (
+    "刚才发生了什么",
+    "刚才我做了什么",
+    "我刚才做了什么",
+    "刚才你看到了什么",
+    "刚才画面发生了什么",
+    "过去几秒我做了什么",
+    "过去几秒发生了什么",
+    "回顾一下刚才的画面",
+    "看看刚才发生了什么",
+)
+
+
+@dataclass(frozen=True)
+class ExplicitVisionFastPath:
+    mode: str
+    seconds: float
+    count: int
+
+
+def _compact_visual_command(
+    text: str,
+) -> str:
+    return "".join(
+        str(text)
+        .strip()
+        .lower()
+        .split()
+    )
+
+
+def infer_explicit_vision_fast_path(
+    text: str,
+) -> ExplicitVisionFastPath | None:
+    compact = _compact_visual_command(
+        text
+    )
+
+    if not compact:
+        return None
+
+    # Check recent first because phrases such as
+    # "刚才你看到了什么" also contain a latest
+    # marker such as "你看到了什么".
+    if any(
+        phrase in compact
+        for phrase
+        in _EXPLICIT_RECENT_VISION_PHRASES
+    ):
+        return ExplicitVisionFastPath(
+            mode="recent",
+            seconds=5.0,
+            count=5,
+        )
+
+    if any(
+        phrase in compact
+        for phrase
+        in _EXPLICIT_LATEST_VISION_PHRASES
+    ):
+        return ExplicitVisionFastPath(
+            mode="latest",
+            seconds=0.0,
+            count=1,
+        )
+
+    return None
 
 
 def is_explicit_latest_vision_command(
     text: str,
 ) -> bool:
-    compact = "".join(
-        str(text)
-        .strip()
-        .lower()
-        .split()
+    compact = _compact_visual_command(
+        text
     )
 
     if not compact:

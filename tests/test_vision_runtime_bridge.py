@@ -106,6 +106,105 @@ class ExplicitLatestVisionIntentTest(
                 )
 
 
+class ExplicitVisionFastPathInferenceTest(
+    unittest.TestCase
+):
+    def test_current_action_uses_latest(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            infer_explicit_vision_fast_path,
+        )
+
+        for command in (
+            "我现在在做什么",
+            "我在做什么",
+            "现在我在做什么",
+        ):
+            with self.subTest(command=command):
+                request = (
+                    infer_explicit_vision_fast_path(
+                        command
+                    )
+                )
+
+                self.assertIsNotNone(request)
+                self.assertEqual(
+                    request.mode,
+                    "latest",
+                )
+                self.assertEqual(
+                    request.count,
+                    1,
+                )
+
+    def test_recent_visual_command_uses_recent(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            infer_explicit_vision_fast_path,
+        )
+
+        for command in (
+            "刚才发生了什么",
+            "我刚才做了什么",
+            "过去几秒我做了什么",
+            "刚才你看到了什么",
+        ):
+            with self.subTest(command=command):
+                request = (
+                    infer_explicit_vision_fast_path(
+                        command
+                    )
+                )
+
+                self.assertIsNotNone(request)
+                self.assertEqual(
+                    request.mode,
+                    "recent",
+                )
+                self.assertEqual(
+                    request.seconds,
+                    5.0,
+                )
+                self.assertEqual(
+                    request.count,
+                    5,
+                )
+
+    def test_recent_beats_latest_overlap(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            infer_explicit_vision_fast_path,
+        )
+
+        request = (
+            infer_explicit_vision_fast_path(
+                "刚才你看到了什么"
+            )
+        )
+
+        self.assertIsNotNone(request)
+        self.assertEqual(
+            request.mode,
+            "recent",
+        )
+
+    def test_non_visual_has_no_fast_path(
+        self,
+    ) -> None:
+        from edge.vision.runtime_bridge import (
+            infer_explicit_vision_fast_path,
+        )
+
+        self.assertIsNone(
+            infer_explicit_vision_fast_path(
+                "今天天气怎么样"
+            )
+        )
+
+
 class VisionRuntimeBridgeTest(
     unittest.TestCase
 ):

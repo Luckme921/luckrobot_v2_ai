@@ -44,7 +44,7 @@ from edge.vision.camera import (
 from edge.vision.runtime_bridge import (
     VisionSelectionError,
     capture_turn_snapshot,
-    is_explicit_latest_vision_command,
+    infer_explicit_vision_fast_path,
     select_turn_snapshot_frames,
 )
 from edge.vision.face_identity import (
@@ -1158,22 +1158,47 @@ def main() -> None:
                                             or ""
                                         )
 
-                                        fast_path_latest = (
-                                            turn_vision_snapshot
-                                            is not None
-                                            and
-                                            turn_vision_snapshot.latest
-                                            is not None
-                                            and
-                                            is_explicit_latest_vision_command(
+                                        fast_path_request = (
+                                            infer_explicit_vision_fast_path(
                                                 command_text
                                             )
+                                            if turn_vision_snapshot
+                                            is not None
+                                            else None
                                         )
 
-                                        if fast_path_latest:
+                                        fast_path_frames = None
+
+                                        if (
+                                            fast_path_request
+                                            is not None
+                                            and
+                                            turn_vision_snapshot
+                                            is not None
+                                        ):
+                                            try:
+                                                fast_path_frames = (
+                                                    select_turn_snapshot_frames(
+                                                        turn_vision_snapshot,
+                                                        fast_path_request,
+                                                    )
+                                                )
+                                            except VisionSelectionError:
+                                                # Fall back to the normal
+                                                # model-driven route if the
+                                                # frozen turn snapshot cannot
+                                                # satisfy this fast path.
+                                                fast_path_request = None
+
+                                        if (
+                                            fast_path_request
+                                            is not None
+                                            and fast_path_frames
+                                        ):
                                             print(
                                                 "[VISION] FAST_PATH "
-                                                "mode=latest count=1",
+                                                f"mode={fast_path_request.mode} "
+                                                f"count={len(fast_path_frames)}",
                                                 flush=True,
                                             )
 
@@ -1182,9 +1207,9 @@ def main() -> None:
                                                 .chat(
                                                     command_text,
                                                     jpeg_frames=[
-                                                        turn_vision_snapshot
-                                                        .latest
-                                                        .jpeg_bytes
+                                                        frame.jpeg_bytes
+                                                        for frame
+                                                        in fast_path_frames
                                                     ],
                                                     local_identity=(
                                                         turn_identity_state
