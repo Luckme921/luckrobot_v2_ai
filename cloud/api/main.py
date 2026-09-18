@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
+import uuid
+from fastapi.responses import StreamingResponse
+from shared.timing import trace_id, progress, measure
+
 import base64
 import binascii
 from pathlib import Path
@@ -52,6 +59,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    trace_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
+
     text: str = Field(
         min_length=1,
         max_length=4000,
@@ -271,11 +280,7 @@ async def health() -> dict:
     }
 
 
-@app.post(
-    "/chat",
-    response_model=ChatResponse,
-)
-async def chat(
+async def _chat(
     request: ChatRequest,
 ) -> ChatResponse:
     image_data_urls = (
@@ -364,6 +369,56 @@ async def chat(
         reply=reply,
         model=agent.model,
     )
+
+
+
+async def _scoped_chat(request, callback=None):
+    token = trace_id.set(request.trace_id or uuid.uuid4().hex)
+    progress_token = progress.set(callback)
+    try:
+        with measure("cloud_total"):
+            return await _chat(request)
+    finally:
+        progress.reset(progress_token)
+        trace_id.reset(token)
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    return await _scoped_chat(request)
+
+
+async def chat_events(request):
+    queue = asyncio.Queue()
+
+    async def run():
+        try:
+            reply = await _scoped_chat(request, queue.put_nowait)
+            await queue.put({"type": "result", "data": reply.model_dump()})
+        except Exception as exc:
+            await queue.put({"type": "error", "error": type(exc).__name__})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+@app.post("/chat/events")
+async def stream_chat(request: ChatRequest):
+    return StreamingResponse(chat_events(request),
+                             media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 class CompactTurn(BaseModel):

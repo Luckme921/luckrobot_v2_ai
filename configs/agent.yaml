@@ -6,6 +6,7 @@ agent:
   max_retries: 2
   temperature: 0.4
   max_tokens: 2048
+  route_protocol: "json"  # Set to tool to restore legacy routing.
   thinking: "enabled"
   reasoning_effort: "low"
 

@@ -110,6 +110,7 @@ interaction:
   - 停下来
   - 别动
 agent_bridge:
+  progress_enabled: true
   enabled: true
   endpoint: http://127.0.0.1:8000/chat
   timeout_seconds: 35.0
@@ -127,6 +128,8 @@ music:
   headless: true
 
 tts:
+  acknowledgement_enabled: true
+  acknowledgement_delay_seconds: 0.35
   enabled: true
   provider: kokoro
   model_dir: ~/luckrobot_ai/models/tts/kokoro-multi-lang-v1_0

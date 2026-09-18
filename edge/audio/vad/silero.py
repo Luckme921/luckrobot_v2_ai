@@ -222,6 +222,10 @@ class SileroVad:
             + len(segment.samples)
         )
 
+        # Audio-clock backlog beyond the detected segment, not acoustic latency.
+        self.last_endpoint_buffer_seconds = max(
+            0.0, (self._accepted_samples - segment_end) / self.sample_rate)
+
         pre_samples = int(
             self.sample_rate
             * pre_seconds

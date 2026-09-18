@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from shared.timing import trace_id, measure
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import (
@@ -60,8 +61,11 @@ class CloudAgentClient:
         ),
         compact_batch_turns: int = 100,
         archive_retrieval_limit: int = 6,
+        progress_enabled: bool = False,
     ) -> None:
         self.endpoint = endpoint
+        self.progress_enabled = progress_enabled
+        self.on_event = None
 
         parsed = urlsplit(
             endpoint
@@ -160,6 +164,47 @@ class CloudAgentClient:
             user_text,
             assistant_text,
         )
+
+    def _post_chat(self, payload):
+        if not self.progress_enabled:
+            return self._post_json(self.endpoint, payload)
+        request = Request(
+            self.endpoint.rstrip("/") + "/events",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/x-ndjson"}, method="POST")
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                for index in range(512):
+                    line = response.readline(131073)
+                    if not line:
+                        break
+                    if len(line) > 131072:
+                        raise CloudAgentError("Progress event exceeds size limit")
+                    event = json.loads(line.decode("utf-8"))
+                    if not isinstance(event, dict):
+                        raise CloudAgentError("Progress event must be an object")
+                    if event.get("type") == "result":
+                        if not isinstance(event.get("data"), dict):
+                            raise CloudAgentError("Invalid final response")
+                        return event["data"]
+                    if event.get("type") == "error":
+                        raise CloudAgentError("Agent failed during progress request")
+                    if event.get("type") == "timing":
+                        print("[REMOTE_TIMING] " + json.dumps(event), flush=True)
+                    elif event.get("type") == "tool_start" and self.on_event:
+                        try:
+                            self.on_event(event)
+                        except Exception as exc:
+                            print(f"[ACK] callback failed: {type(exc).__name__}", flush=True)
+        except HTTPError as exc:
+            if exc.code in {404, 405}:
+                # Old API: no request was executed by this missing endpoint.
+                return self._post_json(self.endpoint, payload)
+            raise CloudAgentError(f"Agent progress HTTP error {exc.code}") from exc
+        except (OSError, ValueError) as exc:
+            raise CloudAgentError("Invalid or interrupted Agent progress response") from exc
+        raise CloudAgentError("Agent progress stream ended without a final result")
 
     def _post_json(
         self,
@@ -450,7 +495,8 @@ class CloudAgentClient:
         )
 
         try:
-            self._compact_pending()
+            with measure("memory_compact"):
+                self._compact_pending()
         except (
             CloudAgentError,
             RuntimeError,
@@ -466,25 +512,26 @@ class CloudAgentClient:
                 flush=True,
             )
 
-        snapshot = (
-            self.memory
-            .prepare_context()
-        )
-
-        archive_hits = (
-            self.memory
-            .search_archive(
-                command,
-                through_turn_id=(
-                    snapshot
-                    .summarized_through_turn_id
-                ),
-                limit=(
-                    self
-                    .archive_retrieval_limit
-                ),
+        with measure("memory_context"):
+            snapshot = (
+                self.memory
+                .prepare_context()
             )
-        )
+
+            archive_hits = (
+                self.memory
+                .search_archive(
+                    command,
+                    through_turn_id=(
+                        snapshot
+                        .summarized_through_turn_id
+                    ),
+                    limit=(
+                        self
+                        .archive_retrieval_limit
+                    ),
+                )
+            )
 
         archive_context = ""
 
@@ -514,6 +561,7 @@ class CloudAgentClient:
             )
 
         payload = {
+            "trace_id": trace_id.get(),
             "text": command,
             "local_identity": (
                 local_identity
@@ -543,10 +591,8 @@ class CloudAgentClient:
                 flush=True,
             )
 
-        data = self._post_json(
-            self.endpoint,
-            payload,
-        )
+        with measure("edge_http_chat"):
+            data = self._post_chat(payload)
 
         reply = str(
             data.get(

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
+from shared.timing import measure, announce
 
 from cloud.agent.tool_router import (
     TOOL_SCHEMAS,
@@ -114,6 +116,9 @@ class GLMAgent:
             )
 
         self.model = agent_cfg["model"]
+        self.route_protocol = agent_cfg.get("route_protocol", "json")
+        if self.route_protocol not in {"json", "tool"}:
+            raise ValueError("route_protocol must be json or tool")
 
         self.temperature = float(
             agent_cfg["temperature"]
@@ -375,10 +380,7 @@ class GLMAgent:
         )
 
         response = (
-            await self.client
-            .chat
-            .completions
-            .create(
+            await self._completion(stage="model_memory_compact",
                 model=self.model,
                 messages=[
                     {
@@ -1133,6 +1135,83 @@ class GLMAgent:
         }
 
 
+    async def _completion(self, *, stage="model_answer", **kwargs):
+        with measure(stage):
+            return await self.client.chat.completions.create(**kwargs)
+
+    async def _execute_tool(self, name, arguments, **kwargs):
+        announce(name)
+        with measure("tool_" + name):
+            return await self.tool_router.execute(name, arguments, **kwargs)
+
+    @staticmethod
+    def _json_route_messages(text, history, local_identity):
+        messages = GLMAgent._build_route_messages(text, history, local_identity)
+        messages[0]["content"] = messages[0]["content"].replace(
+            "调用 route_turn", "输出路由 JSON").replace("通过 route_turn", "通过路由 JSON")
+        messages[-1]["content"] = messages[-1]["content"].replace(
+            "by calling route_turn.", "by returning a JSON object.")
+        messages.append({
+            "role": "system",
+            "content": "仅输出符合以下字段定义的 JSON 对象，不执行任务，不回答用户。"
+            + json.dumps(TURN_ROUTE_SCHEMA["function"]["parameters"], ensure_ascii=False),
+        })
+        return messages
+
+    @staticmethod
+    def _validated_json_route(choice):
+        if choice.finish_reason != "stop" or choice.message.tool_calls:
+            raise ValueError("Incomplete or unexpected JSON route")
+        raw = choice.message.content or ""
+        data = json.loads(raw)
+        schema = TURN_ROUTE_SCHEMA["function"]["parameters"]
+        if not isinstance(data, dict) or set(data) - set(schema["properties"]):
+            raise ValueError("Unexpected route fields")
+        for key, value in data.items():
+            spec = schema["properties"][key]
+            kind = spec.get("type")
+            if kind == "string" and not isinstance(value, str):
+                raise ValueError("Route field must be a string")
+            if kind == "integer" and (isinstance(value, bool) or not isinstance(value, int)):
+                raise ValueError("Route field must be an integer")
+            if kind == "number" and (isinstance(value, bool) or not isinstance(value, (int, float))):
+                raise ValueError("Route field must be numeric")
+            if kind in {"number", "integer"} and (
+                    not math.isfinite(value)
+                    or value < spec.get("minimum", -math.inf)
+                    or value > spec.get("maximum", math.inf)):
+                raise ValueError("Route number outside allowed range")
+            if "enum" in spec and value not in spec["enum"]:
+                raise ValueError("Invalid route enum")
+            if isinstance(value, str) and len(value) > spec.get("maxLength", 4000):
+                raise ValueError("Route field is too long")
+        return GLMAgent._parse_turn_route_arguments(raw)
+
+    async def _route(self, text, history, local_identity):
+        common = dict(model=self.model, temperature=self.temperature,
+                      max_tokens=self.max_tokens, extra_body=self._extra_body())
+        if getattr(self, "route_protocol", "json") == "json":
+            try:
+                response = await self._completion(
+                    stage="model_route_json",
+                    messages=self._json_route_messages(text, history, local_identity),
+                    response_format={"type": "json_object"}, **common)
+                return self._validated_json_route(response.choices[0])
+            except (ValueError, BadRequestError) as exc:
+                # Routing has no side effects. One legacy retry is safe;
+                # transport/auth errors propagate instead of repeating requests.
+                print(f"[ROUTE] JSON_FALLBACK reason={type(exc).__name__}", flush=True)
+        response = await self._completion(
+            stage="model_route_tool",
+            messages=self._build_route_messages(text, history, local_identity),
+            **self._completion_tool_options(has_images=False, tool_mode="auto"), **common)
+        choice = response.choices[0]
+        calls = choice.message.tool_calls or []
+        if (choice.finish_reason not in {"tool_calls", "stop"} or len(calls) != 1
+                or calls[0].function.name != "route_turn"):
+            raise ValueError("Invalid legacy route response")
+        return self._parse_turn_route_arguments(calls[0].function.arguments or "{}")
+
     async def chat(
         self,
         text: str,
@@ -1282,98 +1361,17 @@ class GLMAgent:
             }
         )
 
-        response = (
-            await self.client
-            .chat
-            .completions
-            .create(
-                model=self.model,
-                messages=(
-                    self._build_route_messages(
-                        text,
-                        history,
-                        local_identity=(
-                            local_identity
-                        ),
-                    )
-                    if not image_data_urls
-                    else messages
-                ),
-                **(
-                    self._completion_tool_options(
-                        has_images=bool(
-                            image_data_urls
-                        ),
-                        tool_mode=tool_mode,
-                    )
-                ),
-                temperature=(
-                    self.temperature
-                ),
-                max_tokens=(
-                    self.max_tokens
-                ),
-                extra_body=(
-                    self._extra_body()
-                ),
-            )
-        )
-
-        choice = response.choices[0]
-        message = choice.message
+        if image_data_urls:
+            response = await self._completion(
+                stage="model_multimodal", model=self.model, messages=messages,
+                **self._completion_tool_options(has_images=True, tool_mode=tool_mode),
+                temperature=self.temperature, max_tokens=self.max_tokens,
+                extra_body=self._extra_body())
+            choice = response.choices[0]
+            message = choice.message
 
         if not image_data_urls:
-            if (
-                not message.tool_calls
-                or
-                len(message.tool_calls) != 1
-                or
-                message.tool_calls[0]
-                .function
-                .name
-                != "route_turn"
-            ):
-                tool_names = [
-                    call.function.name
-                    for call
-                    in (
-                        message.tool_calls
-                        or []
-                    )
-                ]
-
-                content = (
-                    message.content
-                    or ""
-                )
-
-                raise RuntimeError(
-                    "Agent violated route_turn "
-                    "protocol: "
-                    f"finish_reason="
-                    f"{choice.finish_reason}, "
-                    f"tool_count="
-                    f"{len(message.tool_calls or [])}, "
-                    f"tool_names="
-                    f"{tool_names}, "
-                    f"content_length="
-                    f"{len(content)}"
-                )
-
-            route_call = (
-                message.tool_calls[0]
-            )
-
-            route = (
-                self
-                ._parse_turn_route_arguments(
-                    route_call
-                    .function
-                    .arguments
-                    or "{}"
-                )
-            )
-
+            route = await self._route(text, history, local_identity)
             action = route[
                 "action"
             ]
@@ -1385,6 +1383,7 @@ class GLMAgent:
             )
 
             if action == "request_vision":
+                announce(action)
                 raise (
                     VisionRequestRequired(
                         route[
@@ -1401,6 +1400,7 @@ class GLMAgent:
                 "previous_music",
                 "stop_music",
             }:
+                announce(action)
                 raise MusicRequestRequired(
                     route[
                         "music_request"
@@ -1434,10 +1434,7 @@ class GLMAgent:
                 )
 
                 final_response = (
-                    await self.client
-                    .chat
-                    .completions
-                    .create(
+                    await self._completion(
                         model=self.model,
                         messages=answer_messages,
                         temperature=(
@@ -1480,7 +1477,7 @@ class GLMAgent:
             )
 
             tool_result = (
-                await self.tool_router.execute(
+                await self._execute_tool(
                     str(
                         route[
                             "tool_name"
@@ -1524,10 +1521,7 @@ class GLMAgent:
             )
 
             routed_final = (
-                await self.client
-                .chat
-                .completions
-                .create(
+                await self._completion(
                     model=self.model,
                     messages=answer_messages,
                     temperature=(
@@ -1655,7 +1649,7 @@ class GLMAgent:
                 arguments = {}
 
             result = (
-                await self.tool_router.execute(
+                await self._execute_tool(
                     tool_call.function.name,
                     arguments,
                     budget=tool_budget,
@@ -1678,10 +1672,7 @@ class GLMAgent:
             )
 
         final_response = (
-            await self.client
-            .chat
-            .completions
-            .create(
+            await self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=(

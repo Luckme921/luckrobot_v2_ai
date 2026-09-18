@@ -1331,3 +1331,9 @@ Validation after the TTS and identity runtime work:
 - 69 repository tests passing
 - compileall passed
 - git diff --check passed
+
+
+## Conversation latency development branch
+
+Windows implementation and rollback controls: [CONVERSATION_LATENCY.md](CONVERSATION_LATENCY.md).
+This is a development change; Jetson production has not been switched.

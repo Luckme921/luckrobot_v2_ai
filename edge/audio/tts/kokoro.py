@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from shared.timing import record, turn_started, trace_id
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -464,6 +465,15 @@ class KokoroTts:
         )
 
         started = time.monotonic()
+        turn_origin = turn_started.get()
+        current_trace = trace_id.get()
+
+        def report_first_audio():
+            record("tts_first_callback", time.monotonic() - started,
+                   trace_id=current_trace)
+            if turn_origin is not None:
+                record("turn_to_first_generated_audio", time.monotonic() - turn_origin,
+                       trace_id=current_trace)
 
         first_audio_latency = None
         callback_batches = 0
@@ -488,6 +498,7 @@ class KokoroTts:
                     time.monotonic()
                     - started
                 )
+                report_first_audio()
 
             pcm = (
                 np.clip(
@@ -541,6 +552,7 @@ class KokoroTts:
                         time.monotonic()
                         - started
                     )
+                    report_first_audio()
 
                 pcm = (
                     np.clip(

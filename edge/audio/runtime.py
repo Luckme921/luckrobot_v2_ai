@@ -12,6 +12,8 @@ from edge.music.personal_library import (
 )
 
 import argparse
+from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
+from shared.timing import begin_turn, measure, record, turn_started
 from pathlib import Path
 import subprocess
 import threading
@@ -178,6 +180,7 @@ def main() -> None:
 
     if agent_bridge_enabled:
         agent_client = CloudAgentClient(
+            progress_enabled=bool(agent_bridge_cfg.get("progress_enabled", True)),
             endpoint=str(
                 agent_bridge_cfg[
                     "endpoint"
@@ -684,38 +687,8 @@ def main() -> None:
 
     tts = None
 
-    # Slow-path acknowledgement.
-    #
-    # Do not speak immediately on KWS wake:
-    # that could interrupt a user saying
-    # "Lucky，放首歌" as one continuous phrase.
-    #
-    # Instead, acknowledge only after the full
-    # command has been recognized and only when
-    # it is about to enter the slower Agent path.
-    ack_enabled = bool(
-        tts_cfg.get(
-            "acknowledgement_enabled",
-            True,
-        )
-    )
-
-    ack_general_text = str(
-        tts_cfg.get(
-            "acknowledgement_general_text",
-            "好的，我思考一下。",
-        )
-    ).strip()
-
-    ack_music_text = str(
-        tts_cfg.get(
-            "acknowledgement_music_text",
-            "好的。",
-        )
-    ).strip()
-
-    ack_general_clip_path = None
-    ack_music_clip_path = None
+    ack_enabled = bool(tts_cfg.get("acknowledgement_enabled", True))
+    ack_clips = {}
 
     if tts_enabled:
         provider = str(
@@ -747,73 +720,14 @@ def main() -> None:
                 )
 
                 if ack_enabled:
-                    try:
-                        for (
-                            ack_kind,
-                            ack_value,
-                            ack_path,
-                        ) in (
-                            (
-                                "general",
-                                ack_general_text,
-                                Path(
-                                    "/dev/shm/"
-                                    "luckrobot_ack_general.wav"
-                                ),
-                            ),
-                            (
-                                "music",
-                                ack_music_text,
-                                Path(
-                                    "/dev/shm/"
-                                    "luckrobot_ack_music.wav"
-                                ),
-                            ),
-                        ):
-                            if not ack_value:
-                                continue
-
-                            chunk = tts._generate(
-                                ack_value
-                            )
-
-                            tts._write_wav(
-                                ack_path,
-                                chunk.samples,
-                                chunk.sample_rate,
-                            )
-
-                            if (
-                                ack_kind
-                                == "general"
-                            ):
-                                ack_general_clip_path = (
-                                    ack_path
-                                )
-                            else:
-                                ack_music_clip_path = (
-                                    ack_path
-                                )
-
-                            print(
-                                "[INIT] Ack clip ready "
-                                f"kind={ack_kind} "
-                                f"text={ack_value!r} "
-                                f"audio="
-                                f"{len(chunk.samples) / chunk.sample_rate:.3f}s",
-                                flush=True,
-                            )
-
-                    except Exception as exc:
-                        ack_general_clip_path = None
-                        ack_music_clip_path = None
-
-                        print(
-                            "[ACK] INIT_ERROR "
-                            f"{type(exc).__name__}: "
-                            f"{exc}",
-                            flush=True,
-                        )
+                    for action, phrase in PHRASES.items():
+                        try:
+                            path = Path("/dev/shm") / f"luckrobot_ack_{action}.wav"
+                            chunk = tts._generate(phrase)
+                            tts._write_wav(path, chunk.samples, chunk.sample_rate)
+                            ack_clips[action] = path
+                        except Exception as exc:
+                            print(f"[ACK] INIT_ERROR action={action} error={type(exc).__name__}", flush=True)
 
                 print(
                     "[INIT] Kokoro TTS "
@@ -835,6 +749,12 @@ def main() -> None:
                 )
 
                 tts = None
+
+    acknowledgements = ToolAcknowledgement(
+        ack_clips, "<unavailable>",
+        delay_seconds=float(tts_cfg.get("acknowledgement_delay_seconds", 0.35)))
+    if agent_client is not None:
+        agent_client.on_event = acknowledgements.on_event
 
     sample_rate = int(
         audio_cfg["sample_rate"]
@@ -1374,12 +1294,15 @@ def main() -> None:
                                 time.monotonic()
                             )
 
-                            text = (
-                                asr.transcribe(
-                                    asr_samples,
-                                    sample_rate,
+                            begin_turn()
+                            record("vad_buffer_after_segment", vad.last_endpoint_buffer_seconds)
+                            with measure("asr"):
+                                text = (
+                                    asr.transcribe(
+                                        asr_samples,
+                                        sample_rate,
+                                    )
                                 )
-                            )
 
                             elapsed = (
                                 time.monotonic()
@@ -1500,7 +1423,8 @@ def main() -> None:
 
                                     # Same half-duplex policy
                                     # as normal Agent replies.
-                                    capture.stop()
+                                    with measure("capture_stop"):
+                                        capture.stop()
 
                                     playback_happened = (
                                         False
@@ -1560,12 +1484,14 @@ def main() -> None:
                                                 flush=True,
                                             )
 
-                                            tts_result = (
-                                                tts.speak(
-                                                    local_reply,
-                                                    speaker,
+                                            acknowledgements.finish()
+                                            with measure("tts_total"):
+                                                tts_result = (
+                                                    tts.speak(
+                                                        local_reply,
+                                                        speaker,
+                                                    )
                                                 )
-                                            )
 
                                             playback_happened = (
                                                 True
@@ -1672,13 +1598,14 @@ def main() -> None:
                                         and
                                         vision_camera.running
                                     ):
-                                        turn_vision_snapshot = (
-                                            capture_turn_snapshot(
-                                                vision_camera.ring,
-                                                recent_seconds=6.0,
-                                                recent_count=16,
+                                        with measure("vision_snapshot"):
+                                            turn_vision_snapshot = (
+                                                capture_turn_snapshot(
+                                                    vision_camera.ring,
+                                                    recent_seconds=6.0,
+                                                    recent_count=16,
+                                                )
                                             )
-                                        )
 
                                         print(
                                             "[VISION] TURN_SNAPSHOT "
@@ -1694,99 +1621,11 @@ def main() -> None:
                                     # while local perception and
                                     # the Cloud Agent process
                                     # this command.
-                                    capture.stop()
+                                    with measure("capture_stop"):
+                                        capture.stop()
 
-                                    # Immediate audible confirmation
-                                    # for slower work. This WAV was
-                                    # generated once at startup, so
-                                    # there is no per-turn Kokoro
-                                    # synthesis delay.
-                                    ack_command_text = str(
-                                        decision.command
-                                        or ""
-                                    ).casefold()
-
-                                    ack_is_music = any(
-                                        token
-                                        in ack_command_text
-                                        for token in (
-                                            "歌",
-                                            "音乐",
-                                            "dj",
-                                            "播放",
-                                            "暂停",
-                                            "下一首",
-                                            "上一首",
-                                            "切歌",
-                                        )
-                                    )
-
-                                    ack_selected_text = (
-                                        ack_music_text
-                                        if ack_is_music
-                                        else ack_general_text
-                                    )
-
-                                    ack_selected_path = (
-                                        ack_music_clip_path
-                                        if ack_is_music
-                                        else ack_general_clip_path
-                                    )
-
-                                    if (
-                                        ack_enabled
-                                        and
-                                        ack_selected_path
-                                        is not None
-                                        and
-                                        ack_selected_path.exists()
-                                        and
-                                        speaker
-                                        != "<unavailable>"
-                                    ):
-                                        ack_t0 = (
-                                            time.monotonic()
-                                        )
-
-                                        try:
-                                            subprocess.run(
-                                                [
-                                                    "paplay",
-                                                    (
-                                                        "--device="
-                                                        f"{speaker}"
-                                                    ),
-                                                    str(
-                                                        ack_selected_path
-                                                    ),
-                                                ],
-                                                check=True,
-                                                stdout=(
-                                                    subprocess.DEVNULL
-                                                ),
-                                                stderr=(
-                                                    subprocess.PIPE
-                                                ),
-                                            )
-
-                                            print(
-                                                "[ACK] OK "
-                                                f"text={ack_selected_text!r} "
-                                                f"wall="
-                                                f"{time.monotonic() - ack_t0:.3f}s",
-                                                flush=True,
-                                            )
-
-                                        except (
-                                            OSError,
-                                            subprocess.CalledProcessError,
-                                        ) as exc:
-                                            print(
-                                                "[ACK] ERROR "
-                                                f"{type(exc).__name__}: "
-                                                f"{exc}",
-                                                flush=True,
-                                            )
+                                    acknowledgements.sink = speaker
+                                    acknowledgements.begin_turn()
 
                                     # One semantic identity state is
                                     # frozen for this complete turn.
@@ -1808,42 +1647,43 @@ def main() -> None:
                                         )
 
                                         try:
-                                            identity_result = (
-                                                classify_turn_identity(
-                                                    turn_vision_snapshot,
-                                                    identity_scorer,
-                                                    sample_count=int(
-                                                        identity_cfg.get(
-                                                            "sample_count",
-                                                            5,
-                                                        )
-                                                    ),
-                                                    required_votes=int(
-                                                        identity_cfg.get(
-                                                            "required_votes",
-                                                            3,
-                                                        )
-                                                    ),
-                                                    best_threshold=float(
-                                                        identity_cfg.get(
-                                                            "best_threshold",
-                                                            0.34,
-                                                        )
-                                                    ),
-                                                    centroid_threshold=float(
-                                                        identity_cfg.get(
-                                                            "centroid_threshold",
-                                                            0.34,
-                                                        )
-                                                    ),
-                                                    min_area_ratio=float(
-                                                        identity_cfg.get(
-                                                            "min_area_ratio",
-                                                            0.01,
-                                                        )
-                                                    ),
+                                            with measure("identity"):
+                                                identity_result = (
+                                                    classify_turn_identity(
+                                                        turn_vision_snapshot,
+                                                        identity_scorer,
+                                                        sample_count=int(
+                                                            identity_cfg.get(
+                                                                "sample_count",
+                                                                5,
+                                                            )
+                                                        ),
+                                                        required_votes=int(
+                                                            identity_cfg.get(
+                                                                "required_votes",
+                                                                3,
+                                                            )
+                                                        ),
+                                                        best_threshold=float(
+                                                            identity_cfg.get(
+                                                                "best_threshold",
+                                                                0.34,
+                                                            )
+                                                        ),
+                                                        centroid_threshold=float(
+                                                            identity_cfg.get(
+                                                                "centroid_threshold",
+                                                                0.34,
+                                                            )
+                                                        ),
+                                                        min_area_ratio=float(
+                                                            identity_cfg.get(
+                                                                "min_area_ratio",
+                                                                0.01,
+                                                            )
+                                                        ),
+                                                    )
                                                 )
-                                            )
 
                                             turn_identity_state = (
                                                 identity_result.state
@@ -1903,12 +1743,13 @@ def main() -> None:
                                             is not None
                                         ):
                                             try:
-                                                fast_path_frames = (
-                                                    select_turn_snapshot_frames(
-                                                        turn_vision_snapshot,
-                                                        fast_path_request,
+                                                with measure("vision_select"):
+                                                    fast_path_frames = (
+                                                        select_turn_snapshot_frames(
+                                                            turn_vision_snapshot,
+                                                            fast_path_request,
+                                                        )
                                                     )
-                                                )
                                             except VisionSelectionError:
                                                 # Fall back to the normal
                                                 # model-driven route if the
@@ -1921,6 +1762,8 @@ def main() -> None:
                                             is not None
                                             and fast_path_frames
                                         ):
+                                            acknowledgements.on_event(
+                                                {"type": "tool_start", "action": "request_vision"})
                                             fast_path_tool_mode = (
                                                 explicit_vision_fast_path_tool_mode(
                                                     command_text
@@ -1983,6 +1826,8 @@ def main() -> None:
                                                     )
                                                 )
 
+                                            acknowledgements.on_event(
+                                                {"type": "tool_start", "action": "request_vision"})
                                             vision_request = (
                                                 agent_reply
                                                 .vision_request
@@ -2003,12 +1848,13 @@ def main() -> None:
                                                 time.monotonic()
                                             )
 
-                                            frames = (
-                                                select_turn_snapshot_frames(
-                                                    turn_vision_snapshot,
-                                                    vision_request,
+                                            with measure("vision_select"):
+                                                frames = (
+                                                    select_turn_snapshot_frames(
+                                                        turn_vision_snapshot,
+                                                        vision_request,
+                                                    )
                                                 )
-                                            )
 
                                             print(
                                                 "[VISION] "
@@ -2087,6 +1933,9 @@ def main() -> None:
                                                     "is disabled"
                                                 )
 
+                                            acknowledgements.on_event(
+                                                {"type": "tool_start",
+                                                 "action": agent_reply.music_request.action})
                                             music_t0 = (
                                                 time.monotonic()
                                             )
@@ -2391,6 +2240,7 @@ def main() -> None:
                                                 flush=True,
                                             )
 
+                                            record("tool_music", time.monotonic() - music_t0)
                                             print(
                                                 "[LATENCY] music="
                                                 f"{time.monotonic() - music_t0:.3f}s",
@@ -2426,12 +2276,14 @@ def main() -> None:
                                             )
 
                                             try:
-                                                tts_result = (
-                                                    tts.speak(
-                                                        agent_reply.text,
-                                                        speaker,
+                                                acknowledgements.finish()
+                                                with measure("tts_total"):
+                                                    tts_result = (
+                                                        tts.speak(
+                                                            agent_reply.text,
+                                                            speaker,
+                                                        )
                                                     )
-                                                )
 
                                                 playback_happened = True
 
@@ -2505,6 +2357,10 @@ def main() -> None:
                                         )
 
                                     finally:
+                                        acknowledgements.finish()
+                                        playback_happened = playback_happened or acknowledgements.played
+                                        record("turn_until_reply_finished",
+                                               time.monotonic() - turn_started.get())
                                         # Start a clean VAD
                                         # context after THINKING,
                                         # so buffered/stale audio
@@ -2588,6 +2444,7 @@ def main() -> None:
         )
 
     finally:
+        acknowledgements.finish()
         if music_controller is not None:
             music_controller.close()
 
