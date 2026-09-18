@@ -31,11 +31,20 @@ class VisionRequest:
 
 
 @dataclass(frozen=True)
+class MusicRequest:
+    action: str
+    query: str = ""
+
+
+@dataclass(frozen=True)
 class AgentReply:
     text: str
     model: str
     vision_request: (
         VisionRequest | None
+    ) = None
+    music_request: (
+        MusicRequest | None
     ) = None
 
 
@@ -124,6 +133,33 @@ class CloudAgentClient:
         self,
     ) -> None:
         self.clear_memory()
+
+    def record_completed_turn(
+        self,
+        user_text: str,
+        assistant_text: str,
+    ) -> None:
+        user_text = str(
+            user_text
+        ).strip()
+
+        assistant_text = str(
+            assistant_text
+        ).strip()
+
+        if (
+            not user_text
+            or not assistant_text
+        ):
+            raise CloudAgentError(
+                "Completed turn text "
+                "must not be empty"
+            )
+
+        self.memory.add_turn(
+            user_text,
+            assistant_text,
+        )
 
     def _post_json(
         self,
@@ -581,6 +617,66 @@ class CloudAgentClient:
                 text="",
                 model=model,
                 vision_request=request,
+            )
+
+        music_data = data.get(
+            "music_request"
+        )
+
+        if isinstance(
+            music_data,
+            dict,
+        ):
+            action = str(
+                music_data.get(
+                    "action",
+                    "",
+                )
+            ).strip()
+
+            allowed_actions = {
+                "play_music",
+                "pause_music",
+                "resume_music",
+                "next_music",
+                "previous_music",
+                "stop_music",
+            }
+
+            if action not in allowed_actions:
+                raise CloudAgentError(
+                    "Cloud Agent returned "
+                    "invalid music action"
+                )
+
+            query = str(
+                music_data.get(
+                    "query",
+                    "",
+                )
+            ).strip()
+
+            request = MusicRequest(
+                action=action,
+                query=query,
+            )
+
+            print(
+                "[MUSIC] REQUEST "
+                f"action={request.action} "
+                f"query={request.query!r}",
+                flush=True,
+            )
+
+            # Like request_vision, this is
+            # an intermediate Edge action.
+            # The local runtime executes it
+            # before the turn is completed.
+            return AgentReply(
+                text="",
+                model=model,
+                vision_request=None,
+                music_request=request,
             )
 
         if not reply:

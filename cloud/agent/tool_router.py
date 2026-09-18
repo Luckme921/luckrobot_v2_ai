@@ -154,7 +154,13 @@ TURN_ROUTE_SCHEMA = {
             "普通聊天选择 respond_text；"
             "需要观察当前或最近现实画面选择 request_vision；"
             "需要最新互联网信息选择 web_search；"
-            "明确要求机器人前往地点选择 navigate_to。"
+            "明确要求机器人前往地点选择 navigate_to；"
+            "播放歌曲选择 play_music；"
+            "暂停音乐选择 pause_music；"
+            "继续音乐选择 resume_music；"
+            "切换下一首选择 next_music；"
+            "切换上一首选择 previous_music；"
+            "停止音乐选择 stop_music。"
             "历史视觉描述不能替代当前回合新的视觉证据。"
         ),
         "parameters": {
@@ -167,6 +173,12 @@ TURN_ROUTE_SCHEMA = {
                         "request_vision",
                         "web_search",
                         "navigate_to",
+                        "play_music",
+                        "pause_music",
+                        "resume_music",
+                        "next_music",
+                        "previous_music",
+                        "stop_music",
                     ],
                 },
                 "vision_mode": {
@@ -202,6 +214,15 @@ TURN_ROUTE_SCHEMA = {
                 },
                 "location": {
                     "type": "string",
+                },
+                "music_query": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": (
+                        "play_music 时使用。"
+                        "保留用户要求的歌手、歌名"
+                        "或其他音乐搜索关键词。"
+                    ),
                 },
             },
             "required": [

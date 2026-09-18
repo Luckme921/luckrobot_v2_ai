@@ -282,17 +282,6 @@ class KokoroTts:
                 check=True,
             )
 
-            subprocess.run(
-                [
-                    "pactl",
-                    "set-sink-volume",
-                    sink,
-                    (
-                        f"{self.volume_percent}%"
-                    ),
-                ],
-                check=True,
-            )
 
         except (
             OSError,

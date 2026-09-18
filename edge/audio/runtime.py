@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+from edge.audio.volume import (
+    PulseVolumeController,
+    PulseVolumeError,
+    parse_volume_command,
+    volume_reply,
+)
+
+from edge.music.personal_library import (
+    QQMusicPersonalLibrary,
+)
+
 import argparse
 from pathlib import Path
 import subprocess
+import threading
 import time
 
 import numpy as np
@@ -36,6 +48,10 @@ from edge.audio.wake.kws import (
 )
 from edge.audio.wake.session import (
     InteractionGate,
+)
+from edge.music.qqmusic import (
+    QQMusicController,
+    QQMusicError,
 )
 from edge.vision.camera import (
     CameraError,
@@ -207,6 +223,308 @@ def main() -> None:
             ),
         )
 
+    music_cfg = config.get(
+        "music",
+        {},
+    )
+
+    music_controller = None
+    music_library = None
+    music_prewarm_thread = None
+    music_playing = False
+
+    if bool(
+        music_cfg.get(
+            "enabled",
+            False,
+        )
+    ):
+        music_provider = str(
+            music_cfg.get(
+                "provider",
+                "qqmusic",
+            )
+        ).strip().lower()
+
+        if music_provider != "qqmusic":
+            print(
+                "[MUSIC] INIT_ERROR "
+                f"unsupported provider="
+                f"{music_provider}",
+                flush=True,
+            )
+        else:
+            repo_root = (
+                Path(__file__)
+                .resolve()
+                .parents[2]
+            )
+
+            profile_path = Path(
+                str(
+                    music_cfg.get(
+                        "profile_path",
+                        (
+                            "private/"
+                            "qqmusic-firefox"
+                        ),
+                    )
+                )
+            ).expanduser()
+
+            if not profile_path.is_absolute():
+                profile_path = (
+                    repo_root
+                    / profile_path
+                )
+
+            music_controller = (
+                QQMusicController(
+                    profile_path=(
+                        profile_path
+                    ),
+                    firefox_binary=str(
+                        music_cfg.get(
+                            "firefox_binary",
+                            "/usr/bin/firefox",
+                        )
+                    ),
+                    geckodriver_path=str(
+                        music_cfg.get(
+                            "geckodriver_path",
+                            "/usr/local/bin/geckodriver",
+                        )
+                    ),
+                    headless=bool(
+                        music_cfg.get(
+                            "headless",
+                            True,
+                        )
+                    ),
+                    timeout_seconds=float(
+                        music_cfg.get(
+                            "timeout_seconds",
+                            30.0,
+                        )
+                    ),
+                    speaker_match_any=list(
+                        audio_cfg[
+                            "speaker"
+                        ][
+                            "match_any"
+                        ]
+                    ),
+                )
+            )
+
+            print(
+                "[INIT] QQ Music "
+                "controller ready "
+                f"profile={profile_path}",
+                flush=True,
+            )
+
+            music_library = (
+                QQMusicPersonalLibrary(
+                    music_controller,
+                    cache_path=(
+                        repo_root
+                        / "private"
+                        / "qqmusic-library.json"
+                    ),
+                )
+            )
+
+            cached_playlists = (
+                music_library.data.get(
+                    "playlists",
+                    {},
+                )
+            )
+
+            cached_song_rows = sum(
+                len(
+                    playlist.get(
+                        "songs",
+                        [],
+                    )
+                )
+                for playlist
+                in cached_playlists.values()
+            )
+
+            print(
+                "[INIT] Personal music "
+                "library ready "
+                f"playlists="
+                f"{len(cached_playlists)} "
+                f"song_rows="
+                f"{cached_song_rows}",
+                flush=True,
+            )
+
+            if bool(
+                music_cfg.get(
+                    "prewarm",
+                    True,
+                )
+            ):
+                def _prewarm_music():
+                    t0 = time.monotonic()
+
+                    print(
+                        "[MUSIC] PREWARM_START",
+                        flush=True,
+                    )
+
+                    try:
+                        status = (
+                            music_controller
+                            .prewarm()
+                        )
+
+                    except Exception as exc:
+                        print(
+                            "[MUSIC] PREWARM_ERROR "
+                            f"{type(exc).__name__}: "
+                            f"{exc}",
+                            flush=True,
+                        )
+
+                    else:
+                        print(
+                            "[MUSIC] PREWARM_OK "
+                            f"seconds="
+                            f"{time.monotonic() - t0:.3f} "
+                            f"status={status}",
+                            flush=True,
+                        )
+
+                        if (
+                            music_library
+                            is None
+                        ):
+                            return
+
+                        refresh_enabled = bool(
+                            music_cfg.get(
+                                "library_refresh_enabled",
+                                True,
+                            )
+                        )
+
+                        if not refresh_enabled:
+                            print(
+                                "[MUSIC] "
+                                "PERSONAL_REFRESH_DISABLED",
+                                flush=True,
+                            )
+                            return
+
+                        try:
+                            refresh_interval = float(
+                                music_cfg.get(
+                                    "library_refresh_interval_seconds",
+                                    3600.0,
+                                )
+                            )
+                        except (
+                            TypeError,
+                            ValueError,
+                        ):
+                            refresh_interval = 3600.0
+
+                        print(
+                            "[MUSIC] "
+                            "PERSONAL_REFRESH_BACKGROUND "
+                            f"interval="
+                            f"{refresh_interval:.0f}s",
+                            flush=True,
+                        )
+
+                        while True:
+                            refresh_t0 = (
+                                time.monotonic()
+                            )
+
+                            print(
+                                "[MUSIC] "
+                                "PERSONAL_REFRESH_START",
+                                flush=True,
+                            )
+
+                            try:
+                                refreshed = (
+                                    music_library
+                                    .refresh_all()
+                                )
+
+                            except Exception as exc:
+                                print(
+                                    "[MUSIC] "
+                                    "PERSONAL_REFRESH_ERROR "
+                                    f"{type(exc).__name__}: "
+                                    f"{exc}",
+                                    flush=True,
+                                )
+
+                            else:
+                                playlists = (
+                                    refreshed.get(
+                                        "playlists",
+                                        {},
+                                    )
+                                )
+
+                                song_rows = sum(
+                                    len(
+                                        item.get(
+                                            "songs",
+                                            [],
+                                        )
+                                    )
+                                    for item
+                                    in playlists.values()
+                                )
+
+                                print(
+                                    "[MUSIC] "
+                                    "PERSONAL_REFRESH_OK "
+                                    f"seconds="
+                                    f"{time.monotonic() - refresh_t0:.3f} "
+                                    f"playlists="
+                                    f"{len(playlists)} "
+                                    f"song_rows="
+                                    f"{song_rows}",
+                                    flush=True,
+                                )
+
+                            # <= 0 means refresh once
+                            # after prewarm, then stop.
+                            if (
+                                refresh_interval
+                                <= 0
+                            ):
+                                break
+
+                            time.sleep(
+                                max(
+                                    60.0,
+                                    refresh_interval,
+                                )
+                            )
+
+
+                music_prewarm_thread = (
+                    threading.Thread(
+                        target=_prewarm_music,
+                        name="qqmusic-prewarm",
+                        daemon=True,
+                    )
+                )
+
+                music_prewarm_thread.start()
+
     vision_camera = None
 
     if bool(
@@ -366,6 +684,39 @@ def main() -> None:
 
     tts = None
 
+    # Slow-path acknowledgement.
+    #
+    # Do not speak immediately on KWS wake:
+    # that could interrupt a user saying
+    # "Lucky，放首歌" as one continuous phrase.
+    #
+    # Instead, acknowledge only after the full
+    # command has been recognized and only when
+    # it is about to enter the slower Agent path.
+    ack_enabled = bool(
+        tts_cfg.get(
+            "acknowledgement_enabled",
+            True,
+        )
+    )
+
+    ack_general_text = str(
+        tts_cfg.get(
+            "acknowledgement_general_text",
+            "好的，我思考一下。",
+        )
+    ).strip()
+
+    ack_music_text = str(
+        tts_cfg.get(
+            "acknowledgement_music_text",
+            "好的。",
+        )
+    ).strip()
+
+    ack_general_clip_path = None
+    ack_music_clip_path = None
+
     if tts_enabled:
         provider = str(
             tts_cfg.get(
@@ -394,6 +745,75 @@ def main() -> None:
                 tts = KokoroTts(
                     tts_cfg
                 )
+
+                if ack_enabled:
+                    try:
+                        for (
+                            ack_kind,
+                            ack_value,
+                            ack_path,
+                        ) in (
+                            (
+                                "general",
+                                ack_general_text,
+                                Path(
+                                    "/dev/shm/"
+                                    "luckrobot_ack_general.wav"
+                                ),
+                            ),
+                            (
+                                "music",
+                                ack_music_text,
+                                Path(
+                                    "/dev/shm/"
+                                    "luckrobot_ack_music.wav"
+                                ),
+                            ),
+                        ):
+                            if not ack_value:
+                                continue
+
+                            chunk = tts._generate(
+                                ack_value
+                            )
+
+                            tts._write_wav(
+                                ack_path,
+                                chunk.samples,
+                                chunk.sample_rate,
+                            )
+
+                            if (
+                                ack_kind
+                                == "general"
+                            ):
+                                ack_general_clip_path = (
+                                    ack_path
+                                )
+                            else:
+                                ack_music_clip_path = (
+                                    ack_path
+                                )
+
+                            print(
+                                "[INIT] Ack clip ready "
+                                f"kind={ack_kind} "
+                                f"text={ack_value!r} "
+                                f"audio="
+                                f"{len(chunk.samples) / chunk.sample_rate:.3f}s",
+                                flush=True,
+                            )
+
+                    except Exception as exc:
+                        ack_general_clip_path = None
+                        ack_music_clip_path = None
+
+                        print(
+                            "[ACK] INIT_ERROR "
+                            f"{type(exc).__name__}: "
+                            f"{exc}",
+                            flush=True,
+                        )
 
                 print(
                     "[INIT] Kokoro TTS "
@@ -589,6 +1009,11 @@ def main() -> None:
 
             vision_camera.stop()
             vision_camera = None
+
+    print(
+        "[MUSIC] PREWARM_BACKGROUND",
+        flush=True,
+    )
 
     state = None
 
@@ -842,6 +1267,36 @@ def main() -> None:
 
                             if keyword:
                                 if (
+                                    music_controller
+                                    is not None
+                                    and
+                                    music_playing
+                                ):
+                                    try:
+                                        wake_track = (
+                                            music_controller
+                                            .pause()
+                                        )
+
+                                        music_playing = False
+
+                                        print(
+                                            "[MUSIC] "
+                                            "WAKE_PAUSE "
+                                            f"track="
+                                            f"{wake_track!r}",
+                                            flush=True,
+                                        )
+
+                                    except QQMusicError as exc:
+                                        print(
+                                            "[MUSIC] "
+                                            "WAKE_PAUSE_ERROR "
+                                            f"{exc}",
+                                            flush=True,
+                                        )
+
+                                if (
                                     agent_client
                                     is not None
                                 ):
@@ -1022,7 +1477,185 @@ def main() -> None:
                                     flush=True,
                                 )
 
+                                volume_command = (
+                                    parse_volume_command(
+                                        decision.command
+                                        or ""
+                                    )
+                                )
+
                                 if (
+                                    volume_command
+                                    is not None
+                                ):
+                                    volume_t0 = (
+                                        time.monotonic()
+                                    )
+
+                                    print(
+                                        "[STATE] "
+                                        "LOCAL_CONTROL",
+                                        flush=True,
+                                    )
+
+                                    # Same half-duplex policy
+                                    # as normal Agent replies.
+                                    capture.stop()
+
+                                    playback_happened = (
+                                        False
+                                    )
+
+                                    try:
+                                        volume_controller = (
+                                            PulseVolumeController(
+                                                speaker_match_any=list(
+                                                    audio_cfg[
+                                                        "speaker"
+                                                    ][
+                                                        "match_any"
+                                                    ]
+                                                ),
+                                                step_percent=10,
+                                                max_percent=100,
+                                            )
+                                        )
+
+                                        percent = (
+                                            volume_controller
+                                            .execute(
+                                                volume_command
+                                            )
+                                        )
+
+                                        local_reply = (
+                                            volume_reply(
+                                                volume_command,
+                                                percent,
+                                            )
+                                        )
+
+                                        print(
+                                            "[VOLUME] EXECUTED "
+                                            f"action="
+                                            f"{volume_command.action} "
+                                            f"percent={percent}",
+                                            flush=True,
+                                        )
+
+                                        print(
+                                            "[LOCAL_REPLY] "
+                                            f"{local_reply}",
+                                            flush=True,
+                                        )
+
+                                        if (
+                                            tts is not None
+                                            and speaker
+                                            != "<unavailable>"
+                                        ):
+                                            print(
+                                                "[STATE] "
+                                                "SPEAKING",
+                                                flush=True,
+                                            )
+
+                                            tts_result = (
+                                                tts.speak(
+                                                    local_reply,
+                                                    speaker,
+                                                )
+                                            )
+
+                                            playback_happened = (
+                                                True
+                                            )
+
+                                            print(
+                                                "[TTS] OK "
+                                                f"speaker_id="
+                                                f"{tts.speaker_id} "
+                                                f"generation="
+                                                f"{tts_result.generation_seconds:.3f}s "
+                                                f"audio="
+                                                f"{tts_result.audio_seconds:.3f}s "
+                                                f"sample_rate="
+                                                f"{tts_result.sample_rate}",
+                                                flush=True,
+                                            )
+
+                                        elif (
+                                            tts is not None
+                                        ):
+                                            print(
+                                                "[TTS] ERROR "
+                                                "speaker "
+                                                "unavailable",
+                                                flush=True,
+                                            )
+
+                                        print(
+                                            "[LATENCY] "
+                                            "volume="
+                                            f"{time.monotonic() - volume_t0:.3f}s",
+                                            flush=True,
+                                        )
+
+                                    except (
+                                        PulseVolumeError,
+                                        TtsError,
+                                    ) as exc:
+                                        print(
+                                            "[VOLUME] ERROR "
+                                            f"{type(exc).__name__}: "
+                                            f"{exc}",
+                                            flush=True,
+                                        )
+
+                                    finally:
+                                        # Clean local turn
+                                        # exactly like a spoken
+                                        # Agent turn.
+                                        vad = create_vad(
+                                            vad_cfg,
+                                            sample_rate,
+                                        )
+
+                                        zero_audio_samples = 0
+
+                                        (
+                                            interaction_gate
+                                            .on_robot_reply_finished(
+                                                time.monotonic()
+                                            )
+                                        )
+
+                                        if (
+                                            playback_happened
+                                            and
+                                            post_playback_guard_seconds
+                                            > 0
+                                        ):
+                                            print(
+                                                "[AUDIO] "
+                                                "POST_TTS_GUARD "
+                                                f"{post_playback_guard_seconds:.2f}s",
+                                                flush=True,
+                                            )
+
+                                            time.sleep(
+                                                post_playback_guard_seconds
+                                            )
+
+                                        print(
+                                            "[STATE] "
+                                            "LISTENING",
+                                            flush=True,
+                                        )
+
+                                        capture.start()
+
+                                elif (
                                     agent_client
                                     is not None
                                 ):
@@ -1062,6 +1695,98 @@ def main() -> None:
                                     # the Cloud Agent process
                                     # this command.
                                     capture.stop()
+
+                                    # Immediate audible confirmation
+                                    # for slower work. This WAV was
+                                    # generated once at startup, so
+                                    # there is no per-turn Kokoro
+                                    # synthesis delay.
+                                    ack_command_text = str(
+                                        decision.command
+                                        or ""
+                                    ).casefold()
+
+                                    ack_is_music = any(
+                                        token
+                                        in ack_command_text
+                                        for token in (
+                                            "歌",
+                                            "音乐",
+                                            "dj",
+                                            "播放",
+                                            "暂停",
+                                            "下一首",
+                                            "上一首",
+                                            "切歌",
+                                        )
+                                    )
+
+                                    ack_selected_text = (
+                                        ack_music_text
+                                        if ack_is_music
+                                        else ack_general_text
+                                    )
+
+                                    ack_selected_path = (
+                                        ack_music_clip_path
+                                        if ack_is_music
+                                        else ack_general_clip_path
+                                    )
+
+                                    if (
+                                        ack_enabled
+                                        and
+                                        ack_selected_path
+                                        is not None
+                                        and
+                                        ack_selected_path.exists()
+                                        and
+                                        speaker
+                                        != "<unavailable>"
+                                    ):
+                                        ack_t0 = (
+                                            time.monotonic()
+                                        )
+
+                                        try:
+                                            subprocess.run(
+                                                [
+                                                    "paplay",
+                                                    (
+                                                        "--device="
+                                                        f"{speaker}"
+                                                    ),
+                                                    str(
+                                                        ack_selected_path
+                                                    ),
+                                                ],
+                                                check=True,
+                                                stdout=(
+                                                    subprocess.DEVNULL
+                                                ),
+                                                stderr=(
+                                                    subprocess.PIPE
+                                                ),
+                                            )
+
+                                            print(
+                                                "[ACK] OK "
+                                                f"text={ack_selected_text!r} "
+                                                f"wall="
+                                                f"{time.monotonic() - ack_t0:.3f}s",
+                                                flush=True,
+                                            )
+
+                                        except (
+                                            OSError,
+                                            subprocess.CalledProcessError,
+                                        ) as exc:
+                                            print(
+                                                "[ACK] ERROR "
+                                                f"{type(exc).__name__}: "
+                                                f"{exc}",
+                                                flush=True,
+                                            )
 
                                     # One semantic identity state is
                                     # frozen for this complete turn.
@@ -1341,6 +2066,342 @@ def main() -> None:
                                             flush=True,
                                         )
 
+                                        if (
+                                            agent_reply
+                                            .music_request
+                                            is not None
+                                        ):
+                                            music_request = (
+                                                agent_reply
+                                                .music_request
+                                            )
+
+                                            if (
+                                                music_controller
+                                                is None
+                                            ):
+                                                raise QQMusicError(
+                                                    "Music request "
+                                                    "received but "
+                                                    "music controller "
+                                                    "is disabled"
+                                                )
+
+                                            music_t0 = (
+                                                time.monotonic()
+                                            )
+
+                                            action = (
+                                                music_request
+                                                .action
+                                            )
+
+                                            if (
+                                                action
+                                                == "play_music"
+                                            ):
+                                                play_query = (
+                                                    music_request
+                                                    .query
+                                                )
+
+                                                personal_song = None
+                                                playlist_name = None
+
+                                                if (
+                                                    music_library
+                                                    is not None
+                                                ):
+                                                    # First interpret the
+                                                    # user's actual words:
+                                                    # 抒情 / 摇滚 / 小清新...
+                                                    playlist_name = (
+                                                        music_library
+                                                        .playlist_for_query(
+                                                            command_text
+                                                        )
+                                                    )
+
+                                                    # Cloud's normalized
+                                                    # music query is the
+                                                    # secondary signal.
+                                                    if (
+                                                        playlist_name
+                                                        is None
+                                                    ):
+                                                        playlist_name = (
+                                                            music_library
+                                                            .playlist_for_query(
+                                                                play_query
+                                                            )
+                                                        )
+
+                                                    if (
+                                                        playlist_name
+                                                        is not None
+                                                    ):
+                                                        personal_song = (
+                                                            music_library
+                                                            .random_song(
+                                                                playlist_name
+                                                            )
+                                                        )
+
+                                                        print(
+                                                            "[MUSIC] "
+                                                            "PERSONAL_ROUTE "
+                                                            "mode=playlist "
+                                                            f"playlist="
+                                                            f"{playlist_name!r} "
+                                                            f"title="
+                                                            f"{personal_song.title!r} "
+                                                            f"artists="
+                                                            f"{personal_song.artist_text!r} "
+                                                            f"mid="
+                                                            f"{personal_song.mid}",
+                                                            flush=True,
+                                                        )
+
+                                                    elif (
+                                                        music_library
+                                                        .is_random_request(
+                                                            command_text
+                                                        )
+                                                        or
+                                                        music_library
+                                                        .is_random_request(
+                                                            play_query
+                                                        )
+                                                    ):
+                                                        personal_song = (
+                                                            music_library
+                                                            .random_song()
+                                                        )
+
+                                                        print(
+                                                            "[MUSIC] "
+                                                            "PERSONAL_ROUTE "
+                                                            "mode=random",
+                                                            flush=True,
+                                                        )
+
+                                                    else:
+                                                        personal_song = (
+                                                            music_library
+                                                            .best_match(
+                                                                play_query
+                                                            )
+                                                        )
+
+                                                        if (
+                                                            personal_song
+                                                            is not None
+                                                        ):
+                                                            print(
+                                                                "[MUSIC] "
+                                                                "PERSONAL_ROUTE "
+                                                                "mode=song "
+                                                                f"playlist="
+                                                                f"{personal_song.playlist_name!r} "
+                                                                f"title="
+                                                                f"{personal_song.title!r} "
+                                                                f"score="
+                                                                f"{personal_song.score:.2f} "
+                                                                f"mid="
+                                                                f"{personal_song.mid}",
+                                                                flush=True,
+                                                            )
+
+                                                if (
+                                                    personal_song
+                                                    is not None
+                                                ):
+                                                    personal_query = (
+                                                        " ".join(
+                                                            [
+                                                                *personal_song.artists,
+                                                                personal_song.title,
+                                                            ]
+                                                        )
+                                                        .strip()
+                                                    )
+
+                                                    track = (
+                                                        music_controller
+                                                        .play(
+                                                            personal_query,
+                                                            preferred_mid=(
+                                                                personal_song.mid
+                                                            ),
+                                                        )
+                                                    )
+
+                                                else:
+                                                    print(
+                                                        "[MUSIC] "
+                                                        "PERSONAL_MISS "
+                                                        "fallback=global "
+                                                        f"query={play_query!r}",
+                                                        flush=True,
+                                                    )
+
+                                                    track = (
+                                                        music_controller
+                                                        .play(
+                                                            play_query
+                                                        )
+                                                    )
+
+                                                music_message = (
+                                                    "正在播放"
+                                                    f"{track}。"
+                                                )
+
+                                            elif (
+                                                action
+                                                == "pause_music"
+                                            ):
+                                                track = (
+                                                    music_controller
+                                                    .pause()
+                                                )
+
+                                                music_message = (
+                                                    "已暂停音乐。"
+                                                )
+
+                                            elif (
+                                                action
+                                                == "resume_music"
+                                            ):
+                                                track = (
+                                                    music_controller
+                                                    .resume()
+                                                )
+
+                                                music_message = (
+                                                    "继续播放"
+                                                    f"{track}。"
+                                                )
+
+                                            elif (
+                                                action
+                                                == "next_music"
+                                            ):
+                                                track = (
+                                                    music_controller
+                                                    .next()
+                                                )
+
+                                                music_message = (
+                                                    "已切换到"
+                                                    f"{track}。"
+                                                )
+
+                                            elif (
+                                                action
+                                                == "previous_music"
+                                            ):
+                                                track = (
+                                                    music_controller
+                                                    .previous()
+                                                )
+
+                                                music_message = (
+                                                    "已切换到"
+                                                    f"{track}。"
+                                                )
+
+                                            elif (
+                                                action
+                                                == "stop_music"
+                                            ):
+                                                track = (
+                                                    music_controller
+                                                    .stop()
+                                                )
+
+                                                music_message = (
+                                                    "已停止音乐。"
+                                                )
+
+                                            else:
+                                                raise QQMusicError(
+                                                    "Unsupported "
+                                                    "music action: "
+                                                    f"{action}"
+                                                )
+
+                                            if action in {
+                                                "play_music",
+                                                "resume_music",
+                                                "next_music",
+                                                "previous_music",
+                                            }:
+                                                music_playing = True
+
+                                            elif action in {
+                                                "pause_music",
+                                                "stop_music",
+                                            }:
+                                                music_playing = False
+
+                                            (
+                                                agent_client
+                                                .record_completed_turn(
+                                                    command_text,
+                                                    music_message,
+                                                )
+                                            )
+
+                                            # Any action that leaves
+                                            # music actively playing
+                                            # must immediately return
+                                            # the interaction gate to
+                                            # sleeping mode.
+                                            #
+                                            # Otherwise speaker audio
+                                            # can feed back into the
+                                            # microphone and song lyrics
+                                            # may be interpreted as
+                                            # follow-up user commands.
+                                            if music_playing:
+                                                (
+                                                    interaction_gate
+                                                    .reset()
+                                                )
+
+                                                if wake_kws:
+                                                    wake_stream = (
+                                                        wake_kws
+                                                        .create_stream()
+                                                    )
+
+                                                print(
+                                                    "[STATE] SLEEPING "
+                                                    "reason="
+                                                    "music_playback",
+                                                    flush=True,
+                                                )
+
+                                            print(
+                                                "[MUSIC] EXECUTED "
+                                                f"action={action} "
+                                                f"track={track!r}",
+                                                flush=True,
+                                            )
+
+                                            print(
+                                                "[LATENCY] music="
+                                                f"{time.monotonic() - music_t0:.3f}s",
+                                                flush=True,
+                                            )
+
+                                            # Music itself is the
+                                            # acknowledgement.
+                                            # Do not speak TTS over it.
+                                            continue
+
                                         print(
                                             "[AGENT_REPLY] "
                                             f"{agent_reply.text}",
@@ -1427,9 +2488,18 @@ def main() -> None:
                                     except (
                                         CloudAgentError,
                                         VisionSelectionError,
+                                        QQMusicError,
                                     ) as exc:
                                         print(
                                             "[AGENT] ERROR "
+                                            f"{exc}",
+                                            flush=True,
+                                        )
+
+                                    except Exception as exc:
+                                        print(
+                                            "[AGENT] ERROR "
+                                            f"{type(exc).__name__}: "
                                             f"{exc}",
                                             flush=True,
                                         )
@@ -1518,6 +2588,14 @@ def main() -> None:
         )
 
     finally:
+        if music_controller is not None:
+            music_controller.close()
+
+            print(
+                "[MUSIC] CONTROLLER_STOPPED",
+                flush=True,
+            )
+
         if vision_camera is not None:
             vision_camera.stop()
 

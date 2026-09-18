@@ -117,6 +117,15 @@ agent_bridge:
   memory_db_path: private/memory/conversation.sqlite3
   compact_batch_turns: 100
   archive_retrieval_limit: 6
+music:
+  enabled: true
+  provider: qqmusic
+  profile_path: private/qqmusic-firefox
+  firefox_binary: /usr/bin/firefox
+  timeout_seconds: 30.0
+  prewarm: true
+  headless: true
+
 tts:
   enabled: true
   provider: kokoro

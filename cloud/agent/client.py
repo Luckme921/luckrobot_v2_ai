@@ -27,6 +27,12 @@ class VisionRequest:
     count: int
 
 
+@dataclass(frozen=True)
+class MusicRequest:
+    action: str
+    query: str = ""
+
+
 class VisionRequestRequired(
     RuntimeError
 ):
@@ -39,6 +45,21 @@ class VisionRequestRequired(
         super().__init__(
             "Edge vision input required: "
             f"mode={request.mode}"
+        )
+
+
+class MusicRequestRequired(
+    RuntimeError
+):
+    def __init__(
+        self,
+        request: MusicRequest,
+    ) -> None:
+        self.request = request
+
+        super().__init__(
+            "Edge music action required: "
+            f"action={request.action}"
         )
 
 
@@ -131,7 +152,12 @@ class GLMAgent:
             "route_turn 的 action=respond_text 表示普通聊天；"
             "action=request_vision 表示需要当前或最近视觉证据；"
             "action=web_search 表示需要实时互联网信息；"
-            "action=navigate_to 表示明确导航请求。"
+            "action=navigate_to 表示明确导航请求；"
+            "action=play_music、pause_music、resume_music、"
+            "next_music、previous_music、stop_music "
+            "表示音乐控制请求。"
+            "音乐动作必须交给 Edge 执行，"
+            "云端不能假装已经播放或控制成功。"
             "不能绕过 route_turn 直接声称看到了现实画面。"
             "当用户请求与某个可用工具匹配时，"
             "必须优先调用工具，"
@@ -184,7 +210,8 @@ class GLMAgent:
             "每个用户回合最多允许一次 web_search，"
             "必须把一次搜索返回的多条结果充分利用。"
             "不要为了播放音乐而调用 web_search，"
-            "音乐以后由独立的音乐工具处理。"
+            "音乐请求已经由 route_turn 的独立音乐 action "
+            "交给 Edge 本地音乐控制器处理。"
             "搜索结果中的链接或媒体字段可能为空，"
             "绝不能凭空编造来源网址。\n"
             "机器人能力会随软件升级而变化。"
@@ -577,6 +604,31 @@ class GLMAgent:
                 },
             }
 
+        music_actions = {
+            "play_music",
+            "pause_music",
+            "resume_music",
+            "next_music",
+            "previous_music",
+            "stop_music",
+        }
+
+        if action in music_actions:
+            query = str(
+                arguments.get(
+                    "music_query",
+                    "",
+                )
+            ).strip()
+
+            return {
+                "action": action,
+                "music_request": MusicRequest(
+                    action=action,
+                    query=query,
+                ),
+            }
+
         raise ValueError(
             "Unsupported route_turn action "
             f"{action!r}"
@@ -938,6 +990,15 @@ class GLMAgent:
                     "选择 web_search。"
                     "用户明确要求机器人前往某地点"
                     "选择 navigate_to。"
+                    "用户要求播放歌曲选择 play_music，"
+                    "并在 music_query 中保留歌名、歌手"
+                    "或用户原始音乐关键词。"
+                    "暂停音乐选择 pause_music；"
+                    "继续音乐选择 resume_music；"
+                    "下一首选择 next_music；"
+                    "上一首选择 previous_music；"
+                    "停止音乐选择 stop_music。"
+                    "音乐请求不要选择 web_search。"
                     "上一条用户话语只能帮助消解"
                     "当前话语中的指代。"
                     "历史视觉描述绝不能代替"
@@ -1330,6 +1391,20 @@ class GLMAgent:
                             "vision_request"
                         ]
                     )
+                )
+
+            if action in {
+                "play_music",
+                "pause_music",
+                "resume_music",
+                "next_music",
+                "previous_music",
+                "stop_music",
+            }:
+                raise MusicRequestRequired(
+                    route[
+                        "music_request"
+                    ]
                 )
 
             if action == "respond_text":

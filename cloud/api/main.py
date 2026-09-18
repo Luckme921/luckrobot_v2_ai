@@ -16,6 +16,7 @@ from pydantic import (
 
 from cloud.agent.client import (
     GLMAgent,
+    MusicRequestRequired,
     VisionRequestRequired,
 )
 
@@ -222,11 +223,29 @@ class VisionRequestResponse(
     count: int
 
 
+class MusicRequestResponse(
+    BaseModel
+):
+    action: Literal[
+        "play_music",
+        "pause_music",
+        "resume_music",
+        "next_music",
+        "previous_music",
+        "stop_music",
+    ]
+    query: str = ""
+
+
 class ChatResponse(BaseModel):
     reply: str = ""
     model: str
     vision_request: (
         VisionRequestResponse
+        | None
+    ) = None
+    music_request: (
+        MusicRequestResponse
         | None
     ) = None
 
@@ -314,6 +333,20 @@ async def chat(
                         vision.seconds
                     ),
                     count=vision.count,
+                )
+            ),
+        )
+
+    except MusicRequestRequired as exc:
+        music = exc.request
+
+        return ChatResponse(
+            reply="",
+            model=agent.model,
+            music_request=(
+                MusicRequestResponse(
+                    action=music.action,
+                    query=music.query,
                 )
             ),
         )
