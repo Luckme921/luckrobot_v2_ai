@@ -134,7 +134,11 @@ tts:
   acknowledgement_enabled: true
   acknowledgement_delay_seconds: 0.35
   enabled: true
-  provider: kokoro
+  provider: edge
+  edge_voice: zh-CN-XiaoxiaoNeural
+  edge_python: private/tts-eval-venv/bin/python
+  edge_first_audio_timeout_seconds: 8
+  edge_idle_timeout_seconds: 10
   model_dir: ~/luckrobot_ai/models/tts/kokoro-multi-lang-v1_0
   speaker_id: 50
   num_threads: 6

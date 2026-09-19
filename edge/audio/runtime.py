@@ -714,7 +714,7 @@ def main() -> None:
             )
         ).strip().lower()
 
-        if provider != "kokoro":
+        if provider not in {"kokoro", "edge"}:
             print(
                 "[TTS] ERROR "
                 f"unsupported provider="
@@ -756,6 +756,11 @@ def main() -> None:
                     f"{time.monotonic() - t0:.3f}s",
                     flush=True,
                 )
+
+                if provider == "edge":
+                    from edge.audio.tts.edge_online import EdgeOnlineTts
+                    tts = EdgeOnlineTts(tts_cfg, tts)
+                    print(f"[INIT] Edge TTS ready voice={tts.voice} fallback=kokoro", flush=True)
 
             except TtsError as exc:
                 print(

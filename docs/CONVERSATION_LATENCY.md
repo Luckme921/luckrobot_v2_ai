@@ -95,3 +95,15 @@ Jetson 回归：python -B -m unittest discover -s tests -q。
 现有 Kokoro 样例 generation=7.988 秒、audio=7.503 秒，生成速度略慢于实时，可能导致供音不足的停顿。更换云端流式 TTS 可同时评估首音延迟与表现力，但网络延迟、音色和指令控制需要同文本试听；尚未更换默认引擎。
 
 在线候选：阿里云 Qwen3-TTS-Instruct-Flash-Realtime，支持流式输入输出和指令控制。文档：https://help.aliyun.com/zh/model-studio/realtime-tts-user-guide 。开源候选：FunAudioLLM/CosyVoice，https://github.com/FunAudioLLM/CosyVoice 。不应把发布方服务器延迟当成 Jetson 8GB 实测性能。下一步在线对照需在设备 .env 配置对应服务的 Key，密钥不要发到聊天。
+
+## Edge 晓晓主力与 Kokoro 回退
+
+configs/audio.yaml: tts.provider=edge，edge_voice=zh-CN-XiaoxiaoNeural。改回 provider=kokoro 可恢复原离线路径。Kokoro 仍在启动时加载并生成工具过渡语缓存；正常回答由 Edge 提供，所以过渡语和最终回复可能音色不同。
+
+edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 环境的 edge-tts 7.2.8，把 MP3 经 GStreamer 解码为 24kHz 单声道 s16le PCM；主进程持续写入 pacat，不等完整文件下载。edge_python 当前为 private/tts-eval-venv/bin/python，设备已有该环境；迁移设备须创建独立环境并安装 edge-tts==7.2.8，准备 gst-launch-1.0 的 mpegaudioparse、mpg123audiodec、audioconvert、audioresample、fdsrc/fdsink 和 pacat。
+
+首批解码 PCM 超时默认 8 秒，后续无数据默认 10 秒，总轮次上限 120 秒（检查点限制）。未向播放器提交 PCM 时失败才转 Kokoro；一旦尝试提交就禁止整句重播，避免重复讲话。回退会增加首音等待。网络合成在子进程进行，可与过渡语等待重叠；正式 PCM 提交前仍等待过渡语结束。
+
+计时 edge_first_decoded_pcm 包含进程启动、在线请求和解码；tts_first_pcm_submit 是向播放器提交首批 PCM 前的时刻，不是声学首音。Edge TtsResult 的 generation_seconds 包含网络与播放反压，不应把其 RTF 与离线纯推理 RTF 比较。当前不单独统计网络首包。
+
+在线失败日志只显示异常类型，不写回复内容或带参数的音频地址。运行 Edge 时回复文本会发给微软在线语音服务。历史对话不会整批发送。
