@@ -1373,6 +1373,8 @@ def main() -> None:
                                         flush=True,
                                     )
 
+                                print('[WAKE] Waiting for "Lucky".', flush=True)
+
                                 if wake_kws:
                                     wake_stream = (
                                         wake_kws
@@ -1936,12 +1938,12 @@ def main() -> None:
                                             )
 
                                             try:
-                                                acknowledgements.finish()
                                                 with measure("tts_total"):
                                                     tts_result = (
                                                         tts.speak(
                                                             agent_reply.text,
                                                             speaker,
+                                                            before_playback=acknowledgements.finish,
                                                         )
                                                     )
 
@@ -2056,10 +2058,10 @@ def main() -> None:
                                                 post_playback_guard_seconds
                                             )
 
-                                        print(
-                                            "[STATE] LISTENING",
-                                            flush=True,
-                                        )
+                                        if interaction_gate.state == InteractionGate.SLEEPING:
+                                            print('[WAKE] Waiting for "Lucky".', flush=True)
+                                        else:
+                                            print("[STATE] LISTENING", flush=True)
 
                                         capture.start()
 

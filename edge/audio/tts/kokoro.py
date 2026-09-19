@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import queue
 import subprocess
 import tempfile
@@ -349,6 +350,8 @@ class KokoroTts:
         self,
         text: str,
         sink: str,
+        *,
+        before_playback=None,
     ) -> TtsResult:
         # Keep the reply as one logical utterance.
         # Kokoro sees the complete text so its
@@ -417,14 +420,24 @@ class KokoroTts:
             BaseException
         ] = []
 
+        playback_context = contextvars.copy_context()
+        playback_started = time.monotonic()
+
         def playback_worker() -> None:
+            first_write = True
             try:
+                # Drain any acknowledgement while synthesis runs on the caller.
+                if before_playback is not None:
+                    before_playback()
                 while True:
                     data = audio_queue.get()
 
                     if data is None:
                         break
 
+                    if first_write:
+                        record("tts_first_pcm_submit", time.monotonic() - playback_started)
+                        first_write = False
                     player.stdin.write(
                         data
                     )
@@ -441,7 +454,7 @@ class KokoroTts:
                     pass
 
         worker = threading.Thread(
-            target=playback_worker,
+            target=lambda: playback_context.run(playback_worker),
             name="luckrobot-tts-playback",
             daemon=True,
         )

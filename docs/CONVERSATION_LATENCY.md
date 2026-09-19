@@ -83,3 +83,15 @@ Jetson 回归：python -B -m unittest discover -s tests -q。
   生产程序尚未切换，也未实测新的过渡语扬声器听感。
 - 顺带修复 SQLite 连接只提交事务、不确定性关闭的问题；
   Windows 临时数据库清理和原有记忆回归测试已通过。
+
+## 2026-09-19 状态日志与首音等待修复
+
+音乐开始播放后 finally 根据 InteractionGate 实际状态输出日志，休眠时不再打印 LISTENING，而是 Waiting for "Lucky"。用户结束对话后也补充唤醒等待提示。
+
+实测音乐候选回合：ack_drain=1.2669 秒，tts_first_callback=1.879 秒；旧链路先等待过渡语结束再合成，文本返回后额外串行等待约 3.15 秒。现在 TTS 在主线程合成，播放线程先等待过渡语结束，再提交正式音频，因此等待可重叠；不是强行截断过渡语或混音。收益需现场复测，不宣称固定降低到某个数值。
+
+新增 tts_first_pcm_submit：从播放阶段初始化到首次向 pacat 提交 PCM 的时间，含过渡语等待；它不是扬声器声学首音，也不同于 tts_first_callback（合成开始至首次音频回调）。线程继承 trace_id，使两个指标可对应同一回合。
+
+现有 Kokoro 样例 generation=7.988 秒、audio=7.503 秒，生成速度略慢于实时，可能导致供音不足的停顿。更换云端流式 TTS 可同时评估首音延迟与表现力，但网络延迟、音色和指令控制需要同文本试听；尚未更换默认引擎。
+
+在线候选：阿里云 Qwen3-TTS-Instruct-Flash-Realtime，支持流式输入输出和指令控制。文档：https://help.aliyun.com/zh/model-studio/realtime-tts-user-guide 。开源候选：FunAudioLLM/CosyVoice，https://github.com/FunAudioLLM/CosyVoice 。不应把发布方服务器延迟当成 Jetson 8GB 实测性能。下一步在线对照需在设备 .env 配置对应服务的 Key，密钥不要发到聊天。

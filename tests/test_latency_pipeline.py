@@ -336,20 +336,33 @@ class TtsTimingTests(unittest.TestCase):
                     tts.silence_scale = 0.2
                     tts._prepare_sink = Mock()
                     audio = NS(samples=np.zeros(200, dtype=np.float32), sample_rate=24000)
+                    import threading
+                    hook_started = threading.Event()
+                    generated = threading.Event()
+                    hook_done = threading.Event()
+                    def before_playback():
+                        hook_started.set()
+                        if not generated.wait(2):
+                            raise RuntimeError("Synthesis did not overlap acknowledgement")
+                        hook_done.set()
                     def generate(text, config, callback):
+                        self.assertTrue(hook_started.wait(2))
                         if callback_enabled:
                             callback(audio.samples[:100], 0.5)
                             callback(audio.samples[100:], 1)
+                        generated.set()
                         return audio
                     tts._tts = NS(generate=generate, sample_rate=24000)
                     player = Mock()
                     player.wait.return_value = 0
+                    player.stdin.write.side_effect = lambda data: self.assertTrue(hook_done.is_set())
                     with patch.object(module.subprocess, "Popen", return_value=player), \
                          patch.object(module, "record") as record:
-                        result = tts.speak("hello", "sink")
+                        result = tts.speak("hello", "sink", before_playback=before_playback)
                     self.assertEqual(result.sample_rate, 24000)
                     stages = [call.args[0] for call in record.call_args_list]
                     self.assertEqual(stages.count("tts_first_callback"), 1)
+                    self.assertEqual(stages.count("tts_first_pcm_submit"), 1)
                     self.assertEqual(player.stdin.write.call_count, 2 if callback_enabled else 1)
         finally:
             sys.modules.pop("edge.audio.tts.kokoro", None)
