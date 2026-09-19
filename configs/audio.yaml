@@ -123,8 +123,8 @@ agent_bridge:
   compact_batch_turns: 100
   archive_retrieval_limit: 6
 music:
-  enabled: false
-  provider: qqmusic
+  enabled: true
+  provider: http
   profile_path: private/qqmusic-firefox
   firefox_binary: /usr/bin/firefox
   timeout_seconds: 30.0

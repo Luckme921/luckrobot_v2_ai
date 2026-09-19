@@ -1341,3 +1341,7 @@ This is a development change; Jetson production has not been switched.
 ## 2026-09-19 测试分支更新
 
 新增本地结束对话门控、统一启动器及 robot_tools 工具目录。音乐 API 来自用户提供的 wangye.html，搜索后选择再获取播放地址；设备音乐开关保持 false。详见 ARCHITECTURE.md、TOOLS.md 和 OPERATIONS.md。导航仍为 MOCK；事件流不代表逐句 TTS。
+
+### 音乐启用更新
+
+音乐请求日志定位到 enabled=false；现测试分支已启用 HTTP 音乐并加入 QQ → 网易云搜索回退。见 TOOLS.md 最新记录，覆盖此前“音乐开关保持 false”的历史状态。

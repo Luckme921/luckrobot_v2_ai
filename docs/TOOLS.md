@@ -25,8 +25,16 @@ robot_tools/catalog.py 定义云端和端侧工具参数 schema；registry.py �
 
 流程：用户点歌 → 最多三个候选 → 用户说第一首或完整歌名 → 用缓存 ID 查询详情 → GStreamer 播放。只在选择后请求详情，避免提前查询三个地址造成等待；有直接 URL 的通用后端直接用缓存 URL。候选 120 秒过期，结束对话/会话超时清除候选；重名时要求编号。
 
-配置 configs/tools.yaml 的 music_http.adapter=tang 和 search_url；configs/audio.yaml 的 music.provider=http、music.enabled=true 才启用。此次保留设备原 enabled=false，避免未经现场验证改变默认音乐行为。音频播放需要 gst-launch-1.0 和 PulseAudio。HTTP 后端支持暂停、恢复、停止，下一首/上一首尚无播放队列。
+配置 configs/tools.yaml 的 music_http.adapter=fallback 和 search_url；configs/audio.yaml 的 music.provider=http、music.enabled=true 才启用。当前测试分支已启用 music.enabled=true、music.provider=http。音频播放需要 gst-launch-1.0 和 PulseAudio。HTTP 后端支持暂停、恢复、停止，下一首/上一首尚无播放队列。
 
 2026-09-19 Jetson 实测：QQ、网易云搜索返回 JSON，QQ 详情返回 stream.qqmusic.qq.com 音频地址；酷我证书过期，未关闭 TLS 校验。外部接口是否长期可用无法由一次测试保证。实测没有自动播放声音。
 
 天气接口文档：https://open-meteo.com/en/docs 与 https://open-meteo.com/en/docs/geocoding-api 。
+
+## 音乐请求修复（2026-09-19）
+
+日志确认“播放一首稻香”已正确路由，但因音乐开关关闭而拒绝。现已启用 HTTP 后端。adapter=fallback 优先 QQ；搜索空列表或请求失败时尝试网页中的网易云接口。候选仍最多三首，播报歌名及歌手，用户选择后按来源解析地址；不会在选定歌曲失败后偷偷换成另一来源的同名歌曲。
+
+网易云搜索：https://api.vkeys.cn/v2/music/netease ，参数 word/page/num；详情：https://api.qijieya.cn/meting/ ，参数 type=song/id。返回歌曲名称须与候选一致，地址限 HTTP(S)。两家搜索都出错会返回工具失败反馈。
+
+QQ 对同一关键词曾临时返回空列表，稍后恢复；备用源用于降低这种故障影响。真实 QQ 音频已通过 GStreamer fakesink 完整解码（exit 0），未向音箱播放。此验证不证明现场音量和声学效果；网易云备用播放仍需独立验证。

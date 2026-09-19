@@ -103,6 +103,67 @@ class TangMusicProvider:
         raise ValueError("Selected song has no playable URL")
 
 
+class NeteaseMusicProvider(TangMusicProvider):
+    """Search and resolve using the two endpoints from wangye.html."""
+    def __init__(self, config):
+        super().__init__(config)
+        self.url = "https://api.vkeys.cn/v2/music/netease"
+
+    def search(self, query):
+        data = self._request({"word": query, "page": 1, "num": 3})
+        if not isinstance(data, dict) or data.get("code") != 200 or not isinstance(data.get("data"), list):
+            raise ValueError("Invalid Netease search response")
+        songs, seen = [], set()
+        for item in data["data"]:
+            if not isinstance(item, dict): continue
+            sid, title = str(item.get("id", "")), item.get("song")
+            if not sid.isdigit() or sid in seen or not isinstance(title, str) or not title: continue
+            seen.add(sid)
+            artist = item.get("singer")
+            songs.append(dict(id=sid, title=title[:120], artists=[artist] if isinstance(artist, str) else [],
+                              backend="http", resolver="netease", query=query))
+            if len(songs) == 3: break
+        return songs
+
+    def resolve(self, song):
+        if not str(song["id"]).isdigit(): raise ValueError("Invalid song ID")
+        helper = TangMusicProvider({"search_url": "https://api.qijieya.cn/meting/", "timeout_seconds": self.timeout})
+        data = helper._request({"type": "song", "id": song["id"]})
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            raise ValueError("Invalid Netease detail response")
+        detail = data[0]
+        if detail.get("name") != song["title"]:
+            raise ValueError("Music detail title changed")
+        url = detail.get("url")
+        if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"} or not urlsplit(url).hostname:
+            raise ValueError("Missing audio URL")
+        return url
+
+
+class FallbackMusicProvider:
+    """Fallback only during search; never replace an explicitly selected song."""
+    def __init__(self, config):
+        self.providers = {"tang": TangMusicProvider(config), "netease": NeteaseMusicProvider(config)}
+        self.url = self.providers["tang"].url
+
+    def search(self, query):
+        errors = []
+        for name, provider in self.providers.items():
+            try:
+                songs = provider.search(query)
+                if songs:
+                    print(f"[MUSIC] SEARCH_SOURCE provider={name} candidates={len(songs)}", flush=True)
+                    return songs
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                errors.append(type(exc).__name__)
+                print(f"[MUSIC] SEARCH_SOURCE_FAILED provider={name} error={type(exc).__name__}", flush=True)
+        if errors: raise RuntimeError("Music search services unavailable")
+        return []
+
+    def resolve(self, song):
+        return self.providers[song["resolver"]].resolve(song)
+
+
 class DirectAudioPlayer:
     """Use installed GStreamer; never accept a user/model-supplied URI."""
     def __init__(self, sink):
@@ -160,7 +221,8 @@ class MusicTools:
         self.config, self.controller, self.library = config, controller, library
         self.clock = clock
         http_config = config.get("http", {})
-        provider_class = TangMusicProvider if http_config.get("adapter") == "tang" else HttpMusicProvider
+        provider_class = {"tang": TangMusicProvider, "fallback": FallbackMusicProvider,
+                          "netease": NeteaseMusicProvider}.get(http_config.get("adapter"), HttpMusicProvider)
         self.provider = provider_class(http_config)
         self.player = player
         self.pending = []
@@ -244,7 +306,7 @@ class MusicTools:
                 return result("播放地址已过期，请重新搜索。", ok=False, status="expired")
             if self.player is None:
                 return result("音频播放器不可用。", ok=False, status="unavailable")
-            url = self.provider.resolve(song) if song.get("resolver") == "tang" else song["url"]
+            url = self.provider.resolve(song) if song.get("resolver") in {"tang", "netease"} else song["url"]
             self.player.play(url)
         else:
             self.controller.play(song.get("query", song["title"]),

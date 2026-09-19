@@ -1,6 +1,6 @@
 # Music API extracted from user-provided wangye.html.
 # audio.yaml music.enabled/provider control whether it is used.
 music_http:
-  adapter: tang
+  adapter: fallback
   search_url: https://tang.api.s01s.cn/music_open_api.php
   timeout_seconds: 10

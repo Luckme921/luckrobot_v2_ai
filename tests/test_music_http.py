@@ -34,3 +34,46 @@ class TangTests(unittest.TestCase):
         self.assertEqual(len(provider.search("x")), 1)
         provider._request.return_value = {"error": "offline"}
         with self.assertRaises(ValueError): provider.search("x")
+
+class FallbackTests(unittest.TestCase):
+    def test_empty_or_failed_primary_uses_backup(self):
+        from robot_tools.music import FallbackMusicProvider
+        for failure in (False, True):
+            provider = FallbackMusicProvider({})
+            primary, backup = Mock(), Mock()
+            primary.search.return_value = []
+            if failure: primary.search.side_effect = TimeoutError()
+            backup.search.return_value = [{"id": "1", "resolver": "netease"}]
+            provider.providers = {"tang": primary, "netease": backup}
+            songs = provider.search("稻香")
+            self.assertEqual(songs[0]["resolver"], "netease")
+            provider.resolve(songs[0])
+            backup.resolve.assert_called_once_with(songs[0])
+            primary.resolve.assert_not_called()
+
+    def test_success_does_not_search_backup(self):
+        from robot_tools.music import FallbackMusicProvider
+        provider = FallbackMusicProvider({})
+        primary, backup = Mock(), Mock()
+        primary.search.return_value = [{"id": "1", "resolver": "tang"}]
+        provider.providers = {"tang": primary, "netease": backup}
+        provider.search("稻香")
+        backup.search.assert_not_called()
+
+    def test_netease_search_mapping(self):
+        from robot_tools.music import NeteaseMusicProvider
+        provider = NeteaseMusicProvider({})
+        provider._request = Mock(return_value={"code": 200, "data": [
+            {"id": 123, "song": "测试", "singer": "歌手"},
+            {"id": 123, "song": "重复"}, {"id": None, "song": "坏数据"}]})
+        songs = provider.search("测试")
+        self.assertEqual(len(songs), 1)
+        self.assertEqual(songs[0]["id"], "123")
+        self.assertEqual(songs[0]["resolver"], "netease")
+
+    def test_netease_resolve_rejects_changed_title(self):
+        from robot_tools.music import NeteaseMusicProvider
+        from unittest.mock import patch
+        provider = NeteaseMusicProvider({})
+        with patch("robot_tools.music.TangMusicProvider._request", return_value=[{"name": "错歌", "url": "https://example.com/a"}]):
+            with self.assertRaises(ValueError): provider.resolve({"id": "123", "title": "测试"})
