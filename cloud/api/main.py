@@ -23,6 +23,7 @@ from pydantic import (
 
 from cloud.agent.client import (
     GLMAgent,
+    LocalToolRequestRequired,
     MusicRequestRequired,
     VisionRequestRequired,
 )
@@ -242,11 +243,18 @@ class MusicRequestResponse(
         "next_music",
         "previous_music",
         "stop_music",
+        "select_music",
     ]
     query: str = ""
 
 
+class LocalToolResponse(BaseModel):
+    name: Literal["volume_control", "music_search", "music_select", "music_control"]
+    arguments: dict
+
 class ChatResponse(BaseModel):
+    tool_request: LocalToolResponse | None = None
+
     reply: str = ""
     model: str
     vision_request: (
@@ -341,6 +349,10 @@ async def _chat(
                 )
             ),
         )
+
+    except LocalToolRequestRequired as exc:
+        return ChatResponse(reply="", model=agent.model,
+                            tool_request=LocalToolResponse(name=exc.name, arguments=exc.arguments))
 
     except MusicRequestRequired as exc:
         music = exc.request

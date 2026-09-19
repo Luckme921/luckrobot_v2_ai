@@ -10,6 +10,8 @@ import yaml
 from dotenv import load_dotenv
 from openai import AsyncOpenAI, BadRequestError
 from shared.timing import measure, announce
+from robot_tools.catalog import LOCAL_SCHEMAS, WEATHER_SCHEMA
+from robot_tools.registry import validate
 
 from cloud.agent.tool_router import (
     TOOL_SCHEMAS,
@@ -64,6 +66,11 @@ class MusicRequestRequired(
             f"action={request.action}"
         )
 
+
+class LocalToolRequestRequired(RuntimeError):
+    def __init__(self, name, arguments):
+        self.name, self.arguments = name, arguments
+        super().__init__("Local tool execution required")
 
 class GLMAgent:
     def __init__(
@@ -160,7 +167,7 @@ class GLMAgent:
             "action=navigate_to 表示明确导航请求；"
             "action=play_music、pause_music、resume_music、"
             "next_music、previous_music、stop_music "
-            "表示音乐控制请求。"
+            "表示音乐控制请求。歌曲先搜索候选，再由用户选择播放。"
             "音乐动作必须交给 Edge 执行，"
             "云端不能假装已经播放或控制成功。"
             "不能绕过 route_turn 直接声称看到了现实画面。"
@@ -606,6 +613,18 @@ class GLMAgent:
                 },
             }
 
+        if action == "get_weather":
+            values = {"city": arguments.get("city", ""), "days": arguments.get("days", 1)}
+            validate(values, WEATHER_SCHEMA)
+            return {"action": action, "tool_name": "get_weather", "tool_arguments": values}
+
+        if action == "volume_control":
+            values = {"action": arguments.get("volume_action", "get")}
+            if "percent" in arguments:
+                values["percent"] = arguments["percent"]
+            validate(values, LOCAL_SCHEMAS["volume_control"])
+            return {"action": action, "local_tool": "volume_control", "arguments": values}
+
         music_actions = {
             "play_music",
             "pause_music",
@@ -613,6 +632,7 @@ class GLMAgent:
             "next_music",
             "previous_music",
             "stop_music",
+            "select_music",
         }
 
         if action in music_actions:
@@ -992,6 +1012,11 @@ class GLMAgent:
                     "选择 web_search。"
                     "用户明确要求机器人前往某地点"
                     "选择 navigate_to。"
+                    "天气预报选择 get_weather，city 保留城市，days 为今起一到七天；"
+                    "未说明城市时 city 留空，不猜地点。天气知识问题仍是 respond_text。"
+                    "调节或查询音量选择 volume_control，volume_action 为 get/set/up/down/max，"
+                    "set 时 percent 为整数百分比。"
+                    "用户从刚才音乐候选中选择时选 select_music，music_query 保留编号或歌名。"
                     "用户要求播放歌曲选择 play_music，"
                     "并在 music_query 中保留歌名、歌手"
                     "或用户原始音乐关键词。"
@@ -1382,6 +1407,9 @@ class GLMAgent:
                 flush=True,
             )
 
+            if action == "volume_control":
+                raise LocalToolRequestRequired(route["local_tool"], route["arguments"])
+
             if action == "request_vision":
                 announce(action)
                 raise (
@@ -1399,6 +1427,7 @@ class GLMAgent:
                 "next_music",
                 "previous_music",
                 "stop_music",
+                "select_music",
             }:
                 announce(action)
                 raise MusicRequestRequired(

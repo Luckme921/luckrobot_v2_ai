@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 from shared.timing import trace_id, measure
+from robot_tools.catalog import LOCAL_SCHEMAS
+from robot_tools.registry import validate
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import (
@@ -41,6 +43,7 @@ class MusicRequest:
 class AgentReply:
     text: str
     model: str
+    tool_request: dict | None = None
     vision_request: (
         VisionRequest | None
     ) = None
@@ -665,6 +668,16 @@ class CloudAgentClient:
                 vision_request=request,
             )
 
+        tool_data = data.get("tool_request")
+        if tool_data is not None:
+            if not isinstance(tool_data, dict) or tool_data.get("name") not in LOCAL_SCHEMAS:
+                raise CloudAgentError("Unknown local tool request")
+            try:
+                validate(tool_data.get("arguments"), LOCAL_SCHEMAS[tool_data["name"]])
+            except ValueError as exc:
+                raise CloudAgentError("Invalid local tool arguments") from exc
+            return AgentReply(text="", model=model, tool_request=tool_data)
+
         music_data = data.get(
             "music_request"
         )
@@ -687,6 +700,7 @@ class CloudAgentClient:
                 "next_music",
                 "previous_music",
                 "stop_music",
+                "select_music",
             }
 
             if action not in allowed_actions:

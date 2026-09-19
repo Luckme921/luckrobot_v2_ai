@@ -96,6 +96,10 @@ interaction:
   - 陪陪我
   - 跟我聊
   sleep_phrases:
+  - 结束对话
+  - 结束聊天
+  - 停止对话
+  - 退出聊天
   - 不聊了
   - 先这样吧
   - 你休息吧
@@ -119,14 +123,13 @@ agent_bridge:
   compact_batch_turns: 100
   archive_retrieval_limit: 6
 music:
-  enabled: true
+  enabled: false
   provider: qqmusic
   profile_path: private/qqmusic-firefox
   firefox_binary: /usr/bin/firefox
   timeout_seconds: 30.0
   prewarm: true
   headless: true
-
 tts:
   acknowledgement_enabled: true
   acknowledgement_delay_seconds: 0.35

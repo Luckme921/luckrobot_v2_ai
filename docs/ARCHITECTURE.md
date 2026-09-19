@@ -1,0 +1,31 @@
+# 项目结构与运行链路
+
+更新：2026-09-19。主要测试目录：/home/jetson/luckrobot_latency_test。
+
+## 从哪里启动
+
+在项目根目录执行 bash scripts/run_robot.sh。入口 scripts/run_robot.py 先启动 cloud，健康检查通过后启动 audio；任一子进程退出时停止另一进程，Ctrl+C 一起退出。它不启动导航 ROS 栈。
+
+- scripts/run_cloud.sh → cloud/api/main.py：本机 FastAPI，127.0.0.1:8000。名字 cloud 表示模型代理层，进程仍在 Jetson；GLM 请求才访问外部服务。
+- scripts/run_audio.sh → edge/audio/runtime.py：麦克风、唤醒、VAD、ASR、会话状态、工具执行、TTS 和相机的编排入口。
+- edge/audio/wake/session.py：休眠、唤醒与对话状态门控。
+- edge/agent/cloud_client.py：请求代理、会话历史、进度事件接收。
+- cloud/agent/client.py：JSON 意图路由、复杂任务模型调用和回复生成。
+- robot_tools/：统一工具定义和函数实现；详见 TOOLS.md。
+- shared/timing.py：分阶段计时与 trace_id。
+- configs/：音频、视觉、工具配置；.env：本机密钥，不提交。
+- tests/：回归测试；docs/：维护文档；logs/ 和 private/：运行数据。
+
+## 一轮对话
+
+音频采集 → 休眠时 KWS 检测 lucky → 唤醒后 VAD 切分 → ASR → 会话门控 → 本地音量/歌曲选择快捷处理或 JSON 路由 → 工具或模型回答 → TTS 合成播放 → 等待下一句话。
+
+结束对话、停止聊天等完整命令在本地门控截获，不需要请求大模型；清除候选歌曲并回到休眠。休眠仍采集音频用于检测唤醒词，这是正常行为，不应继续响应普通讲话。当前不是全双工：正在合成/播放答复时不能保证立即接受口头打断。
+
+## 哪些并行、哪些串行
+
+cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJSON 传输。工具过渡语由独立定时器和播放进程处理，可与网络工具请求重叠。相机采集、音频输入和外部播放器各有自身执行机制。
+
+单轮主流程的 ASR、路由、工具结果处理、最终 TTS 仍有前后依赖。事件流不等于逐 token 文本流，也不等于逐句合成：不能把当前实现描述成完整流式语音对话。继续优化应使用 trace_id 分开比较 VAD 尾停顿、ASR、路由、工具、回复生成、TTS 首音等耗时。
+
+导航 navigate_to 当前是 MOCK，只返回接收结果，不向机器人底盘发送运动指令。

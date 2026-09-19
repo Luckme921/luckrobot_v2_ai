@@ -10,7 +10,7 @@ from cloud.agent.client import GLMAgent
 CASES = [
     ("你叫什么名字？", "respond_text"),
     ("为什么天空是蓝色的？简单说一下。", "respond_text"),
-    ("帮我查一下深圳今天的天气。", "web_search"),
+    ("帮我查一下深圳今天的天气。", "get_weather"),
     ("看看我手里拿的是什么。", "request_vision"),
     ("帮我播放周杰伦的晴天。", "play_music"),
     ("请去厨房。", "navigate_to"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 
 
@@ -166,11 +167,20 @@ class InteractionGate:
         self,
         text: str,
     ) -> bool:
-        return any(
-            phrase in text
-            for phrase
-            in self.sleep_phrases
-        )
+        # Match a complete command, not a quoted phrase or a negated request.
+        compact = re.sub(r"[\s，。！？,.!?、；;：:]+", "", text.casefold())
+        phrases = set(self.sleep_phrases) | {
+            "结束对话", "结束聊天", "停止对话", "停止聊天",
+            "退出对话", "退出聊天", "关闭对话", "取消对话",
+            "不用回答了", "不要再回答了",
+        }
+        for phrase in phrases:
+            pattern = (r"(?:(?:请|麻烦你|帮我|现在|我们|先))*"
+                       + re.escape(phrase.casefold())
+                       + r"(?:吧|了|谢谢|好吗|可以吗)*")
+            if re.fullmatch(pattern, compact):
+                return True
+        return False
 
     def _is_emergency_stop(
         self,
@@ -321,6 +331,13 @@ class InteractionGate:
                 reason="empty",
             )
 
+        if (self.enabled and self.state != self.SLEEPING
+                and self._is_sleep_request(self._strip_wake_echo(text))):
+            self.reset()
+            return GateDecision(
+                action="sleep", command=None, wake_detected=False,
+                state=self.state, mode=self.mode, reason="user_sleep_request")
+
         if self._is_emergency_stop(
             text
         ):
@@ -360,20 +377,6 @@ class InteractionGate:
                 state=self.state,
                 mode=self.mode,
                 reason="sleeping",
-            )
-
-        if self._is_sleep_request(
-            text
-        ):
-            self.reset()
-
-            return GateDecision(
-                action="sleep",
-                command=None,
-                wake_detected=False,
-                state=self.state,
-                mode=self.mode,
-                reason="user_sleep_request",
             )
 
         if (

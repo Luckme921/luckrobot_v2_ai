@@ -6,6 +6,7 @@ from shared.timing import record
 
 PHRASES = {
     "web_search": "我帮你查一下。",
+    "get_weather": "我帮你查一下天气。",
     "request_vision": "我看一下。",
     "play_music": "我帮你找一下音乐。",
     "navigate_to": "我检查一下导航请求。",

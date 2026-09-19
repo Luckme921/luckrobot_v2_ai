@@ -1050,11 +1050,40 @@ class QQMusicController:
             time.sleep(0.25)
 
     @_driver_locked
+    def search_candidates(self, query: str, limit: int = 3) -> list[dict]:
+        """Collect selectable song IDs without starting playback."""
+        driver = self._require_driver()
+        self._ensure_search_window()
+        driver.get(self.SEARCH_URL.format(query=quote(query)))
+        def collect(_):
+            results, seen = [], set()
+            for link in driver.find_elements(By.CSS_SELECTOR, "a[href*='/songDetail/']"):
+                try:
+                    title = link.text.strip()
+                    href = link.get_attribute("href") or ""
+                    mid = href.split("/songDetail/", 1)[-1].split("?")[0].strip("/")
+                    if not title or not link.is_displayed() or not mid or mid in seen:
+                        continue
+                    seen.add(mid)
+                    results.append({"id": mid, "title": title, "artists": [],
+                                    "backend": "qqmusic", "query": query})
+                    if len(results) >= limit:
+                        break
+                except WebDriverException:
+                    continue
+            return results or False
+        try:
+            return self._wait().until(collect)
+        except TimeoutException:
+            return []
+
+    @_driver_locked
     def play(
         self,
         query: str,
         *,
         preferred_mid: str | None = None,
+        strict_mid: bool = False,
     ) -> str:
         query = str(
             query
@@ -1119,6 +1148,8 @@ class QQMusicController:
                     time.sleep(0.20)
 
                 if not song:
+                    if strict_mid:
+                        raise QQMusicError("Selected song is no longer present; search again")
                     print(
                         "[MUSIC] "
                         "PERSONAL_MID_MISS "

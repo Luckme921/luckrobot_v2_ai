@@ -11,6 +11,9 @@ from edge.music.personal_library import (
     QQMusicPersonalLibrary,
 )
 
+from robot_tools.edge import build_edge_tools
+from robot_tools.music import MusicTools, DirectAudioPlayer
+
 import argparse
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
 from shared.timing import begin_turn, measure, record, turn_started
@@ -21,9 +24,11 @@ import time
 
 import numpy as np
 import yaml
+from dotenv import load_dotenv
 
 from edge.agent.cloud_client import (
     CloudAgentClient,
+    AgentReply,
     CloudAgentError,
 )
 from edge.audio.asr.sensevoice import (
@@ -122,6 +127,7 @@ def create_vad(
 
 
 def main() -> None:
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -249,14 +255,14 @@ def main() -> None:
             )
         ).strip().lower()
 
-        if music_provider != "qqmusic":
+        if music_provider not in {"qqmusic", "http"}:
             print(
                 "[MUSIC] INIT_ERROR "
                 f"unsupported provider="
                 f"{music_provider}",
                 flush=True,
             )
-        else:
+        elif music_provider == "qqmusic":
             repo_root = (
                 Path(__file__)
                 .resolve()
@@ -527,6 +533,16 @@ def main() -> None:
                 )
 
                 music_prewarm_thread.start()
+
+    tools_path = Path(__file__).resolve().parents[2] / "configs/tools.yaml"
+    tools_config = load_config(tools_path) if tools_path.exists() else {}
+    music_cfg["http"] = tools_config.get("music_http", {})
+    device_volume = PulseVolumeController(
+        speaker_match_any=list(audio_cfg["speaker"]["match_any"]),
+        step_percent=10, max_percent=100)
+    music_tools = MusicTools(music_cfg, music_controller, music_library,
+                             player=DirectAudioPlayer(device_volume.sink_name))
+    local_tools = build_edge_tools(device_volume, music_tools)
 
     vision_camera = None
 
@@ -1151,6 +1167,7 @@ def main() -> None:
                                 now
                             )
                         ):
+                            music_tools.clear_pending()
                             print(
                                 "[STATE] SLEEPING "
                                 "reason=timeout",
@@ -1186,35 +1203,9 @@ def main() -> None:
                             )
 
                             if keyword:
-                                if (
-                                    music_controller
-                                    is not None
-                                    and
-                                    music_playing
-                                ):
-                                    try:
-                                        wake_track = (
-                                            music_controller
-                                            .pause()
-                                        )
-
-                                        music_playing = False
-
-                                        print(
-                                            "[MUSIC] "
-                                            "WAKE_PAUSE "
-                                            f"track="
-                                            f"{wake_track!r}",
-                                            flush=True,
-                                        )
-
-                                    except QQMusicError as exc:
-                                        print(
-                                            "[MUSIC] "
-                                            "WAKE_PAUSE_ERROR "
-                                            f"{exc}",
-                                            flush=True,
-                                        )
+                                if music_playing:
+                                    paused = local_tools.execute("music_control", {"action": "pause_music"})
+                                    music_playing = paused.get("playing", music_playing)
 
                                 if (
                                     agent_client
@@ -1360,6 +1351,10 @@ def main() -> None:
                                 decision.action
                                 == "sleep"
                             ):
+                                music_tools.clear_pending()
+                                acknowledgements.finish()
+                                vad = create_vad(vad_cfg, sample_rate)
+                                zero_audio_samples = 0
                                 print(
                                     "[STATE] SLEEPING "
                                     "reason=user_request",
@@ -1431,41 +1426,11 @@ def main() -> None:
                                     )
 
                                     try:
-                                        volume_controller = (
-                                            PulseVolumeController(
-                                                speaker_match_any=list(
-                                                    audio_cfg[
-                                                        "speaker"
-                                                    ][
-                                                        "match_any"
-                                                    ]
-                                                ),
-                                                step_percent=10,
-                                                max_percent=100,
-                                            )
-                                        )
-
-                                        percent = (
-                                            volume_controller
-                                            .execute(
-                                                volume_command
-                                            )
-                                        )
-
-                                        local_reply = (
-                                            volume_reply(
-                                                volume_command,
-                                                percent,
-                                            )
-                                        )
-
-                                        print(
-                                            "[VOLUME] EXECUTED "
-                                            f"action="
-                                            f"{volume_command.action} "
-                                            f"percent={percent}",
-                                            flush=True,
-                                        )
+                                        volume_args = {"action": volume_command.action}
+                                        if volume_command.percent is not None:
+                                            volume_args["percent"] = volume_command.percent
+                                        local_result = local_tools.execute("volume_control", volume_args)
+                                        local_reply = local_result["message"]
 
                                         print(
                                             "[LOCAL_REPLY] "
@@ -1757,7 +1722,13 @@ def main() -> None:
                                                 # satisfy this fast path.
                                                 fast_path_request = None
 
-                                        if (
+                                        selection = music_tools.selection_request(command_text)
+                                        if selection is not None:
+                                            agent_reply = AgentReply(
+                                                text="", model="local-selection",
+                                                tool_request={"name": "music_select",
+                                                              "arguments": {"selection": selection}})
+                                        elif (
                                             fast_path_request
                                             is not None
                                             and fast_path_frames
@@ -1912,345 +1883,34 @@ def main() -> None:
                                             flush=True,
                                         )
 
-                                        if (
-                                            agent_reply
-                                            .music_request
-                                            is not None
-                                        ):
-                                            music_request = (
-                                                agent_reply
-                                                .music_request
-                                            )
-
-                                            if (
-                                                music_controller
-                                                is None
-                                            ):
-                                                raise QQMusicError(
-                                                    "Music request "
-                                                    "received but "
-                                                    "music controller "
-                                                    "is disabled"
-                                                )
-
-                                            acknowledgements.on_event(
-                                                {"type": "tool_start",
-                                                 "action": agent_reply.music_request.action})
-                                            music_t0 = (
-                                                time.monotonic()
-                                            )
-
-                                            action = (
-                                                music_request
-                                                .action
-                                            )
-
-                                            if (
-                                                action
-                                                == "play_music"
-                                            ):
-                                                play_query = (
-                                                    music_request
-                                                    .query
-                                                )
-
-                                                personal_song = None
-                                                playlist_name = None
-
-                                                if (
-                                                    music_library
-                                                    is not None
-                                                ):
-                                                    # First interpret the
-                                                    # user's actual words:
-                                                    # 抒情 / 摇滚 / 小清新...
-                                                    playlist_name = (
-                                                        music_library
-                                                        .playlist_for_query(
-                                                            command_text
-                                                        )
-                                                    )
-
-                                                    # Cloud's normalized
-                                                    # music query is the
-                                                    # secondary signal.
-                                                    if (
-                                                        playlist_name
-                                                        is None
-                                                    ):
-                                                        playlist_name = (
-                                                            music_library
-                                                            .playlist_for_query(
-                                                                play_query
-                                                            )
-                                                        )
-
-                                                    if (
-                                                        playlist_name
-                                                        is not None
-                                                    ):
-                                                        personal_song = (
-                                                            music_library
-                                                            .random_song(
-                                                                playlist_name
-                                                            )
-                                                        )
-
-                                                        print(
-                                                            "[MUSIC] "
-                                                            "PERSONAL_ROUTE "
-                                                            "mode=playlist "
-                                                            f"playlist="
-                                                            f"{playlist_name!r} "
-                                                            f"title="
-                                                            f"{personal_song.title!r} "
-                                                            f"artists="
-                                                            f"{personal_song.artist_text!r} "
-                                                            f"mid="
-                                                            f"{personal_song.mid}",
-                                                            flush=True,
-                                                        )
-
-                                                    elif (
-                                                        music_library
-                                                        .is_random_request(
-                                                            command_text
-                                                        )
-                                                        or
-                                                        music_library
-                                                        .is_random_request(
-                                                            play_query
-                                                        )
-                                                    ):
-                                                        personal_song = (
-                                                            music_library
-                                                            .random_song()
-                                                        )
-
-                                                        print(
-                                                            "[MUSIC] "
-                                                            "PERSONAL_ROUTE "
-                                                            "mode=random",
-                                                            flush=True,
-                                                        )
-
-                                                    else:
-                                                        personal_song = (
-                                                            music_library
-                                                            .best_match(
-                                                                play_query
-                                                            )
-                                                        )
-
-                                                        if (
-                                                            personal_song
-                                                            is not None
-                                                        ):
-                                                            print(
-                                                                "[MUSIC] "
-                                                                "PERSONAL_ROUTE "
-                                                                "mode=song "
-                                                                f"playlist="
-                                                                f"{personal_song.playlist_name!r} "
-                                                                f"title="
-                                                                f"{personal_song.title!r} "
-                                                                f"score="
-                                                                f"{personal_song.score:.2f} "
-                                                                f"mid="
-                                                                f"{personal_song.mid}",
-                                                                flush=True,
-                                                            )
-
-                                                if (
-                                                    personal_song
-                                                    is not None
-                                                ):
-                                                    personal_query = (
-                                                        " ".join(
-                                                            [
-                                                                *personal_song.artists,
-                                                                personal_song.title,
-                                                            ]
-                                                        )
-                                                        .strip()
-                                                    )
-
-                                                    track = (
-                                                        music_controller
-                                                        .play(
-                                                            personal_query,
-                                                            preferred_mid=(
-                                                                personal_song.mid
-                                                            ),
-                                                        )
-                                                    )
-
-                                                else:
-                                                    print(
-                                                        "[MUSIC] "
-                                                        "PERSONAL_MISS "
-                                                        "fallback=global "
-                                                        f"query={play_query!r}",
-                                                        flush=True,
-                                                    )
-
-                                                    track = (
-                                                        music_controller
-                                                        .play(
-                                                            play_query
-                                                        )
-                                                    )
-
-                                                music_message = (
-                                                    "正在播放"
-                                                    f"{track}。"
-                                                )
-
-                                            elif (
-                                                action
-                                                == "pause_music"
-                                            ):
-                                                track = (
-                                                    music_controller
-                                                    .pause()
-                                                )
-
-                                                music_message = (
-                                                    "已暂停音乐。"
-                                                )
-
-                                            elif (
-                                                action
-                                                == "resume_music"
-                                            ):
-                                                track = (
-                                                    music_controller
-                                                    .resume()
-                                                )
-
-                                                music_message = (
-                                                    "继续播放"
-                                                    f"{track}。"
-                                                )
-
-                                            elif (
-                                                action
-                                                == "next_music"
-                                            ):
-                                                track = (
-                                                    music_controller
-                                                    .next()
-                                                )
-
-                                                music_message = (
-                                                    "已切换到"
-                                                    f"{track}。"
-                                                )
-
-                                            elif (
-                                                action
-                                                == "previous_music"
-                                            ):
-                                                track = (
-                                                    music_controller
-                                                    .previous()
-                                                )
-
-                                                music_message = (
-                                                    "已切换到"
-                                                    f"{track}。"
-                                                )
-
-                                            elif (
-                                                action
-                                                == "stop_music"
-                                            ):
-                                                track = (
-                                                    music_controller
-                                                    .stop()
-                                                )
-
-                                                music_message = (
-                                                    "已停止音乐。"
-                                                )
-
+                                        tool_request = agent_reply.tool_request
+                                        if agent_reply.music_request is not None:
+                                            request = agent_reply.music_request
+                                            if request.action == "play_music":
+                                                tool_request = {"name": "music_search",
+                                                    "arguments": {"query": request.query, "utterance": command_text}}
+                                            elif request.action == "select_music":
+                                                tool_request = {"name": "music_select",
+                                                    "arguments": {"selection": request.query}}
                                             else:
-                                                raise QQMusicError(
-                                                    "Unsupported "
-                                                    "music action: "
-                                                    f"{action}"
-                                                )
-
-                                            if action in {
-                                                "play_music",
-                                                "resume_music",
-                                                "next_music",
-                                                "previous_music",
-                                            }:
-                                                music_playing = True
-
-                                            elif action in {
-                                                "pause_music",
-                                                "stop_music",
-                                            }:
-                                                music_playing = False
-
-                                            (
-                                                agent_client
-                                                .record_completed_turn(
-                                                    command_text,
-                                                    music_message,
-                                                )
-                                            )
-
-                                            # Any action that leaves
-                                            # music actively playing
-                                            # must immediately return
-                                            # the interaction gate to
-                                            # sleeping mode.
-                                            #
-                                            # Otherwise speaker audio
-                                            # can feed back into the
-                                            # microphone and song lyrics
-                                            # may be interpreted as
-                                            # follow-up user commands.
+                                                tool_request = {"name": "music_control",
+                                                    "arguments": {"action": request.action}}
+                                        if tool_request is not None:
+                                            tool_name = tool_request["name"]
+                                            if tool_name == "music_search":
+                                                acknowledgements.on_event({"type": "tool_start", "action": "play_music"})
+                                            tool_result = local_tools.execute(tool_name, tool_request["arguments"])
+                                            music_playing = tool_result.get("playing", music_playing)
+                                            agent_client.record_completed_turn(command_text, tool_result["message"])
+                                            agent_reply = AgentReply(text=tool_result["message"], model="local-tool")
                                             if music_playing:
-                                                (
-                                                    interaction_gate
-                                                    .reset()
-                                                )
-
+                                                interaction_gate.reset()
+                                                music_tools.clear_pending()
                                                 if wake_kws:
-                                                    wake_stream = (
-                                                        wake_kws
-                                                        .create_stream()
-                                                    )
-
-                                                print(
-                                                    "[STATE] SLEEPING "
-                                                    "reason="
-                                                    "music_playback",
-                                                    flush=True,
-                                                )
-
-                                            print(
-                                                "[MUSIC] EXECUTED "
-                                                f"action={action} "
-                                                f"track={track!r}",
-                                                flush=True,
-                                            )
-
-                                            record("tool_music", time.monotonic() - music_t0)
-                                            print(
-                                                "[LATENCY] music="
-                                                f"{time.monotonic() - music_t0:.3f}s",
-                                                flush=True,
-                                            )
-
-                                            # Music itself is the
-                                            # acknowledgement.
-                                            # Do not speak TTS over it.
-                                            continue
+                                                    wake_stream = wake_kws.create_stream()
+                                                print("[STATE] SLEEPING reason=music_playback", flush=True)
+                                                # Never speak final TTS on top of a playing song.
+                                                continue
 
                                         print(
                                             "[AGENT_REPLY] "
@@ -2444,6 +2104,7 @@ def main() -> None:
         )
 
     finally:
+        music_tools.close()
         acknowledgements.finish()
         if music_controller is not None:
             music_controller.close()
