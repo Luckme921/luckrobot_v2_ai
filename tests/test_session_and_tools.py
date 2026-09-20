@@ -33,7 +33,8 @@ class EndConversationTest(unittest.TestCase):
                 g.on_robot_reply_finished(now=3)
                 self.assertEqual(g.process("今天的天气", now=4).action, "ignore")
                 g.on_wake(now=5)
-                self.assertEqual(g.process("你好", now=6).action, "command")
+                self.assertEqual(g.process("你好", now=6).action, "awake")
+                self.assertEqual(g.process("今天的天气", now=7).action, "command")
 
     def test_negative_quoted_and_substring_are_not_exit(self):
         for phrase in ["不要结束对话", "结束对话是什么意思", "给我讲一个再见的故事", "不用结束聊天"]:

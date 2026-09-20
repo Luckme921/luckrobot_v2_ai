@@ -38,3 +38,9 @@ robot_tools/catalog.py 定义云端和端侧工具参数 schema；registry.py �
 网易云搜索：https://api.vkeys.cn/v2/music/netease ，参数 word/page/num；详情：https://api.qijieya.cn/meting/ ，参数 type=song/id。返回歌曲名称须与候选一致，地址限 HTTP(S)。两家搜索都出错会返回工具失败反馈。
 
 QQ 对同一关键词曾临时返回空列表，稍后恢复；备用源用于降低这种故障影响。真实 QQ 音频已通过 GStreamer fakesink 完整解码（exit 0），未向音箱播放。此验证不证明现场音量和声学效果；网易云备用播放仍需独立验证。
+
+## 可选自动播放（2026-09-20）
+
+music_http.auto_play_enabled 默认 false，只有明确配置 true 才开启；auto_play_threshold 默认 90，auto_play_gap 默认 20。自动播放比较全部已返回候选并排序，不假定 API 顺序。要求 query 明确匹配歌手和完整歌名（如“周杰伦的稻香”），仅歌名继续询问。存在同名候选，或未指定版本却出现同曲不同版本时，也继续选择。分数是启发式匹配分，不是概率；供应商只返回部分搜索结果，因此不能证明全曲库唯一。
+
+阈值有效范围 (0,100]，差值范围 [0,100]；无效范围不自动播放。复杂描述无法精确核实时保留候选交互。HTTP、QQ 的自动播放与手动选择都在实际播放前调用 before_playback 收尾过渡语；HTTP 地址解析仍与过渡语并行。该回调在 runtime 中连接 acknowledgements.finish。

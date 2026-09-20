@@ -131,8 +131,8 @@ class InteractionGateTest(
         )
 
         self.assertEqual(
-            result.command,
-            "你在吗",
+            result.action,
+            "awake",
         )
 
     def test_followup_no_wake(self):
@@ -292,8 +292,8 @@ class InteractionGateTest(
         )
 
         self.assertEqual(
-            result.command,
-            "你在吗",
+            result.action,
+            "awake",
         )
 
     def test_real_command_starting_with_la(self):

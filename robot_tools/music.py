@@ -1,4 +1,4 @@
-"""Search -> pending candidates -> explicit choice -> trusted provider playback."""
+"""Search -> optional direct playback -> pending candidates -> explicit choice -> trusted provider playback."""
 import json
 import os
 import re
@@ -6,11 +6,92 @@ import shutil
 import signal
 import subprocess
 import time
+from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 def result(message, *, ok=True, status="success", executed=False, playing=False, **data):
     return dict(ok=ok, status=status, executed=executed, playing=playing, message=message, **data)
+
+
+def _normalize_text(value: str) -> str:
+    """Strip decorative punctuation/spaces for fuzzy matching."""
+    return re.sub(r"[^\w一-鿿]+", "", str(value).casefold(), flags=re.UNICODE)
+
+
+def _match_score(query: str, song: dict) -> float:
+    """Return 0-100 confidence that *song* is what the user asked for.
+
+    Higher scores require both title and artist alignment so that generic
+    one-word queries do not accidentally auto-play the wrong track.
+    """
+    q = _normalize_text(query)
+    title = _normalize_text(song.get("title", ""))
+    artists = [_normalize_text(a) for a in song.get("artists", []) if a]
+
+    if not q or not title:
+        return 0.0
+
+    score = 0.0
+
+    # Title matching
+    if q == title:
+        score += 80.0
+    elif title in q:
+        score += 60.0
+    elif q in title:
+        score += 35.0
+
+    score += SequenceMatcher(None, q, title).ratio() * 20.0
+
+    # Artist matching
+    artist_hits = sum(1 for a in artists if a and a in q)
+    if artist_hits:
+        score += 25.0 * min(artist_hits, 2)
+
+    # Prefer studio versions when the user did not ask for a variant.
+    version_markers = ("live", "现场", "dj", "remix", "翻唱", "cover", "伴奏", "纯音乐")
+    title_lower = str(song.get("title", "")).casefold()
+    query_lower = str(query).casefold()
+    for marker in version_markers:
+        if marker in title_lower and marker not in query_lower:
+            score -= 12.0
+
+    return max(0.0, min(100.0, score))
+
+
+def _autoplay_candidate(query, candidates, threshold, gap):
+    """Require an explicit artist/title and no competing version; never trust API order."""
+    if not candidates or not 0 < threshold <= 100 or not 0 <= gap <= 100:
+        return None
+    ranked = sorted(candidates, key=lambda song: _match_score(query, song), reverse=True)
+    top = ranked[0]
+    score = _match_score(query, top)
+    if score < threshold:
+        return None
+    if len(ranked) > 1 and score - _match_score(query, ranked[1]) < gap:
+        return None
+    q = _normalize_text(query)
+    title = _normalize_text(top.get("title", ""))
+    artists = [_normalize_text(a) for a in top.get("artists", []) if a]
+    # Title-only requests cannot distinguish original singers from covers.
+    if not any(q in {a + title, a + "的" + title, title + a} for a in artists):
+        return None
+    markers = ("live", "现场", "dj", "remix", "翻唱", "cover", "伴奏", "纯音乐", "demo", "版本", "版")
+    def base(value):
+        value = _normalize_text(value)
+        for marker in markers:
+            value = value.replace(marker, "")
+        return value
+    requested_variant = any(marker in q for marker in markers)
+    for other in ranked[1:]:
+        other_title = _normalize_text(other.get("title", ""))
+        if other_title == title:
+            return None
+        if not requested_variant and base(other_title) == base(title):
+            return None
+    return top
+
 
 class HttpMusicProvider:
     """Adapter contract: GET search_url?q=...&limit=3 -> {"songs":[...]}."""
@@ -217,7 +298,7 @@ class DirectAudioPlayer:
         self.paused = False
 
 class MusicTools:
-    def __init__(self, config, controller=None, library=None, player=None, clock=time.monotonic):
+    def __init__(self, config, controller=None, library=None, player=None, clock=time.monotonic, before_playback=None):
         self.config, self.controller, self.library = config, controller, library
         self.clock = clock
         http_config = config.get("http", {})
@@ -228,6 +309,12 @@ class MusicTools:
         self.pending = []
         self.deadline = 0.0
         self.playing = False
+        self.before_playback = before_playback
+        self.auto_play_enabled = http_config.get("auto_play_enabled", False) is True
+        # Auto-play when the top candidate is clearly what the user asked for.
+        # threshold=0 disables auto-play; default is intentionally conservative.
+        self.auto_play_threshold = float(http_config.get("auto_play_threshold", 90.0))
+        self.auto_play_gap = float(http_config.get("auto_play_gap", 20.0))
 
     def clear_pending(self):
         self.pending = []
@@ -275,8 +362,18 @@ class MusicTools:
                 songs = self.controller.search_candidates(query, limit=3)
         if not songs:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
+
         self.pending = songs[:3]
         self.deadline = self.clock() + 120
+
+        # Compare every candidate returned by the provider before truncating the UI list.
+        chosen = (_autoplay_candidate(query, songs, self.auto_play_threshold, self.auto_play_gap)
+                  if self.auto_play_enabled else None)
+        if chosen is not None:
+            self.pending = [chosen]
+            print(f"[MUSIC] AUTO_PLAY title={chosen['title']!r}", flush=True)
+            return self.select("第一首")
+
         public = [{k: s.get(k) for k in ("id", "title", "artists")} for s in self.pending]
         choices = "；".join(f"{i}，{s['title']}" +
                            ("，" + "、".join(s.get("artists", [])) if s.get("artists") else "")
@@ -307,8 +404,12 @@ class MusicTools:
             if self.player is None:
                 return result("音频播放器不可用。", ok=False, status="unavailable")
             url = self.provider.resolve(song) if song.get("resolver") in {"tang", "netease"} else song["url"]
+            if self.before_playback is not None:
+                self.before_playback()
             self.player.play(url)
         else:
+            if self.before_playback is not None:
+                self.before_playback()
             self.controller.play(song.get("query", song["title"]),
                                  preferred_mid=song["id"], strict_mid=True)
         self.playing = True

@@ -107,3 +107,7 @@ edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 
 计时 edge_first_decoded_pcm 包含进程启动、在线请求和解码；tts_first_pcm_submit 是向播放器提交首批 PCM 前的时刻，不是声学首音。Edge TtsResult 的 generation_seconds 包含网络与播放反压，不应把其 RTF 与离线纯推理 RTF 比较。当前不单独统计网络首包。
 
 在线失败日志只显示异常类型，不写回复内容或带参数的音频地址。运行 Edge 时回复文本会发给微软在线语音服务。历史对话不会整批发送。
+
+## 固定短句音色统一（2026-09-20）
+
+工具过渡语和简单唤醒回应改为优先使用预先生成的 Edge 晓晓 WAV 缓存；准备脚本及验收见 OPERATIONS.md。缓存有效时现场没有合成/下载等待。缺失缓存只在启动阶段使用 Kokoro 兜底，日志可区分。普通回复仍采用 Edge 流式与 Kokoro 回退，尚未切换端到端语音模型。

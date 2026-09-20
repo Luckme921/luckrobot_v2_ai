@@ -4,3 +4,7 @@ music_http:
   adapter: fallback
   search_url: https://tang.api.s01s.cn/music_open_api.php
   timeout_seconds: 10
+  # Explicit opt-in; otherwise always ask the user to select.
+  auto_play_enabled: false
+  auto_play_threshold: 90
+  auto_play_gap: 20

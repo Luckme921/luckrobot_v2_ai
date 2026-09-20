@@ -16,6 +16,7 @@ from robot_tools.music import MusicTools, DirectAudioPlayer
 
 import argparse
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
+from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, cache_path, valid_clip
 from shared.timing import begin_turn, measure, record, turn_started
 from pathlib import Path
 import subprocess
@@ -705,6 +706,8 @@ def main() -> None:
 
     ack_enabled = bool(tts_cfg.get("acknowledgement_enabled", True))
     ack_clips = {}
+    wake_reply_sent = False
+    wake_reply_index = 0
 
     if tts_enabled:
         provider = str(
@@ -735,16 +738,20 @@ def main() -> None:
                     tts_cfg
                 )
 
-                if ack_enabled:
-                    for action, phrase in PHRASES.items():
-                        try:
-                            path = Path("/dev/shm") / f"luckrobot_ack_{action}.wav"
-                            chunk = tts._generate(phrase)
-                            tts._write_wav(path, chunk.samples, chunk.sample_rate)
-                            ack_clips[action] = path
-                        except Exception as exc:
-                            print(f"[ACK] INIT_ERROR action={action} error={type(exc).__name__}", flush=True)
-
+                for action, phrase in ALL_PHRASES.items():
+                    try:
+                        cached = cache_path(tts_cfg.get("edge_voice", "zh-CN-XiaoxiaoNeural"), phrase)
+                        if provider == "edge" and valid_clip(cached):
+                            ack_clips[action] = cached
+                            print(f"[CACHE] EDGE_READY action={action}", flush=True)
+                            continue
+                        path = Path("/dev/shm") / f"luckrobot_ack_{action}.wav"
+                        print(f"[CACHE] LOCAL_FALLBACK action={action}", flush=True)
+                        chunk = tts._generate(phrase)
+                        tts._write_wav(path, chunk.samples, chunk.sample_rate)
+                        ack_clips[action] = path
+                    except Exception as exc:
+                        print(f"[ACK] INIT_ERROR action={action} error={type(exc).__name__}", flush=True)
                 print(
                     "[INIT] Kokoro TTS "
                     "ready "
@@ -772,8 +779,9 @@ def main() -> None:
                 tts = None
 
     acknowledgements = ToolAcknowledgement(
-        ack_clips, "<unavailable>",
+        {k: v for k, v in ack_clips.items() if k in PHRASES} if ack_enabled else {}, "<unavailable>",
         delay_seconds=float(tts_cfg.get("acknowledgement_delay_seconds", 0.35)))
+    music_tools.before_playback = acknowledgements.finish
     if agent_client is not None:
         agent_client.on_event = acknowledgements.on_event
 
@@ -1208,6 +1216,7 @@ def main() -> None:
                             )
 
                             if keyword:
+                                wake_reply_sent = False
                                 if music_playing:
                                     paused = local_tools.execute("music_control", {"action": "pause_music"})
                                     music_playing = paused.get("playing", music_playing)
@@ -1346,6 +1355,25 @@ def main() -> None:
                                 decision.action
                                 == "awake"
                             ):
+                                if not wake_reply_sent:
+                                    wake_reply_sent = True
+                                    names = list(WAKE_PHRASES)
+                                    clip = ack_clips.get(names[wake_reply_index % len(names)])
+                                    wake_reply_index += 1
+                                    if clip is not None and speaker != "<unavailable>":
+                                        capture.stop()
+                                        try:
+                                            acknowledgements.finish()
+                                            print("[WAKE] LOCAL_REPLY cached=true", flush=True)
+                                            subprocess.run(["paplay", f"--device={speaker}", str(clip)], check=True, timeout=15)
+                                            time.sleep(post_playback_guard_seconds)
+                                        except (OSError, subprocess.SubprocessError) as exc:
+                                            print(f"[WAKE] REPLY_ERROR {type(exc).__name__}", flush=True)
+                                        finally:
+                                            vad = create_vad(vad_cfg, sample_rate)
+                                            zero_audio_samples = 0
+                                            interaction_gate.on_wake(time.monotonic())
+                                            capture.start()
                                 print(
                                     "[STATE] "
                                     "AWAKE_WAIT_COMMAND",

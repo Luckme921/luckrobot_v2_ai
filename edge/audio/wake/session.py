@@ -391,14 +391,15 @@ class InteractionGate:
 
             # The VAD/ASR segment contained only
             # the wake word. Keep waiting.
-            if not command:
+            greeting = re.sub(r"[\s，。！？,.!?]+", "", command).casefold()
+            if not command or greeting in {"你好", "你好呀", "你好啊", "嗨", "hello", "hi", "在吗", "你在吗"}:
                 return GateDecision(
                     action="awake",
                     command=None,
                     wake_detected=False,
                     state=self.state,
                     mode=self.mode,
-                    reason="wake_echo_only",
+                    reason="wake_greeting" if command else "wake_echo_only",
                 )
 
             self._activate(
