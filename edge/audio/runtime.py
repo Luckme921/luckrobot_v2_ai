@@ -778,6 +778,9 @@ def main() -> None:
 
                 tts = None
 
+    from edge.audio.direction import DirectionMonitor
+    direction_monitor = DirectionMonitor(audio_cfg.get("sound_direction", {}))
+
     acknowledgements = ToolAcknowledgement(
         {k: v for k, v in ack_clips.items() if k in PHRASES} if ack_enabled else {}, "<unavailable>",
         delay_seconds=float(tts_cfg.get("acknowledgement_delay_seconds", 0.35)))
@@ -967,6 +970,8 @@ def main() -> None:
     state = None
 
     try:
+        if audio_cfg.get("sound_direction", {}).get("enabled", False):
+            direction_monitor.start()
         while True:
             try:
                 print(
@@ -2139,6 +2144,7 @@ def main() -> None:
         )
 
     finally:
+        direction_monitor.stop()
         music_tools.close()
         acknowledgements.finish()
         if music_controller is not None:
