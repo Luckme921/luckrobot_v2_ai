@@ -36,4 +36,8 @@
 
 当前仍半双工，本地短句播放期间不处理新讲话；多模态实时模型评估见 REALTIME_VOICE.md。音乐自动播放默认关闭，显式开启及歧义规则见 TOOLS.md。
 
-声源方向日志与 USB 权限、配置说明见 [SOUND_DIRECTION.md](SOUND_DIRECTION.md)。默认后台每秒打印 [DOA]，不控制运动。
+
+## 声源方向日志
+
+audio.sound_direction.enabled 控制 XVF3800 后台只读线程，日志前缀 [DOA]，默认每秒打印；安装依赖、USB 权限与前方标定见 SOUND_DIRECTION.md。不启动任何运动控制。声源方向日志与 USB 权限、配置说明见 [SOUND_DIRECTION.md](SOUND_DIRECTION.md)。
+

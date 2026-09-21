@@ -1,20 +1,35 @@
-# 声源方向接口
+# reSpeaker 声源方向接口
 
-Windows 本地补齐版，2026-09-20。设备端 6b7e197 之前已实现并通过 205 项测试，但设备关闭前未拉回该提交。本地按相同接口补齐，额外校验轮询间隔并容忍关闭资源异常；并非已取得设备提交。设备开机后先 fetch 再合并，保留两端历史。
+2026-09-20，设备 USB 2886:001a，XVF3800 四麦阵列。实现 edge/audio/direction.py 的 XvfDirectionReader.read()，以及 DirectionMonitor.latest(max_age_seconds=2)。仅 USB vendor IN 读取；不设置 USB configuration，不解绑音频驱动，不修改固件、增益或 LED，不发送机器人动作。
 
-edge/audio/direction.py 提供 XvfDirectionReader.read() 与 DirectionMonitor.latest(max_age_seconds=2)。仅读取 XVF3800（2886:001a）DOA_VALUE：resource 20、读命令 0x92、5 字节（状态+两个小端 uint16：角度/VAD），USB 超时 500ms，不重设 USB、不解绑音频驱动、不修改固件。参考：https://wiki.seeedstudio.com/respeaker_xvf3800_python_sdk/ 。
+## 数据
 
-默认独立线程每秒 print 一条 [DOA] JSON，与对话并行。错误每 5 秒重试并清除旧快照；退出时停止线程。sensor_azimuth_deg 为麦克风 0–359°方向，speech_active 为硬件 VAD；direction_valid 不等于准确度或人声身份置信度。机器人扬声器可能影响读数。安静时角度可能残留，必须看有效标志。
+日志前缀 [DOA]，默认每秒一次：sensor_azimuth_deg 是麦克风坐标的 0–359 度方位角；speech_active 是硬件 VAD；direction_valid 仅表示语音活动且报文有效，不是方向准确度或说话人身份置信度。安静时可能残留旧角度，必须看 direction_valid=false。播放机器人声音/音乐时读数可能受影响；不代表人类目标。
 
-distance_m、position_xyz_m 始终 null，没有距离/三维定位功能。front_offset_deg 默认 null，不标注机器人左右；现场正前方讲话所得角度用于偏移标定，再向右移动验证 clockwise。校准后 robot_bearing_deg 约定前0、右90、后180、左270度。未接入运动控制，未来跟随还需视觉/测距/避障。
+设备只返回方位角和 VAD，本接口没有距离、XYZ 位置、高度或可追踪目标 ID，因此 distance_m、position_xyz_m 始终 null。软件接收时间 timestamp/monotonic 不是声音发生时刻。latest 拒绝超过指定时间的数据，读取失败清除旧数据。
+
+## 坐标标定
+
+当前 front_offset_deg=null，未假定麦克风朝向；robot_bearing_deg=null。让人站在机器人正前方讲话，记录稳定角度作为 front_offset_deg，再从前方移动到右侧确认 clockwise。转换后约定机器人正前 0°、右 90°、后 180°、左 270°；安装和正反转未经现场标定前不可作运动依据。单阵列方位不能直接求目标位置或跟随距离，后续运动需结合视觉/测距/避障及高层动作接口。
 
 ## Jetson 使用
 
 依赖 pyusb==1.3.1 和系统 libusb。USB 权限规则 configs/99-luckrobot-xvf3800.rules 只授权此设备给 plugdev 组。设备此前已安装依赖和规则，无需运行 root 音频进程。迁移设备时将规则安装到 /etc/udev/rules.d 并重载、重新插入设备，确保运行用户属于 plugdev。
 
+## 启动和检查
+
+configs/audio.yaml 的 audio.sound_direction.enabled=true 后，run_robot.sh 的音频进程启动独立后台读取线程，输出到 logs/audio-latency.log。单次 USB 超时 500ms，失败每 5 秒重试；热插拔重连不阻塞音频主循环。退出时停止线程并释放 USB 资源。
+
+
+
     .venv/bin/python -m edge.audio.direction --samples 10 --interval 1
     tail -f logs/audio-latency.log | grep --line-buffered '\[DOA\]'
 
-configs/audio.yaml: audio.sound_direction.enabled 开关、interval_seconds 轮询间隔、front_offset_deg 与 clockwise 标定参数。run_robot.sh 启动后输出到 audio-latency.log。
 
-此前设备只读实测为353°、VAD=false，未做四个方向的准确度验收。本轮设备关闭，仅验证本地逻辑，不连接设备。
+依赖 pyusb==1.3.1 与系统 libusb。当前已为 jetson 安装依赖，并把 configs/99-luckrobot-xvf3800.rules 安装到 /etc/udev/rules.d/；该规则只给 plugdev 组授予此 VID/PID 的 USB 访问权限，当前用户已属于该组。规则重载后新插入生效，当前设备节点已调整组权限，无需以 root 运行机器人。
+
+协议：DOA_VALUE resource=20，command=18（读取位 0x80），返回状态字节+两个小端 uint16（角度、VAD）。拒绝非零状态、错误长度和非法字段，避免把 255°以上角度截断。
+
+设备实测成功读取 353°、VAD=false；这是静态读数，不是现场方向准确度验收。请在阵列不同方向讲话确认变化，再完成前方标定。
+
+

@@ -30,4 +30,6 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 
 导航 navigate_to 当前是 MOCK，只返回接收结果，不向机器人底盘发送运动指令。
 
-声源方向模块 edge/audio/direction.py 在音频进程独立线程读取 USB DOA/VAD，并提供带过期检查的 latest() 快照，未接入导航。
+
+声源方向接口 edge/audio/direction.py：音频进程内独立线程读取 USB DOA/VAD，提供 print 日志与 latest() 快照；与 ASR/LLM/TTS 并行，仅遥测，未接入导航。
+
