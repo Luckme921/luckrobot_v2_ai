@@ -111,3 +111,8 @@ edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 
 ## 固定短句音色统一（2026-09-20）
 
 工具过渡语和简单唤醒回应改为优先使用预先生成的 Edge 晓晓 WAV 缓存；准备脚本及验收见 OPERATIONS.md。缓存有效时现场没有合成/下载等待。缺失缓存只在启动阶段使用 Kokoro 兜底，日志可区分。普通回复仍采用 Edge 流式与 Kokoro 回退，尚未切换端到端语音模型。
+
+
+## Lucky 伪全双工试用（2026-09-21）
+
+最终回复 TTS 合成/播报期间新增独立麦克风 KWS 线程，检测 Lucky 后取消当前播放器，回到已唤醒等待命令；已生成回复仍按原路径在播报前存档。由 interaction.wake.barge_in_enabled 控制，默认开启。普通 ASR 不并行，思考与工具执行不能打断，不保证保留紧跟 Lucky 的命令；不属于真正带 AEC 的全双工。范围、回退和验收见 [OPERATIONS.md](OPERATIONS.md)。

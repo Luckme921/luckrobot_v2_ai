@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 from edge.audio.tts.edge_online import EdgeOnlineTts
 from edge.audio.tts.kokoro import TtsError
@@ -12,7 +13,7 @@ class EdgeTtsTests(unittest.TestCase):
 
     def test_partial_audio_never_replays(self):
         fallback=Mock(); tts=EdgeOnlineTts({},fallback)
-        def fail(text,sink,gate,state):
+        def fail(text,sink,gate,state,cancellation=None):
             state["submitted"]=True
             raise BrokenPipeError()
         tts._online=fail
@@ -27,4 +28,15 @@ class EdgeTtsTests(unittest.TestCase):
 
     def test_interpreter_keeps_virtualenv_path(self):
         tts=EdgeOnlineTts({"edge_python":"private/tts-eval-venv/bin/python"},Mock())
-        self.assertTrue(tts.python.endswith("private/tts-eval-venv/bin/python"))
+        self.assertTrue(Path(tts.python).as_posix().endswith("private/tts-eval-venv/bin/python"))
+
+    def test_cancel_before_audio_never_falls_back(self):
+        from edge.audio.tts.cancellation import SpeechCancellation, SpeechInterrupted
+        token = SpeechCancellation()
+        token.cancel()
+        fallback = Mock()
+        tts = EdgeOnlineTts({}, fallback)
+        tts._online = Mock(side_effect=TimeoutError())
+        with self.assertRaises(SpeechInterrupted):
+            tts.speak("test", "sink", cancellation=token)
+        fallback.speak.assert_not_called()

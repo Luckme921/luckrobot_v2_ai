@@ -20,18 +20,19 @@ class EdgeOnlineTts:
         self.speaker_id = self.voice
         self.num_threads = fallback.num_threads
 
-    def speak(self, text, sink, *, before_playback=None):
+    def speak(self, text, sink, *, before_playback=None, cancellation=None):
         state = {"submitted": False}
         try:
-            return self._online(text, sink, before_playback, state)
+            return self._online(text, sink, before_playback, state, cancellation)
         except Exception as exc:
+            if cancellation is not None: cancellation.check()
             if state["submitted"]:
                 print(f"[TTS] EDGE_INTERRUPTED error={type(exc).__name__} replay=false", flush=True)
                 raise TtsError("Online speech interrupted after playback began") from exc
             print(f"[TTS] FALLBACK provider=kokoro error={type(exc).__name__}", flush=True)
-            return self.fallback.speak(text, sink, before_playback=before_playback)
+            return self.fallback.speak(text, sink, before_playback=before_playback, **({"cancellation": cancellation} if cancellation is not None else {}))
 
-    def _online(self, text, sink, before_playback, state):
+    def _online(self, text, sink, before_playback, state, cancellation=None):
         text = normalize_for_speech(text)
         if not text or not sink.strip(): raise TtsError("Empty speech or sink")
         self.fallback._prepare_sink(sink)
@@ -46,10 +47,11 @@ class EdgeOnlineTts:
             worker.stdin.close()
             selector.register(worker.stdout, selectors.EVENT_READ)
             while True:
+                if cancellation is not None: cancellation.check()
                 now = time.monotonic()
                 budget = (self.first_timeout if first is None else self.idle_timeout) - (now-last)
                 if budget <= 0 or now-start > 120: raise TimeoutError("Online audio deadline")
-                if not selector.select(min(budget, 1)): continue
+                if not selector.select(min(budget, 0.1)): continue
                 data = os.read(worker.stdout.fileno(), 4096)
                 if not data: break
                 last = time.monotonic()
@@ -59,6 +61,9 @@ class EdgeOnlineTts:
                     if before_playback is not None: before_playback()
                     player = subprocess.Popen(["pacat", "--playback", "--raw", f"--device={sink}",
                         "--format=s16le", "--rate=24000", "--channels=1"], stdin=subprocess.PIPE, bufsize=0)
+                    if cancellation is not None:
+                        cancellation.register(player)
+                        cancellation.check()
                     record("tts_first_pcm_submit", time.monotonic()-start)
                 # Conservative: any attempted write prevents repeating the utterance.
                 state["submitted"] = True

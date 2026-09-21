@@ -49,3 +49,14 @@ audio.sound_direction.enabled 控制 XVF3800 后台只读线程，日志前缀 [
     tail -f logs/status.log
 
 Windows 阅读下载的日志可用 Get-Content logs/status.log -Wait。DOA 读取仍运行，但 audio.sound_direction.log_samples=false 默认不打印采样；接口错误只在错误变化时打印。临时查看实时方向仍可运行 python -m edge.audio.direction。
+
+
+## Lucky 伪全双工试用（2026-09-21）
+
+`interaction.wake.barge_in_enabled: true`（configs/audio.yaml）开启回复 TTS 合成/播报期间的 Lucky 检测；关闭即可恢复原半双工。需要同时启用 wake。正常 ASR 仍暂停，仅独立采集线程运行 KWS；检测到 Lucky 后终止本轮播放器，Kokoro 在下次合成回调停止，Edge 不会因主动打断而回退重播。清除歌曲候选，回到已唤醒等待命令状态。普通聊天和工具最终回复在 TTS 前已写入 SQLite，打断只影响播报，不删除已生成的完整回复，也不意味着用户听完了全文。
+
+范围：普通 Agent/工具最终回复；思考、工具执行阶段及固定唤醒短句仍不能打断。音乐继续沿用已有 Lucky 暂停逻辑。先喊 Lucky，等声音停止后再说新命令；本版不缓存紧跟 Lucky 的命令，清理及原有 0.6 秒播放保护期间的语音可能丢失。已开始的短过渡语仍按原逻辑排空。不撤销已完成的工具操作。
+
+这不是带 AEC 的真正全双工。机器人自己说出 Lucky 或环境播放唤醒词可能误触发；高音量可能降低检测率，需要现场验收。监测麦克风启动失败时打印 BARGE_IN UNAVAILABLE 并退回普通播报。日志中的 BARGE_IN 表示主动打断，不是 TTS 故障。
+
+验收：请求长回答 → 播放中喊 Lucky → 停止播报 → 稍停后问新问题；确认前一轮完整回复仍在历史、没有重复存档、不会续播或触发 Kokoro 重播。另测普通讲话不打断、连续三轮打断、Kokoro 离线回退、机器人说出 Lucky 的误触发、音乐播放与结束对话。此功能当前仅本地代码及模拟测试完成，硬件效果未验证。

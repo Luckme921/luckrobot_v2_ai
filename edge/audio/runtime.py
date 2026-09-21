@@ -16,6 +16,8 @@ from robot_tools.music import MusicTools, DirectAudioPlayer
 
 import builtins
 from edge.audio.status import status
+from edge.audio.barge_in import speak_with_wake
+from edge.audio.tts.cancellation import SpeechInterrupted
 
 def print(*args, **kwargs):
     """Preserve diagnostic output and mirror meaningful states to status.log."""
@@ -1998,13 +2000,17 @@ def main() -> None:
 
                                             try:
                                                 with measure("tts_total"):
-                                                    tts_result = (
-                                                        tts.speak(
-                                                            agent_reply.text,
-                                                            speaker,
+                                                    if wake_kws and wake_cfg.get("barge_in_enabled", False):
+                                                        tts_result = speak_with_wake(
+                                                            tts, agent_reply.text, speaker,
+                                                            capture=capture, kws=wake_kws,
                                                             before_playback=acknowledgements.finish,
                                                         )
-                                                    )
+                                                    else:
+                                                        tts_result = tts.speak(
+                                                            agent_reply.text, speaker,
+                                                            before_playback=acknowledgements.finish,
+                                                        )
 
                                                 playback_happened = True
 
@@ -2041,6 +2047,15 @@ def main() -> None:
                                                     f"{agent_seconds + tts_result.first_audio_latency_seconds:.3f}s",
                                                     flush=True,
                                                 )
+
+                                            except SpeechInterrupted:
+                                                music_tools.clear_pending()
+                                                interaction_gate.on_wake(time.monotonic())
+                                                wake_stream = wake_kws.create_stream()
+                                                wake_reply_sent = True
+                                                playback_happened = True
+                                                print("[BARGE_IN] Lucky detected; reply archived; speech stopped", flush=True)
+                                                status("已打断，等待新命令")
 
                                             except TtsError as exc:
                                                 print(

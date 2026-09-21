@@ -352,6 +352,7 @@ class KokoroTts:
         sink: str,
         *,
         before_playback=None,
+        cancellation=None,
     ) -> TtsResult:
         # Keep the reply as one logical utterance.
         # Kokoro sees the complete text so its
@@ -405,6 +406,9 @@ class KokoroTts:
                 f"{exc}"
             ) from exc
 
+        if cancellation is not None:
+            cancellation.register(player)
+
         if player.stdin is None:
             player.terminate()
 
@@ -432,6 +436,8 @@ class KokoroTts:
                 while True:
                     data = audio_queue.get()
 
+                    if cancellation is not None:
+                        cancellation.check()
                     if data is None:
                         break
 
@@ -497,6 +503,8 @@ class KokoroTts:
         ):
             nonlocal first_audio_latency
             nonlocal callback_batches
+            if cancellation is not None and cancellation.event.is_set():
+                return 0
 
             array = np.asarray(
                 samples,
@@ -552,7 +560,8 @@ class KokoroTts:
             # invokes the callback, play the returned
             # complete waveform once.
             if (
-                callback_batches == 0
+                (cancellation is None or not cancellation.event.is_set())
+                and callback_batches == 0
                 and len(audio.samples) > 0
             ):
                 array = np.asarray(
@@ -613,6 +622,9 @@ class KokoroTts:
         worker.join()
 
         return_code = player.wait()
+
+        if cancellation is not None:
+            cancellation.check()
 
         if playback_errors:
             raise TtsError(

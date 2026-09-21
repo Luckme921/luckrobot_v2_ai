@@ -33,3 +33,8 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 
 声源方向接口 edge/audio/direction.py：音频进程内独立线程读取 USB DOA/VAD，提供 print 日志与 latest() 快照；与 ASR/LLM/TTS 并行，仅遥测，未接入导航。
 
+
+
+## Lucky 伪全双工试用（2026-09-21）
+
+最终回复 TTS 合成/播报期间新增独立麦克风 KWS 线程，检测 Lucky 后取消当前播放器，回到已唤醒等待命令；已生成回复仍按原路径在播报前存档。由 interaction.wake.barge_in_enabled 控制，默认开启。普通 ASR 不并行，思考与工具执行不能打断，不保证保留紧跟 Lucky 的命令；不属于真正带 AEC 的全双工。范围、回退和验收见 [OPERATIONS.md](OPERATIONS.md)。
