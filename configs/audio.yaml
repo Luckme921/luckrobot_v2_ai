@@ -1,5 +1,6 @@
 audio:
   sound_direction:
+    log_samples: false
     enabled: true
     interval_seconds: 1.0
     front_offset_deg: null  # Calibrate sensor angle facing robot front first.

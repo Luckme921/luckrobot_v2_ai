@@ -33,3 +33,5 @@ configs/audio.yaml 的 audio.sound_direction.enabled=true 后，run_robot.sh 的
 设备实测成功读取 353°、VAD=false；这是静态读数，不是现场方向准确度验收。请在阵列不同方向讲话确认变化，再完成前方标定。
 
 
+
+2026-09-21：默认 log_samples=false，仅关闭后台采样打印，不停止读取/latest 接口。相同错误去重；独立命令行工具仍打印数据。

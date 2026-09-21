@@ -41,3 +41,11 @@
 
 audio.sound_direction.enabled 控制 XVF3800 后台只读线程，日志前缀 [DOA]，默认每秒打印；安装依赖、USB 权限与前方标定见 SOUND_DIRECTION.md。不启动任何运动控制。声源方向日志与 USB 权限、配置说明见 [SOUND_DIRECTION.md](SOUND_DIRECTION.md)。
 
+
+## 简洁状态视图（2026-09-21）
+
+完整诊断日志保留，另写 logs/status.log（1MB轮转，保留两份备份），只显示等待 Lucky、已唤醒等待讲话、ASR、思考/模型处理中、本地音乐处理、已得到回复、speak、等待下一句等状态。连续相同状态去重。这是流水线状态而非精确声学出声时间。
+
+    tail -f logs/status.log
+
+Windows 阅读下载的日志可用 Get-Content logs/status.log -Wait。DOA 读取仍运行，但 audio.sound_direction.log_samples=false 默认不打印采样；接口错误只在错误变化时打印。临时查看实时方向仍可运行 python -m edge.audio.direction。

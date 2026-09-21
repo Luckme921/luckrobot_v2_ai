@@ -14,6 +14,28 @@ from edge.music.personal_library import (
 from robot_tools.edge import build_edge_tools
 from robot_tools.music import MusicTools, DirectAudioPlayer
 
+import builtins
+from edge.audio.status import status
+
+def print(*args, **kwargs):
+    """Preserve diagnostic output and mirror meaningful states to status.log."""
+    message = " ".join(str(arg) for arg in args)
+    if 'Waiting for "Lucky"' in message or message.startswith("[STATE] SLEEPING"):
+        status("等待 Lucky")
+    elif message.startswith("[STATE] AWAKE_WAIT_COMMAND"):
+        status("已唤醒，等待讲话")
+    elif message.startswith("[STATE] LISTENING"):
+        status("等待下一句话")
+    elif message.startswith("[STATE] SPEAKING"):
+        status("文字转声音 / speak")
+    elif message.startswith("[AGENT_REPLY]"):
+        status("已得到回复")
+    elif message.startswith("[WAKE] LOCAL_REPLY"):
+        status("播放本地唤醒回应")
+    if "reason=music_playback" in message:
+        status("音乐播放中，等待 Lucky")
+    return builtins.print(*args, **kwargs)
+
 import argparse
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
 from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, cache_path, valid_clip
@@ -1306,6 +1328,7 @@ def main() -> None:
 
                             begin_turn()
                             record("vad_buffer_after_segment", vad.last_endpoint_buffer_seconds)
+                            status("声音转文字 / ASR")
                             with measure("asr"):
                                 text = (
                                     asr.transcribe(
@@ -1762,12 +1785,10 @@ def main() -> None:
                                                 # satisfy this fast path.
                                                 fast_path_request = None
 
-                                        selection = music_tools.selection_request(command_text)
-                                        if selection is not None:
-                                            agent_reply = AgentReply(
-                                                text="", model="local-selection",
-                                                tool_request={"name": "music_select",
-                                                              "arguments": {"selection": selection}})
+                                        local_request = music_tools.local_request(command_text)
+                                        status("本地处理音乐" if local_request is not None else "思考 / 模型处理中")
+                                        if local_request is not None:
+                                            agent_reply = AgentReply(text="", model="local-music", tool_request=local_request)
                                         elif (
                                             fast_path_request
                                             is not None

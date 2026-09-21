@@ -1,0 +1,56 @@
+import unittest
+from unittest.mock import Mock
+from robot_tools.music import MusicTools,explicit_candidate
+
+def song(id,title="龙卷风",artist="周杰伦"):
+    return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
+class LocalMusicTests(unittest.TestCase):
+    def setup_music(self,songs):
+        player=Mock()
+        music=MusicTools({"enabled":True,"provider":"http","http":{"auto_play_enabled":True}},player=player)
+        music.provider=Mock(url="https://example.com")
+        music.provider.search.return_value=songs
+        return music,player
+    def test_random_does_not_search_song_literal_or_ask_selection(self):
+        for phrase in ["播放一首歌","随便放一首歌","放点音乐","随便放一首","每日推荐"]:
+            music,player=self.setup_music([song("a")])
+            request=music.local_request(phrase)
+            self.assertIsNotNone(request,phrase)
+            self.assertTrue(music.search(**request["arguments"])["playing"])
+            self.assertNotEqual(music.provider.search.call_args.args[0],"歌")
+            player.play.assert_called_once()
+    def test_natural_singer_choice(self):
+        music,player=self.setup_music([song("a"),song("b",artist="邓紫棋")])
+        reply=music.search("龙卷风")
+        self.assertIn("还是邓紫棋",reply["message"])
+        self.assertEqual(music.local_request("周杰伦的")["name"],"music_select")
+        self.assertTrue(music.select("周杰伦的")["playing"])
+        player.play.assert_called_once_with("https://example.com/a")
+    def test_explicit_title_singer_autoplays(self):
+        music,player=self.setup_music([song("b",artist="邓紫棋"),song("a")])
+        self.assertTrue(music.search("周杰伦的龙卷风")["playing"])
+        player.play.assert_called_once_with("https://example.com/a")
+    def test_pending_random_and_bounded_failure(self):
+        music,player=self.setup_music([song("a"),song("b")])
+        music.search("龙卷风")
+        self.assertEqual(music.local_request("随便")["name"],"music_select")
+        player.play.side_effect=RuntimeError()
+        reply=music.select("随便")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(player.play.call_count,2)
+        self.assertFalse(music.has_pending)
+    def test_negation_and_questions_not_local_commands(self):
+        music,_=self.setup_music([])
+        for text in ["不要播放龙卷风","怎么播放音乐","播放音乐为什么没声音","如果播放音乐会怎样"]:
+            self.assertIsNone(music.local_request(text))
+
+    def test_explicit_near_match_and_ambiguity(self):
+        self.assertIsNotNone(explicit_candidate("周杰伦的七里香啊",[song("a","七里香啊" )]))
+        self.assertIsNone(explicit_candidate("周杰伦的龙卷风",[song("a"),song("b")]))
+        self.assertIsNone(explicit_candidate("周杰伦的龙卷风",[song("a",artist="邓紫棋")]))
+    def test_single_candidate_confirmation(self):
+        music,player=self.setup_music([song("a")])
+        music.search("龙卷风")
+        request=music.local_request("好的")
+        self.assertEqual(request["arguments"]["selection"],"第一首")
+        player.play.assert_not_called()

@@ -53,6 +53,7 @@ class DirectionMonitor:
         self.interval=max(0.2,min(10.,float(config.get("interval_seconds",1))))
         self.reader=XvfDirectionReader(config.get("front_offset_deg"),config.get("clockwise",True))
         self._latest=None;self.lock=threading.Lock()
+        self._last_error = None
 
     def latest(self, max_age_seconds=2):
         with self.lock:
@@ -73,11 +74,16 @@ class DirectionMonitor:
                 try:
                     sample=self.reader.read()
                     with self.lock: self._latest=sample
-                    print("[DOA] "+json.dumps(sample,ensure_ascii=False),flush=True)
+                    self._last_error = None
+                    if self.config.get("log_samples", False):
+                        print("[DOA] "+json.dumps(sample,ensure_ascii=False),flush=True)
                 except Exception as exc:
                     with self.lock: self._latest=None
-                    print("[DOA] "+json.dumps(dict(status="unavailable",error=type(exc).__name__,
-                        message=str(exc),direction_valid=False)),flush=True)
+                    error = (type(exc).__name__, str(exc))
+                    if error != self._last_error:
+                        print("[DOA] "+json.dumps(dict(status="unavailable",error=error[0],
+                            message=error[1],direction_valid=False)),flush=True)
+                    self._last_error = error
                     try:self.reader.close()
                     except Exception:pass
                     delay=5

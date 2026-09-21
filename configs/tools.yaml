@@ -5,6 +5,6 @@ music_http:
   search_url: https://tang.api.s01s.cn/music_open_api.php
   timeout_seconds: 10
   # Explicit opt-in; otherwise always ask the user to select.
-  auto_play_enabled: false
-  auto_play_threshold: 90
-  auto_play_gap: 20
+  auto_play_enabled: true
+  # Search seeds, not a provider daily-recommendation API.
+  random_queries: [周杰伦, 陈奕迅, 孙燕姿]
