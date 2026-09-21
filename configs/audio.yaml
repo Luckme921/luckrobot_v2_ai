@@ -1,4 +1,9 @@
 audio:
+  sound_direction:
+    enabled: true
+    interval_seconds: 1.0
+    front_offset_deg: null
+    clockwise: true
   sample_rate: 16000
   channels: 1
   format: s16le

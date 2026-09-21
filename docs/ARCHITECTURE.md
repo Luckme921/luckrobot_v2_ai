@@ -29,3 +29,5 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 单轮主流程的 ASR、路由、工具结果处理、最终 TTS 仍有前后依赖。事件流不等于逐 token 文本流，也不等于逐句合成：不能把当前实现描述成完整流式语音对话。继续优化应使用 trace_id 分开比较 VAD 尾停顿、ASR、路由、工具、回复生成、TTS 首音等耗时。
 
 导航 navigate_to 当前是 MOCK，只返回接收结果，不向机器人底盘发送运动指令。
+
+声源方向模块 edge/audio/direction.py 在音频进程独立线程读取 USB DOA/VAD，并提供带过期检查的 latest() 快照，未接入导航。
