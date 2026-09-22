@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
@@ -100,22 +101,46 @@ def is_random_request(text):
                 or value in {"随便", "随便吧", "都行", "随便一首", "随机播放", "每日推荐", "推荐音乐", "随便放一首", "随便来一首"})
 
 
-def explicit_candidate(query, songs):
+def explicit_candidate(query, songs, minimum_score=0.62):
+    """Pick the highest fuzzy title+artist match, including Live/Mix variants."""
     q = _normalize_text(query)
     matches = []
+    markers = ("live", "mix", "remix", "现场", "版本", "版", "伴奏", "dj")
+
+    def base(value):
+        value = _normalize_text(value)
+        for marker in markers:
+            value = value.replace(marker, "")
+        return value
+
     for song in songs:
         title = _normalize_text(song.get("title", ""))
-        if not title: continue
+        if not title:
+            continue
         for artist in song.get("artists", []):
             a = _normalize_text(artist)
-            if not a or a not in q: continue
-            remaining = q.replace(a, "", 1).strip("的")
-            score = SequenceMatcher(None, remaining, title).ratio()
-            if remaining == title or (len(remaining) >= 3 and score >= 0.85):
-                matches.append((score, song)); break
+            aliases = [a]
+            if len(a) >= 3:
+                aliases.append(a[-2:])
+            alias = next((item for item in aliases if item and item in q), None)
+            if alias is None:
+                continue
+            remaining = q.replace(alias, "", 1).strip("的")
+            if len(remaining) < 2:
+                continue
+            title_score = max(
+                SequenceMatcher(None, remaining, title).ratio(),
+                SequenceMatcher(None, base(remaining), base(title)).ratio(),
+            )
+            if base(remaining) and (
+                    base(remaining) in base(title) or base(title) in base(remaining)):
+                title_score = max(title_score, 0.95)
+            artist_score = 1.0 if alias == a else 0.9
+            matches.append((title_score * 0.8 + artist_score * 0.2, song))
+            break
     matches.sort(key=lambda pair: pair[0], reverse=True)
-    if not matches: return None
-    if len(matches)>1 and matches[0][0]-matches[1][0]<0.1: return None
+    if not matches or matches[0][0] < minimum_score:
+        return None
     return matches[0][1]
 
 
@@ -125,6 +150,7 @@ class HttpMusicProvider:
         self.url = str(config.get("search_url", "")).strip()
         self.token_env = str(config.get("token_env", "MUSIC_API_TOKEN"))
         self.timeout = min(30.0, max(1.0, float(config.get("timeout_seconds", 10))))
+        self.limit = min(20, max(3, int(config.get("search_limit", 10))))
 
     def search(self, query):
         if urlsplit(self.url).scheme not in {"http", "https"}:
@@ -134,7 +160,7 @@ class HttpMusicProvider:
         if token:
             headers["Authorization"] = "Bearer " + token
         joiner = "&" if "?" in self.url else "?"
-        req = Request(self.url + joiner + urlencode({"q": query, "limit": 3}), headers=headers)
+        req = Request(self.url + joiner + urlencode({"q": query, "limit": self.limit}), headers=headers)
         with urlopen(req, timeout=self.timeout) as response:
             body = response.read(1_000_001)
         if len(body) > 1_000_000:
@@ -159,7 +185,7 @@ class HttpMusicProvider:
             clean.append(dict(id=sid[:200], title=title[:120], artists=artists[:5],
                               url=url, expires_at=expires, backend="http"))
             seen.add(sid)
-            if len(clean) == 3:
+            if len(clean) == self.limit:
                 break
         return clean
 
@@ -168,6 +194,7 @@ class TangMusicProvider:
     def __init__(self, config):
         self.url = str(config.get("search_url") or "https://tang.api.s01s.cn/music_open_api.php")
         self.timeout = min(30., max(1., float(config.get("timeout_seconds", 10))))
+        self.limit = min(20, max(3, int(config.get("search_limit", 10))))
 
     def _request(self, parameters):
         request = Request(self.url + ("&" if "?" in self.url else "?") + urlencode(parameters),
@@ -194,7 +221,7 @@ class TangMusicProvider:
             songs.append(dict(id=mid, title=title[:120], artists=[artist] if isinstance(artist, str) else [],
                               query=query, backend="http", resolver="tang"))
             seen.add(mid)
-            if len(songs) == 3:
+            if len(songs) == self.limit:
                 break
         return songs
 
@@ -217,7 +244,7 @@ class NeteaseMusicProvider(TangMusicProvider):
         self.url = "https://api.vkeys.cn/v2/music/netease"
 
     def search(self, query):
-        data = self._request({"word": query, "page": 1, "num": 3})
+        data = self._request({"word": query, "page": 1, "num": self.limit})
         if not isinstance(data, dict) or data.get("code") != 200 or not isinstance(data.get("data"), list):
             raise ValueError("Invalid Netease search response")
         songs, seen = [], set()
@@ -229,7 +256,7 @@ class NeteaseMusicProvider(TangMusicProvider):
             artist = item.get("singer")
             songs.append(dict(id=sid, title=title[:120], artists=[artist] if isinstance(artist, str) else [],
                               backend="http", resolver="netease", query=query))
-            if len(songs) == 3: break
+            if len(songs) == self.limit: break
         return songs
 
     def resolve(self, song):
@@ -248,24 +275,39 @@ class NeteaseMusicProvider(TangMusicProvider):
 
 
 class FallbackMusicProvider:
-    """Fallback only during search; never replace an explicitly selected song."""
+    """Query all configured public providers concurrently and merge candidates."""
     def __init__(self, config):
         self.providers = {"tang": TangMusicProvider(config), "netease": NeteaseMusicProvider(config)}
         self.url = self.providers["tang"].url
 
     def search(self, query):
         errors = []
-        for name, provider in self.providers.items():
-            try:
-                songs = provider.search(query)
+        found = []
+        with ThreadPoolExecutor(max_workers=len(self.providers)) as executor:
+            futures = {executor.submit(provider.search, query): name
+                       for name, provider in self.providers.items()}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    songs = future.result()
+                except (OSError, ValueError, TypeError, KeyError) as exc:
+                    errors.append(type(exc).__name__)
+                    print(f"[MUSIC] SEARCH_SOURCE_FAILED provider={name} error={type(exc).__name__}", flush=True)
+                    continue
                 if songs:
                     print(f"[MUSIC] SEARCH_SOURCE provider={name} candidates={len(songs)}", flush=True)
-                    return songs
-            except (OSError, ValueError, TypeError, KeyError) as exc:
-                errors.append(type(exc).__name__)
-                print(f"[MUSIC] SEARCH_SOURCE_FAILED provider={name} error={type(exc).__name__}", flush=True)
-        if errors: raise RuntimeError("Music search services unavailable")
-        return []
+                    found.extend(songs)
+        if not found and errors:
+            raise RuntimeError("Music search services unavailable")
+        unique = []
+        seen = set()
+        for song in found:
+            key = (song.get("resolver"), song.get("id"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(song)
+        return unique
 
     def resolve(self, song):
         return self.providers[song["resolver"]].resolve(song)
@@ -338,6 +380,9 @@ class MusicTools:
         self.before_playback = before_playback
         self.random_queries = http_config.get("random_queries", ["周杰伦", "陈奕迅", "孙燕姿"])
         self.auto_play_enabled = http_config.get("auto_play_enabled", False) is True
+        self.search_limit = min(20, max(3, int(http_config.get("search_limit", 10))))
+        self.pending_limit = min(10, max(3, int(http_config.get("pending_limit", 5))))
+        self.fuzzy_auto_play_score = float(http_config.get("fuzzy_auto_play_score", 0.62))
         # Auto-play when the top candidate is clearly what the user asked for.
         # threshold=0 disables auto-play; default is intentionally conservative.
         self.auto_play_threshold = float(http_config.get("auto_play_threshold", 90.0))
@@ -434,13 +479,13 @@ class MusicTools:
         if not songs:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
 
-        self.pending = songs[:3]
+        self.pending = songs[:self.pending_limit]
         self.deadline = self.clock() + 120
 
         # Compare every candidate returned by the provider before truncating the UI list.
         if random_mode:
             return self._random_play()
-        chosen = (explicit_candidate(query, songs)
+        chosen = (explicit_candidate(query, songs, self.fuzzy_auto_play_score)
                   if self.auto_play_enabled else None)
         if chosen is not None:
             self.pending = [chosen]

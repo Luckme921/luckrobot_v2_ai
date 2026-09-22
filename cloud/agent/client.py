@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 from openai import AsyncOpenAI, BadRequestError
-from shared.timing import measure, announce
+from shared.timing import measure, announce, progress, trace_id
 from robot_tools.catalog import LOCAL_SCHEMAS, WEATHER_SCHEMA
 from robot_tools.registry import validate
 
@@ -143,6 +143,9 @@ class GLMAgent:
         self.reasoning_effort = agent_cfg.get(
             "reasoning_effort",
             "low",
+        )
+        self.stream_text_enabled = bool(
+            agent_cfg.get("stream_text_enabled", False)
         )
 
         profile_text = yaml.safe_dump(
@@ -1164,6 +1167,30 @@ class GLMAgent:
         with measure(stage):
             return await self.client.chat.completions.create(**kwargs)
 
+    async def _answer_text(self, *, stage="model_answer", **kwargs):
+        """Return the final text and optionally publish provider text deltas."""
+        if not getattr(self, "stream_text_enabled", False):
+            response = await self._completion(stage=stage, **kwargs)
+            return (response.choices[0].message.content or "").strip()
+
+        pieces = []
+        with measure(stage):
+            stream = await self.client.chat.completions.create(
+                stream=True, **kwargs)
+            async for chunk in stream:
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                text = getattr(choices[0].delta, "content", None)
+                if not text:
+                    continue
+                pieces.append(text)
+                callback = progress.get()
+                if callback is not None:
+                    callback({"type": "text_delta", "text": text,
+                              "trace_id": trace_id.get()})
+        return "".join(pieces).strip()
+
     async def _execute_tool(self, name, arguments, **kwargs):
         announce(name)
         with measure("tool_" + name):
@@ -1462,8 +1489,8 @@ class GLMAgent:
                     messages[-1]
                 )
 
-                final_response = (
-                    await self._completion(
+                content = (
+                    await self._answer_text(
                         model=self.model,
                         messages=answer_messages,
                         temperature=(
@@ -1476,14 +1503,6 @@ class GLMAgent:
                             self._extra_body()
                         ),
                     )
-                )
-
-                content = (
-                    final_response
-                    .choices[0]
-                    .message
-                    .content
-                    or ""
                 ).strip()
 
                 if not content:
@@ -1549,8 +1568,8 @@ class GLMAgent:
                 messages[-1]
             )
 
-            routed_final = (
-                await self._completion(
+            routed_content = (
+                await self._answer_text(
                     model=self.model,
                     messages=answer_messages,
                     temperature=(
@@ -1563,14 +1582,6 @@ class GLMAgent:
                         self._extra_body()
                     ),
                 )
-            )
-
-            routed_content = (
-                routed_final
-                .choices[0]
-                .message
-                .content
-                or ""
             ).strip()
 
             if routed_content:
@@ -1700,8 +1711,8 @@ class GLMAgent:
                 }
             )
 
-        final_response = (
-            await self._completion(
+        content = (
+            await self._answer_text(
                 model=self.model,
                 messages=messages,
                 temperature=(
@@ -1714,17 +1725,6 @@ class GLMAgent:
                     self._extra_body()
                 ),
             )
-        )
-
-        final_choice = (
-            final_response.choices[0]
-        )
-
-        content = (
-            final_choice
-            .message
-            .content
-            or ""
         ).strip()
 
         if content:

@@ -4,7 +4,11 @@ music_http:
   adapter: fallback
   search_url: https://tang.api.s01s.cn/music_open_api.php
   timeout_seconds: 10
+  # Each public API is queried concurrently and may contribute this many songs.
+  search_limit: 10
+  pending_limit: 5
   # Explicit opt-in; otherwise always ask the user to select.
   auto_play_enabled: true
+  fuzzy_auto_play_score: 0.62
   # Search seeds, not a provider daily-recommendation API.
   random_queries: [周杰伦, 陈奕迅, 孙燕姿]

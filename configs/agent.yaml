@@ -9,6 +9,8 @@ agent:
   route_protocol: "json"  # Set to tool to restore legacy routing.
   thinking: "enabled"
   reasoning_effort: "low"
+  # Final answer text is streamed; route JSON remains a complete response.
+  stream_text_enabled: true
 
 web_search:
   enabled: true

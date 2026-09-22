@@ -51,14 +51,15 @@ class FallbackTests(unittest.TestCase):
             backup.resolve.assert_called_once_with(songs[0])
             primary.resolve.assert_not_called()
 
-    def test_success_does_not_search_backup(self):
+    def test_success_also_searches_backup(self):
         from robot_tools.music import FallbackMusicProvider
         provider = FallbackMusicProvider({})
         primary, backup = Mock(), Mock()
         primary.search.return_value = [{"id": "1", "resolver": "tang"}]
+        backup.search.return_value = []
         provider.providers = {"tang": primary, "netease": backup}
         provider.search("稻香")
-        backup.search.assert_not_called()
+        backup.search.assert_called_once_with("稻香")
 
     def test_netease_search_mapping(self):
         from robot_tools.music import NeteaseMusicProvider

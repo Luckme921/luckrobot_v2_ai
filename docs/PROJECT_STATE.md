@@ -81,6 +81,13 @@ Full duplex:
 - ASR while speaker is active
 - barge-in / interruption
 
+2026-09-22 local implementation candidate: Lucky-only pseudo full duplex now
+monitors THINKING through SPEAKING, can cancel the Edge HTTP response and TTS,
+and optionally archives interrupted input with a marker. Final text answers can
+stream through punctuation-delimited Edge Xiaoxiao requests. Windows tests pass;
+Jetson microphone, echo, latency, cloud cancellation and prosody remain pending
+hardware acceptance.
+
 ## ASR
 
 Primary:

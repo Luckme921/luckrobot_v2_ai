@@ -168,9 +168,13 @@ class CloudAgentClient:
             assistant_text,
         )
 
-    def _post_chat(self, payload):
+    def _post_chat(self, payload, cancellation=None):
+        if cancellation is not None:
+            cancellation.check()
         if not self.progress_enabled:
-            return self._post_json(self.endpoint, payload)
+            if cancellation is None:
+                return self._post_json(self.endpoint, payload)
+            return self._post_json(self.endpoint, payload, cancellation)
         request = Request(
             self.endpoint.rstrip("/") + "/events",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -178,7 +182,11 @@ class CloudAgentClient:
                      "Accept": "application/x-ndjson"}, method="POST")
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
-                for index in range(512):
+                if cancellation is not None:
+                    cancellation.register_callback(response.close)
+                for index in range(8192):
+                    if cancellation is not None:
+                        cancellation.check()
                     line = response.readline(131073)
                     if not line:
                         break
@@ -195,25 +203,36 @@ class CloudAgentClient:
                         raise CloudAgentError("Agent failed during progress request")
                     if event.get("type") == "timing":
                         print("[REMOTE_TIMING] " + json.dumps(event), flush=True)
-                    elif event.get("type") == "tool_start" and self.on_event:
+                    elif event.get("type") in {"tool_start", "text_delta"} and self.on_event:
                         try:
                             self.on_event(event)
                         except Exception as exc:
                             print(f"[ACK] callback failed: {type(exc).__name__}", flush=True)
         except HTTPError as exc:
+            if cancellation is not None:
+                cancellation.check()
             if exc.code in {404, 405}:
                 # Old API: no request was executed by this missing endpoint.
-                return self._post_json(self.endpoint, payload)
+                if cancellation is None:
+                    return self._post_json(self.endpoint, payload)
+                return self._post_json(self.endpoint, payload, cancellation)
             raise CloudAgentError(f"Agent progress HTTP error {exc.code}") from exc
         except (OSError, ValueError) as exc:
+            if cancellation is not None:
+                cancellation.check()
             raise CloudAgentError("Invalid or interrupted Agent progress response") from exc
+        if cancellation is not None:
+            cancellation.check()
         raise CloudAgentError("Agent progress stream ended without a final result")
 
     def _post_json(
         self,
         endpoint: str,
         payload: dict,
+        cancellation=None,
     ) -> dict:
+        if cancellation is not None:
+            cancellation.check()
         body = json.dumps(
             payload,
             ensure_ascii=False,
@@ -235,11 +254,15 @@ class CloudAgentClient:
                 request,
                 timeout=self.timeout_seconds,
             ) as response:
+                if cancellation is not None:
+                    cancellation.register_callback(response.close)
                 response_body = (
                     response.read()
                 )
 
         except HTTPError as exc:
+            if cancellation is not None:
+                cancellation.check()
             try:
                 detail = (
                     exc.read()
@@ -258,12 +281,16 @@ class CloudAgentClient:
             ) from exc
 
         except URLError as exc:
+            if cancellation is not None:
+                cancellation.check()
             raise CloudAgentError(
                 "Cloud Agent unavailable: "
                 f"{exc.reason}"
             ) from exc
 
         except TimeoutError as exc:
+            if cancellation is not None:
+                cancellation.check()
             raise CloudAgentError(
                 "Cloud Agent request timed out"
             ) from exc
@@ -362,6 +389,7 @@ class CloudAgentClient:
 
     def _compact_pending(
         self,
+        cancellation=None,
     ) -> None:
         while True:
             batch = (
@@ -385,9 +413,7 @@ class CloudAgentClient:
                 flush=True,
             )
 
-            data = self._post_json(
-                self.compact_endpoint,
-                {
+            compact_payload = {
                     "previous_summary": (
                         snapshot
                         .memory_summary
@@ -395,8 +421,12 @@ class CloudAgentClient:
                     "turns": (
                         batch.turns
                     ),
-                },
-            )
+                }
+            if cancellation is None:
+                data = self._post_json(self.compact_endpoint, compact_payload)
+            else:
+                data = self._post_json(
+                    self.compact_endpoint, compact_payload, cancellation)
 
             block_summary = str(
                 data.get(
@@ -464,6 +494,7 @@ class CloudAgentClient:
         jpeg_frames: list[bytes] | None = None,
         local_identity: str = "uncertain",
         tool_mode: str = "auto",
+        cancellation=None,
     ) -> AgentReply:
         command = text.strip()
 
@@ -499,7 +530,7 @@ class CloudAgentClient:
 
         try:
             with measure("memory_compact"):
-                self._compact_pending()
+                self._compact_pending(cancellation)
         except (
             CloudAgentError,
             RuntimeError,
@@ -595,7 +626,7 @@ class CloudAgentClient:
             )
 
         with measure("edge_http_chat"):
-            data = self._post_chat(payload)
+            data = self._post_chat(payload, cancellation)
 
         reply = str(
             data.get(

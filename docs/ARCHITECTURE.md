@@ -37,4 +37,6 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 
 ## Lucky 伪全双工试用（2026-09-21）
 
-最终回复 TTS 合成/播报期间新增独立麦克风 KWS 线程，检测 Lucky 后取消当前播放器，回到已唤醒等待命令；已生成回复仍按原路径在播报前存档。由 interaction.wake.barge_in_enabled 控制，默认开启。普通 ASR 不并行，思考与工具执行不能打断，不保证保留紧跟 Lucky 的命令；不属于真正带 AEC 的全双工。范围、回退和验收见 [OPERATIONS.md](OPERATIONS.md)。
+最初版本只覆盖最终回复 TTS；2026-09-22 已由下一段的 THINKING 到 SPEAKING 全回合监测取代。普通 ASR 仍不并行，也不保证保留紧跟 Lucky 的命令；这不属于带 AEC 的真正全双工。
+
+2026-09-22：独立 Lucky KWS 生命周期覆盖 THINKING 到 SPEAKING；取消令牌同时关闭 Edge HTTP 流和当前 TTS 子进程。最终正文路径为 GLM token stream → Cloud text_delta → Edge 标点缓冲 → 晓晓短句队列。对话路由、视觉/工具决定仍先完整校验，不能使用不完整流数据执行动作。该结构没有 AEC，也没有并行普通 ASR。

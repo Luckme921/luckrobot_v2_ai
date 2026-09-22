@@ -12,11 +12,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import sherpa_onnx
 
 from edge.audio.tts.text import (
     normalize_for_speech,
 )
+
+
+_sherpa_module = None
+
+
+def _sherpa():
+    """Load the hardware runtime only when Kokoro is actually constructed/used."""
+    global _sherpa_module
+    if _sherpa_module is None:
+        import sherpa_onnx
+        _sherpa_module = sherpa_onnx
+    return _sherpa_module
 
 
 class TtsError(RuntimeError):
@@ -115,7 +126,7 @@ class KokoroTts:
                 )
 
         kokoro_config = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTtsKokoroModelConfig(
                 model=str(
                     self.model_dir
@@ -141,7 +152,7 @@ class KokoroTts:
         )
 
         model_config = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTtsModelConfig(
                 kokoro=kokoro_config,
                 provider="cpu",
@@ -153,7 +164,7 @@ class KokoroTts:
         )
 
         tts_config = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTtsConfig(
                 model=model_config,
                 rule_fsts=(
@@ -172,7 +183,7 @@ class KokoroTts:
             )
 
         self._tts = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTts(
                 tts_config
             )
@@ -183,7 +194,7 @@ class KokoroTts:
         text: str,
     ) -> _GeneratedChunk:
         generation_config = (
-            sherpa_onnx
+            _sherpa()
             .GenerationConfig()
         )
 
@@ -468,7 +479,7 @@ class KokoroTts:
         worker.start()
 
         generation_config = (
-            sherpa_onnx.GenerationConfig()
+            _sherpa().GenerationConfig()
         )
 
         generation_config.sid = (

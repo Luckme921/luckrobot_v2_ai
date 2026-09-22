@@ -12,6 +12,7 @@ from cloud.agent.client import GLMAgent, VisionRequestRequired, MusicRequestRequ
 from cloud.api import main as api
 from edge.agent.cloud_client import CloudAgentClient, CloudAgentError
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
+from edge.audio.tts.cancellation import SpeechCancellation, SpeechInterrupted
 from shared.timing import progress, trace_id, announce, measure
 
 
@@ -40,6 +41,23 @@ def agent_with(*responses):
 
 
 class JsonRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_final_answer_can_publish_text_deltas(self):
+        agent = agent_with(response('{"action":"respond_text"}'))
+        agent.stream_text_enabled = True
+        async def chunks():
+            for text in ("你好，", "世界。"):
+                yield NS(choices=[NS(delta=NS(content=text))])
+        agent.client.chat.completions.create.side_effect = [
+            response('{"action":"respond_text"}'), chunks()]
+        events = []
+        token = progress.set(events.append)
+        try:
+            self.assertEqual(await agent.chat("hello"), "你好，世界。")
+        finally:
+            progress.reset(token)
+        self.assertEqual([e["text"] for e in events if e["type"] == "text_delta"],
+                         ["你好，", "世界。"])
+
     async def test_chat_uses_json_then_full_context_answer(self):
         agent = agent_with(response('{"action":"respond_text"}'), response("hello"))
         history = [{"role": "user", "content": "previous question"},
@@ -221,6 +239,33 @@ class EdgeEventsTests(unittest.TestCase):
         client.on_event.assert_called_once()
         client._post_json.assert_not_called()
 
+    def test_text_delta_is_forwarded(self):
+        client = self.client()
+        stream = io.BytesIO(
+            '{"type":"text_delta","text":"你好，"}\n'
+            '{"type":"result","data":{"reply":"你好，世界。"}}\n'.encode())
+        with patch("edge.agent.cloud_client.urlopen", return_value=stream):
+            client._post_chat({})
+        client.on_event.assert_called_once_with(
+            {"type": "text_delta", "text": "你好，"})
+
+    def test_cancellation_discards_response_and_closes_connection(self):
+        client = self.client()
+        token = SpeechCancellation()
+        class BlockingResponse(io.BytesIO):
+            def readline(self, *args):
+                token.cancel()
+                return b""
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.close()
+        response_stream = BlockingResponse()
+        with patch("edge.agent.cloud_client.urlopen", return_value=response_stream):
+            with self.assertRaises(SpeechInterrupted):
+                client._post_chat({}, token)
+        self.assertTrue(response_stream.closed)
+
     def test_only_missing_endpoint_falls_back(self):
         for code in (404, 405, 500):
             client = self.client()
@@ -327,6 +372,7 @@ class TtsTimingTests(unittest.TestCase):
         fake_sherpa = NS(GenerationConfig=NS)
         with patch.dict(sys.modules, {"sherpa_onnx": fake_sherpa}):
             module = importlib.import_module("edge.audio.tts.kokoro")
+        module._sherpa_module = fake_sherpa
         try:
             for callback_enabled in (True, False):
                 with self.subTest(callback_enabled=callback_enabled):
@@ -365,6 +411,7 @@ class TtsTimingTests(unittest.TestCase):
                     self.assertEqual(stages.count("tts_first_pcm_submit"), 1)
                     self.assertEqual(player.stdin.write.call_count, 2 if callback_enabled else 1)
         finally:
+            module._sherpa_module = None
             sys.modules.pop("edge.audio.tts.kokoro", None)
 
 if __name__ == "__main__":

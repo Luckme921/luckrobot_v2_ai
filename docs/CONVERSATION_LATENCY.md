@@ -115,4 +115,10 @@ edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 
 
 ## Lucky 伪全双工试用（2026-09-21）
 
-最终回复 TTS 合成/播报期间新增独立麦克风 KWS 线程，检测 Lucky 后取消当前播放器，回到已唤醒等待命令；已生成回复仍按原路径在播报前存档。由 interaction.wake.barge_in_enabled 控制，默认开启。普通 ASR 不并行，思考与工具执行不能打断，不保证保留紧跟 Lucky 的命令；不属于真正带 AEC 的全双工。范围、回退和验收见 [OPERATIONS.md](OPERATIONS.md)。
+最初版本只覆盖最终回复 TTS；2026-09-22 已由下一节所述的 THINKING 到 SPEAKING 全回合监测取代。普通 ASR 仍不并行，也不保证保留紧跟 Lucky 的命令；这不属于带 AEC 的真正全双工。
+
+## 思考打断与正文流式 TTS（2026-09-22）
+
+Lucky KWS 监测范围扩展为身份处理、Cloud 请求、正文流式合成和最终播报。检测到 Lucky 会关闭 Edge 当前 HTTP 响应、触发 Cloud `/chat/events` 断连取消并丢弃未完成结果；已经开始的外部工具副作用不能撤销，因此本地工具执行前会再次检查取消状态。`interaction.wake.record_interrupted_turns` 默认 true：只有 Cloud 尚未返回完整回复、记忆尚未落库时，保存用户输入和“输出被 Lucky 打断”的标记；关闭后不记录该回合。完整回复已返回后再打断播报，保留原完整回复，不另写中断标记。
+
+`agent.stream_text_enabled` 让 GLM 最终文本回答使用供应商流式接口，并通过 `/chat/events` 发送 `text_delta`；JSON 路由仍等待完整 JSON。`agent_bridge.stream_text_to_tts` 让 Edge 按逗号、顿号、分号、句号、问号、感叹号及英文对应符号切分，依次提交给晓晓。两项均默认 true，可分别回退。普通文字回答和工具执行后的最终文字支持该链路；多模态首轮可能包含工具调用，仍采用完整响应。分段会更早出声，但每段单独建立 Edge TTS 请求，停顿和整体韵律需设备实测。

@@ -57,3 +57,9 @@ music_http.auto_play_enabled 默认 false，只有明确配置 true 才开启；
 
 
 新增 interaction.wake.barge_in_enabled 开关：最终回复合成/播报时允许 Lucky 打断，默认开启；打断清除待选歌曲、不撤销已执行工具。适用范围与现场验收见 OPERATIONS.md 的“Lucky 伪全双工试用”。
+
+## 音乐并发搜索与模糊直播放（2026-09-22）
+
+`music_http.adapter=fallback` 现在并发请求 Tang/QQ 与网易云两个已接入接口，而不是第一个有结果就停止。`search_limit` 控制每个接口最多候选数，默认 10；合并后 `pending_limit` 默认展示 5 首。接口失败彼此隔离，全部失败才返回服务不可用。仍不接受模型或用户直接提供的播放 URL。
+
+明确包含歌手和歌名的请求会计算歌手与标题综合分并直接播放最高分；支持歌手简称，如“杰伦的龙卷风”。标题比较会忽略 Live、Mix、Remix、现场、版本、伴奏、DJ 等版本词，因此允许直接选择最相近版本。`fuzzy_auto_play_score` 默认 0.62，可提高以减少误播。只说歌名或歌手时仍保留候选选择，随机播放逻辑不变。

@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock
-from robot_tools.music import MusicTools,explicit_candidate
+from robot_tools.music import MusicTools, explicit_candidate, FallbackMusicProvider
 
 def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
@@ -44,10 +44,21 @@ class LocalMusicTests(unittest.TestCase):
         for text in ["不要播放龙卷风","怎么播放音乐","播放音乐为什么没声音","如果播放音乐会怎样"]:
             self.assertIsNone(music.local_request(text))
 
-    def test_explicit_near_match_and_ambiguity(self):
-        self.assertIsNotNone(explicit_candidate("周杰伦的七里香啊",[song("a","七里香啊" )]))
-        self.assertIsNone(explicit_candidate("周杰伦的龙卷风",[song("a"),song("b")]))
+    def test_explicit_near_match_picks_highest_even_for_version(self):
+        candidates = [song("live", "龙卷风 Live"), song("wrong", "龙卷雨")]
+        self.assertEqual(
+            explicit_candidate("杰伦的龙卷风", candidates)["id"], "live")
         self.assertIsNone(explicit_candidate("周杰伦的龙卷风",[song("a",artist="邓紫棋")]))
+
+    def test_fallback_queries_all_sources_and_merges(self):
+        provider = FallbackMusicProvider({"search_limit": 10})
+        provider.providers = {"a": Mock(), "b": Mock()}
+        provider.providers["a"].search.return_value = [song("a")]
+        provider.providers["b"].search.return_value = [song("b", "稻香")]
+        found = provider.search("周杰伦")
+        self.assertEqual({item["id"] for item in found}, {"a", "b"})
+        provider.providers["a"].search.assert_called_once_with("周杰伦")
+        provider.providers["b"].search.assert_called_once_with("周杰伦")
     def test_single_candidate_confirmation(self):
         music,player=self.setup_music([song("a")])
         music.search("龙卷风")

@@ -16,8 +16,9 @@ from robot_tools.music import MusicTools, DirectAudioPlayer
 
 import builtins
 from edge.audio.status import status
-from edge.audio.barge_in import speak_with_wake
+from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
 from edge.audio.tts.cancellation import SpeechInterrupted
+from edge.audio.tts.streaming_reply import StreamingReplySpeaker
 
 def print(*args, **kwargs):
     """Preserve diagnostic output and mirror meaningful states to status.log."""
@@ -1657,6 +1658,33 @@ def main() -> None:
                                     acknowledgements.sink = speaker
                                     acknowledgements.begin_turn()
 
+                                    turn_monitor = None
+                                    turn_stream_speaker = None
+                                    if wake_kws and wake_cfg.get("barge_in_enabled", False):
+                                        try:
+                                            turn_monitor = WakeInterruptMonitor(capture, wake_kws).start()
+                                        except Exception as exc:
+                                            print(f"[BARGE_IN] UNAVAILABLE error={type(exc).__name__}", flush=True)
+
+                                    if (
+                                        turn_monitor is not None
+                                        and tts is not None
+                                        and speaker != "<unavailable>"
+                                        and agent_bridge_cfg.get("stream_text_to_tts", False)
+                                    ):
+                                        turn_stream_speaker = StreamingReplySpeaker(
+                                            tts, speaker, turn_monitor.cancellation,
+                                            before_playback=acknowledgements.finish)
+
+                                    def on_turn_event(event):
+                                        acknowledgements.on_event(event)
+                                        if turn_stream_speaker is not None:
+                                            if event.get("type") == "text_delta":
+                                                status("文字转声音 / speak")
+                                            turn_stream_speaker.on_event(event)
+
+                                    agent_client.on_event = on_turn_event
+
                                     # One semantic identity state is
                                     # frozen for this complete turn.
                                     # The same value is reused if the
@@ -1745,6 +1773,7 @@ def main() -> None:
                                             )
 
                                     playback_happened = False
+                                    turn_memory_recorded = False
 
                                     try:
                                         agent_t0 = time.monotonic()
@@ -1827,6 +1856,11 @@ def main() -> None:
                                                     tool_mode=(
                                                         fast_path_tool_mode
                                                     ),
+                                                    cancellation=(
+                                                        turn_monitor.cancellation
+                                                        if turn_monitor is not None
+                                                        else None
+                                                    ),
                                                 )
                                             )
 
@@ -1837,6 +1871,11 @@ def main() -> None:
                                                     command_text,
                                                     local_identity=(
                                                         turn_identity_state
+                                                    ),
+                                                    cancellation=(
+                                                        turn_monitor.cancellation
+                                                        if turn_monitor is not None
+                                                        else None
                                                     ),
                                                 )
                                             )
@@ -1911,6 +1950,11 @@ def main() -> None:
                                                     local_identity=(
                                                         turn_identity_state
                                                     ),
+                                                    cancellation=(
+                                                        turn_monitor.cancellation
+                                                        if turn_monitor is not None
+                                                        else None
+                                                    ),
                                                 )
                                             )
 
@@ -1959,12 +2003,15 @@ def main() -> None:
                                                 tool_request = {"name": "music_control",
                                                     "arguments": {"action": request.action}}
                                         if tool_request is not None:
+                                            if turn_monitor is not None:
+                                                turn_monitor.cancellation.check()
                                             tool_name = tool_request["name"]
                                             if tool_name == "music_search":
                                                 acknowledgements.on_event({"type": "tool_start", "action": "play_music"})
                                             tool_result = local_tools.execute(tool_name, tool_request["arguments"])
                                             music_playing = tool_result.get("playing", music_playing)
                                             agent_client.record_completed_turn(command_text, tool_result["message"])
+                                            turn_memory_recorded = True
                                             agent_reply = AgentReply(text=tool_result["message"], model="local-tool")
                                             if music_playing:
                                                 interaction_gate.reset()
@@ -1974,6 +2021,11 @@ def main() -> None:
                                                 print("[STATE] SLEEPING reason=music_playback", flush=True)
                                                 # Never speak final TTS on top of a playing song.
                                                 continue
+
+                                        if agent_reply.text:
+                                            # Plain Cloud replies are archived by CloudAgentClient
+                                            # before it returns. Local tool replies are marked above.
+                                            turn_memory_recorded = True
 
                                         print(
                                             "[AGENT_REPLY] "
@@ -1988,10 +2040,20 @@ def main() -> None:
                                             flush=True,
                                         )
 
+                                        streamed_reply = False
+                                        if (
+                                            turn_stream_speaker is not None
+                                            and turn_stream_speaker.received_text
+                                        ):
+                                            streamed_reply = turn_stream_speaker.finish()
+                                            playback_happened = (
+                                                playback_happened or streamed_reply)
+
                                         if (
                                             tts is not None
                                             and speaker
                                             != "<unavailable>"
+                                            and not streamed_reply
                                         ):
                                             print(
                                                 "[STATE] SPEAKING",
@@ -2000,7 +2062,13 @@ def main() -> None:
 
                                             try:
                                                 with measure("tts_total"):
-                                                    if wake_kws and wake_cfg.get("barge_in_enabled", False):
+                                                    if turn_monitor is not None:
+                                                        tts_result = tts.speak(
+                                                            agent_reply.text, speaker,
+                                                            before_playback=acknowledgements.finish,
+                                                            cancellation=turn_monitor.cancellation,
+                                                        )
+                                                    elif wake_kws and wake_cfg.get("barge_in_enabled", False):
                                                         tts_result = speak_with_wake(
                                                             tts, agent_reply.text, speaker,
                                                             capture=capture, kws=wake_kws,
@@ -2084,6 +2152,23 @@ def main() -> None:
                                             flush=True,
                                         )
 
+                                    except SpeechInterrupted:
+                                        if (
+                                            wake_cfg.get("record_interrupted_turns", True)
+                                            and not turn_memory_recorded
+                                        ):
+                                            agent_client.record_completed_turn(
+                                                command_text,
+                                                "【回复生成或播报时被用户用 Lucky 打断；模型输出已丢弃】",
+                                            )
+                                        music_tools.clear_pending()
+                                        interaction_gate.on_wake(time.monotonic())
+                                        wake_stream = wake_kws.create_stream()
+                                        wake_reply_sent = True
+                                        playback_happened = True
+                                        print("[BARGE_IN] Lucky detected; interrupted turn archived; output discarded", flush=True)
+                                        status("已打断，等待新命令")
+
                                     except Exception as exc:
                                         print(
                                             "[AGENT] ERROR "
@@ -2093,6 +2178,17 @@ def main() -> None:
                                         )
 
                                     finally:
+                                        if turn_stream_speaker is not None:
+                                            if (
+                                                turn_stream_speaker.received_text
+                                                and not turn_stream_speaker.finished
+                                                and turn_monitor is not None
+                                            ):
+                                                turn_monitor.cancellation.cancel()
+                                            turn_stream_speaker.cancel()
+                                        if turn_monitor is not None:
+                                            turn_monitor.stop()
+                                        agent_client.on_event = acknowledgements.on_event
                                         acknowledgements.finish()
                                         playback_happened = playback_happened or acknowledgements.played
                                         record("turn_until_reply_finished",

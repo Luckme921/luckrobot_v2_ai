@@ -44,6 +44,8 @@ interaction:
   debug_log_transcript: false
   wake:
     barge_in_enabled: true
+    # Store the user text with an interruption marker when Lucky cancels a turn.
+    record_interrupted_turns: true
     enabled: true
     keyword: LUCKY
     model_dir: ~/luckrobot_ai/models/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
@@ -122,6 +124,8 @@ interaction:
   - 别动
 agent_bridge:
   progress_enabled: true
+  # Consume streamed answer text and send punctuation-delimited chunks to TTS.
+  stream_text_to_tts: true
   enabled: true
   endpoint: http://127.0.0.1:8000/chat
   timeout_seconds: 35.0
