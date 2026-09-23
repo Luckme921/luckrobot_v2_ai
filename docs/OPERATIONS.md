@@ -78,9 +78,14 @@ supervisor 会停止其余进程。Jetson 图形桌面的 kiosk 浏览器需单�
 `bash scripts/run_display_kiosk.sh`，现场确认 X11/Wayland 后再设置桌面自启动。
 具体状态和演示入口见 `docs/DISPLAY.md`。
 
-生产设备若不运行图形桌面，使用 `bash scripts/run_display_qt.sh` 以 EGLFS 直接输出。
-EGLFS 会独占 DRM，启动前必须停止 GDM/X11。首次切换应保留 SSH 连接，以便渲染
+生产设备若不运行图形桌面，使用 `bash scripts/run_display_qt.sh` 以 linuxfb 直接输出。
+linuxfb 会独占 framebuffer，启动前必须停止 GDM/X11。首次切换应保留 SSH 连接，以便渲染
 失败时恢复 display manager。
 
 Jetson 的 Qt 5 运行依赖为 `qmlscene`、`qml-module-qtquick2` 和
 `qml-module-qtquick-window2`；启动脚本显式设置 `QT_SELECT=qt5`。
+
+停止或重启 GDM 会使 PulseAudio 的 XVF3800 USB card 暂时消失。恢复桌面后执行
+`XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart pulseaudio.service`，Audio
+Runtime 会在 source/sink 重新出现后自动恢复到 `AUDIO_OK`。正式无桌面部署前需把
+PulseAudio 作为独立用户服务验证，不能依赖 GDM 会话生命周期。

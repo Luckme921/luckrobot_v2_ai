@@ -12,6 +12,13 @@ class DisplayQmlTests(unittest.TestCase):
             self.assertIn(f'robotState === "{state}"', source)
         self.assertIn("http://127.0.0.1:8765/api/state", source)
 
+    def test_device_launcher_uses_validated_linuxfb_and_dynamic_touch(self):
+        source = Path("scripts/run_display_qt.sh").read_text(encoding="utf-8")
+        self.assertIn("LUCKROBOT_QT_PLATFORM:-linuxfb", source)
+        self.assertIn("QT_QUICK_BACKEND:-software", source)
+        self.assertIn("ID_INPUT_TOUCHSCREEN=1", source)
+        self.assertNotIn("/dev/input/event9", source)
+
 
 if __name__ == "__main__":
     unittest.main()

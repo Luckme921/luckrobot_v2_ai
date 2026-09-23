@@ -6,9 +6,9 @@
 Display 服务读取该文件并提供 `/api/state`。显示进程故障不会阻塞 ASR、模型、
 TTS、工具或音乐播放。
 
-Jetson 推荐使用 Qt Quick/QML 渲染器：`qmlscene` 通过 EGLFS、EGL 和 OpenGL ES
-直接输出到 DRM/KMS，不依赖 GNOME、X11 或浏览器。HTML/CSS 页面保留为 Windows
-原型、远程调试和浏览器备用界面。两种渲染器共用相同状态协议。
+Jetson 使用 Qt Quick/QML 渲染器。当前设备验证通过的路径为 Qt `linuxfb` 平台和
+软件 scene graph，直接输出 `/dev/fb0`，不依赖 GNOME、X11 或浏览器。HTML/CSS
+页面保留为 Windows 原型、远程调试和浏览器备用界面。两种渲染器共用相同状态协议。
 
 支持状态：`sleeping`、`listening`、`transcribing`、`thinking`、`speaking`、
 `interrupted` 和 `music`。界面显示最近一轮用户文字、流式模型回复、眼睛、眨眼、
@@ -31,8 +31,9 @@ bash scripts/run_robot.sh
 bash scripts/run_display_qt.sh
 ```
 
-默认平台是 `eglfs`。EGLFS 独占显示设备，不能与正在运行的 X11/GNOME 同时使用。
-当前触屏识别为 `/dev/input/event9`，脚本会在设备存在时配置 Qt evdev 触摸输入。
+默认平台是 `linuxfb`，默认 scene graph 为 `software`。它独占 framebuffer，不能与
+正在运行的 X11/GNOME 同时使用。脚本通过 udev 属性动态查找触屏事件设备，不依赖
+可能在重启后变化的 `/dev/input/eventN` 编号。
 
 在当前 X11 桌面中调试 QML：
 
@@ -58,8 +59,13 @@ display:
   state_path: private/runtime/display_state.json
 ```
 
-首次 EGLFS 验收应保留 SSH 连接，并确认分辨率、屏幕旋转、字体、触摸坐标方向、
+首次直显验收应保留 SSH 连接，并确认分辨率、屏幕旋转、字体、触摸坐标方向、
 GPU 占用和显示进程异常退出后的恢复方式。验收完成后再配置 systemd 和禁用 GDM。
+
+现场测试表明系统 Qt5 的普通 EGLFS 无法创建 OpenGL scene graph；显式选择
+`eglfs_kms_egldevice` 时也无法打开 NVIDIA DRM 设备。因此当前不能把 EGLFS 宣称为
+可用基线。未来若升级为适配 JetPack 的 Qt/NVIDIA EGL 集成，可通过
+`LUCKROBOT_QT_PLATFORM=eglfs QT_QUICK_BACKEND=opengl` 重新测试。
 
 ## 设计参考
 
