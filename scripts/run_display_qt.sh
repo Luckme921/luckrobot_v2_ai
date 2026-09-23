@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${LUCKROBOT_QT_PLATFORM:-eglfs}"
 
 export QT_QPA_PLATFORM="$PLATFORM"
+export QT_SELECT="${QT_SELECT:-qt5}"
 export QT_QUICK_BACKEND="${QT_QUICK_BACKEND:-opengl}"
 export QT_QPA_EGLFS_ALWAYS_SET_MODE="${QT_QPA_EGLFS_ALWAYS_SET_MODE:-1}"
 

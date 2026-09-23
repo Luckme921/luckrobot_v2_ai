@@ -81,3 +81,6 @@ supervisor 会停止其余进程。Jetson 图形桌面的 kiosk 浏览器需单�
 生产设备若不运行图形桌面，使用 `bash scripts/run_display_qt.sh` 以 EGLFS 直接输出。
 EGLFS 会独占 DRM，启动前必须停止 GDM/X11。首次切换应保留 SSH 连接，以便渲染
 失败时恢复 display manager。
+
+Jetson 的 Qt 5 运行依赖为 `qmlscene`、`qml-module-qtquick2` 和
+`qml-module-qtquick-window2`；启动脚本显式设置 `QT_SELECT=qt5`。
