@@ -41,8 +41,9 @@ bash scripts/run_display_kiosk.sh
 bash scripts/run_display.sh
 ```
 
-然后打开 `http://127.0.0.1:8765/?demo=1`。首次现场验收需确认屏幕分辨率、
-旋转方向、Chromium 命令名以及 X11/Wayland 会话；确认后再配置桌面自启动。
+然后打开 `http://127.0.0.1:8765/?demo=1`。kiosk 脚本优先使用 Chromium，
+设备未安装 Chromium 时回退到 Firefox。首次现场验收需确认屏幕分辨率、旋转方向、
+浏览器命令以及 X11/Wayland 会话；确认后再配置桌面自启动。
 
 配置在 `configs/audio.yaml` 的 `display` 节：
 
