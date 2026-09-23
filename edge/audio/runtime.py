@@ -16,6 +16,7 @@ from robot_tools.music import MusicTools, DirectAudioPlayer
 
 import builtins
 from edge.audio.status import status
+from edge.audio.conversation_log import ConversationLog
 from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
 from edge.audio.tts.cancellation import SpeechInterrupted
 from edge.audio.tts.streaming_reply import StreamingReplySpeaker
@@ -900,6 +901,10 @@ def main() -> None:
         )
     )
 
+    conversation_log = ConversationLog(
+        interaction_cfg.get("conversation_log", {})
+    )
+
     wake_kws = None
 
     if wake_enabled:
@@ -1246,6 +1251,7 @@ def main() -> None:
                             )
 
                             if keyword:
+                                conversation_log.write("KWS", keyword, state="sleeping")
                                 wake_reply_sent = False
                                 if music_playing:
                                     paused = local_tools.execute("music_control", {"action": "pause_music"})
@@ -1302,15 +1308,14 @@ def main() -> None:
                                 )
                             )
 
-                            # While sleeping, ambient
-                            # speech is discarded without
-                            # invoking SenseVoice.
-                            if (
+                            sleeping_segment = (
                                 wake_enabled
-                                and
-                                interaction_gate.state
-                                == InteractionGate.SLEEPING
-                            ):
+                                and interaction_gate.state == InteractionGate.SLEEPING
+                            )
+
+                            # Optional diagnostics transcribe sleeping speech but
+                            # never use the transcript to wake or execute commands.
+                            if sleeping_segment and not conversation_log.log_sleeping_asr:
                                 continue
 
                             start_sec = (
@@ -1348,6 +1353,13 @@ def main() -> None:
                             if not text:
                                 continue
 
+                            conversation_log.write(
+                                "ASR_SLEEP" if sleeping_segment else "ASR",
+                                text,
+                                duration=f"{duration_sec:.2f}s",
+                                inference=f"{elapsed:.3f}s",
+                            )
+
                             print(
                                 "[ASR] "
                                 f"start={start_sec:.2f}s "
@@ -1355,14 +1367,16 @@ def main() -> None:
                                 f"inference={elapsed:.3f}s"
                             )
 
-                            if (
-                                debug_log_transcript
-                            ):
+                            if debug_log_transcript:
                                 print(
-                                    "[ASR_TEXT] "
+                                    ("[ASR_SLEEP_TEXT] " if sleeping_segment else "[ASR_TEXT] ")
+                                    +
                                     f"{text}",
                                     flush=True,
                                 )
+
+                            if sleeping_segment:
+                                continue
 
                             decision = (
                                 interaction_gate
@@ -1449,6 +1463,7 @@ def main() -> None:
                                 decision.action
                                 == "command"
                             ):
+                                conversation_log.write("USER", decision.command)
                                 print(
                                     "[COMMAND] "
                                     f"{decision.command}",
@@ -2032,6 +2047,9 @@ def main() -> None:
                                             f"{agent_reply.text}",
                                             flush=True,
                                         )
+                                        conversation_log.write(
+                                            "ASSISTANT", agent_reply.text,
+                                            model=agent_reply.model)
 
                                         print(
                                             "[AGENT] "
@@ -2167,6 +2185,9 @@ def main() -> None:
                                         wake_reply_sent = True
                                         playback_happened = True
                                         print("[BARGE_IN] Lucky detected; interrupted turn archived; output discarded", flush=True)
+                                        conversation_log.write(
+                                            "INTERRUPTED", command_text,
+                                            output="discarded")
                                         status("已打断，等待新命令")
 
                                     except Exception as exc:
@@ -2279,6 +2300,7 @@ def main() -> None:
         direction_monitor.stop()
         music_tools.close()
         acknowledgements.finish()
+        conversation_log.close()
         if music_controller is not None:
             music_controller.close()
 

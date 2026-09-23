@@ -41,7 +41,14 @@ asr:
   context_pre_seconds: 0.3
   context_post_seconds: 0.2
 interaction:
-  debug_log_transcript: false
+  # Prints ASR text to the main process log while diagnostics are enabled.
+  debug_log_transcript: true
+  conversation_log:
+    enabled: true
+    path: logs/conversation.log
+    max_text_chars: 12000
+    # Diagnostic only: never wakes the robot from an ASR transcript.
+    log_sleeping_asr: true
   wake:
     barge_in_enabled: true
     # Store the user text with an interruption marker when Lucky cancels a turn.

@@ -50,6 +50,14 @@ audio.sound_direction.enabled 控制 XVF3800 后台只读线程，日志前缀 [
 
 Windows 阅读下载的日志可用 Get-Content logs/status.log -Wait。DOA 读取仍运行，但 audio.sound_direction.log_samples=false 默认不打印采样；接口错误只在错误变化时打印。临时查看实时方向仍可运行 python -m edge.audio.direction。
 
+## 对话调试日志（2026-09-22）
+
+`interaction.conversation_log.enabled=true` 写入 `logs/conversation.log`，单文件 2MB、保留三份轮转。事件包括 KWS 实际命中值、ASR 转写、最终用户命令、完整模型/本地工具回复和被 Lucky 打断的输入。主日志同时由 `debug_log_transcript=true` 打印 `[ASR_TEXT]`；睡眠诊断转写使用 `[ASR_SLEEP_TEXT]`。
+
+    tail -f logs/conversation.log
+
+`log_sleeping_asr=true` 会在等待 Lucky 时对 VAD 语段运行本地 SenseVoice，以便查看 KWS 未命中时“Lucky”被转写成了什么；这些文本只写日志，不能唤醒、进入记忆或执行命令。它会增加待机 CPU 使用，也会在本地日志记录环境讲话；排查结束可设为 false。日志、录音和 private 数据不得提交 Git。增加 KWS 声学变体时修改 `configs/keywords_lucky.txt`，增加唤醒后 ASR 文本清理别名时修改 `transcript_aliases`，两者用途不同。
+
 
 ## Lucky 伪全双工试用（2026-09-21）
 

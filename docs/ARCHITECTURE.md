@@ -40,3 +40,5 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 最初版本只覆盖最终回复 TTS；2026-09-22 已由下一段的 THINKING 到 SPEAKING 全回合监测取代。普通 ASR 仍不并行，也不保证保留紧跟 Lucky 的命令；这不属于带 AEC 的真正全双工。
 
 2026-09-22：独立 Lucky KWS 生命周期覆盖 THINKING 到 SPEAKING；取消令牌同时关闭 Edge HTTP 流和当前 TTS 子进程。最终正文路径为 GLM token stream → Cloud text_delta → Edge 标点缓冲 → 晓晓短句队列。对话路由、视觉/工具决定仍先完整校验，不能使用不完整流数据执行动作。该结构没有 AEC，也没有并行普通 ASR。
+
+对话调试文本单独进入轮转的 `logs/conversation.log`，不混入简洁状态日志。睡眠 ASR 只是 KWS 调音旁路：`PCM → VAD → SenseVoice → debug log`，输出不会进入 InteractionGate。未来屏幕读取结构化状态/对话事件，不应解析终端日志；显示方案见 [DISPLAY.md](DISPLAY.md)。
