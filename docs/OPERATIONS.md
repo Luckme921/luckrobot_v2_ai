@@ -77,3 +77,7 @@ Display 使用本机端口 8765，日志写入 `logs/display-latency.log`；任�
 supervisor 会停止其余进程。Jetson 图形桌面的 kiosk 浏览器需单独运行
 `bash scripts/run_display_kiosk.sh`，现场确认 X11/Wayland 后再设置桌面自启动。
 具体状态和演示入口见 `docs/DISPLAY.md`。
+
+生产设备若不运行图形桌面，使用 `bash scripts/run_display_qt.sh` 以 EGLFS 直接输出。
+EGLFS 会独占 DRM，启动前必须停止 GDM/X11。首次切换应保留 SSH 连接，以便渲染
+失败时恢复 display manager。

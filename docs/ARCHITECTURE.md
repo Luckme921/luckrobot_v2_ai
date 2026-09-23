@@ -47,3 +47,6 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 Audio Runtime 通过 `DisplayPublisher` 原子写入私有 JSON 状态；Display FastAPI
 只读该状态并提供本机页面和 `/api/state`。UI 不解析运行日志，不向音频进程回写，
 也不能执行工具、shell 或运动命令，因此显示服务故障不会进入控制链路。
+
+设备渲染路径为 `QML → Qt Quick scene graph → OpenGL ES → EGLFS → DRM/KMS`，
+触摸输入通过 Qt evdev 插件进入 QML。浏览器 UI 与 QML UI 都是只读状态客户端。
