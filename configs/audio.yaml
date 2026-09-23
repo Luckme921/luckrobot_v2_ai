@@ -24,6 +24,9 @@ audio:
     - reSpeaker_XVF3800_4-Mic_Array
     - Seeed_Studio_reSpeaker
     - XVF3800
+display:
+  enabled: true
+  state_path: private/runtime/display_state.json
 vad:
   model: ~/luckrobot_ai/models/vad/silero_vad.onnx
   threshold: 0.5
@@ -149,6 +152,8 @@ music:
   prewarm: true
   headless: true
 tts:
+  # Prepare several streamed clauses concurrently, then play them in text order.
+  stream_prefetch_workers: 3
   acknowledgement_enabled: true
   acknowledgement_delay_seconds: 0.35
   enabled: true

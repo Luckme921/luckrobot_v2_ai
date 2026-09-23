@@ -15,7 +15,12 @@ from robot_tools.edge import build_edge_tools
 from robot_tools.music import MusicTools, DirectAudioPlayer
 
 import builtins
-from edge.audio.status import status
+from edge.audio.status import (
+    configure_display,
+    display_dialogue,
+    display_state,
+    status,
+)
 from edge.audio.conversation_log import ConversationLog
 from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
 from edge.audio.tts.cancellation import SpeechInterrupted
@@ -26,18 +31,24 @@ def print(*args, **kwargs):
     message = " ".join(str(arg) for arg in args)
     if 'Waiting for "Lucky"' in message or message.startswith("[STATE] SLEEPING"):
         status("等待 Lucky")
+        display_state("sleeping", "等待 Lucky")
     elif message.startswith("[STATE] AWAKE_WAIT_COMMAND"):
         status("已唤醒，等待讲话")
+        display_state("listening", "我在听")
     elif message.startswith("[STATE] LISTENING"):
         status("等待下一句话")
+        display_state("listening", "等待下一句话")
     elif message.startswith("[STATE] SPEAKING"):
         status("文字转声音 / speak")
+        display_state("speaking", "正在回答")
     elif message.startswith("[AGENT_REPLY]"):
         status("已得到回复")
     elif message.startswith("[WAKE] LOCAL_REPLY"):
         status("播放本地唤醒回应")
+        display_state("speaking", "我在呢")
     if "reason=music_playback" in message:
         status("音乐播放中，等待 Lucky")
+        display_state("music", "音乐播放中 · 说 Lucky 可以打断")
     return builtins.print(*args, **kwargs)
 
 import argparse
@@ -172,6 +183,8 @@ def main() -> None:
     config = load_config(
         args.config
     )
+
+    configure_display(config.get("display", {}))
 
     vision_config = load_config(
         args.vision_config
@@ -1337,6 +1350,7 @@ def main() -> None:
                             begin_turn()
                             record("vad_buffer_after_segment", vad.last_endpoint_buffer_seconds)
                             status("声音转文字 / ASR")
+                            display_state("transcribing", "正在识别")
                             with measure("asr"):
                                 text = (
                                     asr.transcribe(
@@ -1464,6 +1478,9 @@ def main() -> None:
                                 == "command"
                             ):
                                 conversation_log.write("USER", decision.command)
+                                display_dialogue(
+                                    user_text=decision.command,
+                                    assistant_text="")
                                 print(
                                     "[COMMAND] "
                                     f"{decision.command}",
@@ -1675,6 +1692,7 @@ def main() -> None:
 
                                     turn_monitor = None
                                     turn_stream_speaker = None
+                                    turn_display_reply = ""
                                     if wake_kws and wake_cfg.get("barge_in_enabled", False):
                                         try:
                                             turn_monitor = WakeInterruptMonitor(capture, wake_kws).start()
@@ -1689,13 +1707,20 @@ def main() -> None:
                                     ):
                                         turn_stream_speaker = StreamingReplySpeaker(
                                             tts, speaker, turn_monitor.cancellation,
-                                            before_playback=acknowledgements.finish)
+                                            before_playback=acknowledgements.finish,
+                                            max_workers=tts_cfg.get(
+                                                "stream_prefetch_workers", 3))
 
                                     def on_turn_event(event):
+                                        nonlocal turn_display_reply
                                         acknowledgements.on_event(event)
                                         if turn_stream_speaker is not None:
                                             if event.get("type") == "text_delta":
                                                 status("文字转声音 / speak")
+                                                turn_display_reply += event.get("text", "")
+                                                display_state("speaking", "正在回答")
+                                                display_dialogue(
+                                                    assistant_text=turn_display_reply)
                                             turn_stream_speaker.on_event(event)
 
                                     agent_client.on_event = on_turn_event
@@ -1833,6 +1858,9 @@ def main() -> None:
 
                                         local_request = music_tools.local_request(command_text)
                                         status("本地处理音乐" if local_request is not None else "思考 / 模型处理中")
+                                        display_state(
+                                            "thinking",
+                                            "正在处理音乐" if local_request is not None else "想一想")
                                         if local_request is not None:
                                             agent_reply = AgentReply(text="", model="local-music", tool_request=local_request)
                                         elif (
@@ -2050,6 +2078,7 @@ def main() -> None:
                                         conversation_log.write(
                                             "ASSISTANT", agent_reply.text,
                                             model=agent_reply.model)
+                                        display_dialogue(assistant_text=agent_reply.text)
 
                                         print(
                                             "[AGENT] "
@@ -2142,6 +2171,7 @@ def main() -> None:
                                                 playback_happened = True
                                                 print("[BARGE_IN] Lucky detected; reply archived; speech stopped", flush=True)
                                                 status("已打断，等待新命令")
+                                                display_state("interrupted", "已打断，我在听")
 
                                             except TtsError as exc:
                                                 print(
@@ -2189,6 +2219,7 @@ def main() -> None:
                                             "INTERRUPTED", command_text,
                                             output="discarded")
                                         status("已打断，等待新命令")
+                                        display_state("interrupted", "已打断，我在听")
 
                                     except Exception as exc:
                                         print(

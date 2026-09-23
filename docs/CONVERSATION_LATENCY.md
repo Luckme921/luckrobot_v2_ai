@@ -122,3 +122,23 @@ edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 
 Lucky KWS 监测范围扩展为身份处理、Cloud 请求、正文流式合成和最终播报。检测到 Lucky 会关闭 Edge 当前 HTTP 响应、触发 Cloud `/chat/events` 断连取消并丢弃未完成结果；已经开始的外部工具副作用不能撤销，因此本地工具执行前会再次检查取消状态。`interaction.wake.record_interrupted_turns` 默认 true：只有 Cloud 尚未返回完整回复、记忆尚未落库时，保存用户输入和“输出被 Lucky 打断”的标记；关闭后不记录该回合。完整回复已返回后再打断播报，保留原完整回复，不另写中断标记。
 
 `agent.stream_text_enabled` 让 GLM 最终文本回答使用供应商流式接口，并通过 `/chat/events` 发送 `text_delta`；JSON 路由仍等待完整 JSON。`agent_bridge.stream_text_to_tts` 让 Edge 按逗号、顿号、分号、句号、问号、感叹号及英文对应符号切分，依次提交给晓晓。两项均默认 true，可分别回退。普通文字回答和工具执行后的最终文字支持该链路；多模态首轮可能包含工具调用，仍采用完整响应。分段会更早出声，但每段单独建立 Edge TTS 请求，停顿和整体韵律需设备实测。
+## 流式语音并发预合成（2026-09-23）
+
+此前的正文流式 TTS 虽然按标点尽早分段，但单个工作线程会依次执行“合成、播放”，
+下一段必须等上一段播放结束后才开始请求 Edge TTS。现在每个完整标点段会立即提交
+预合成，默认最多 3 个并发任务；播放线程仍严格按原文顺序播放。配置项为
+`tts.stream_prefetch_workers`。Edge 在线失败时仍回退 Kokoro；Kokoro 的驻留模型用锁
+串行生成，避免并发访问底层模型。
+
+`[STREAM_TTS]` 日志用于定位停顿：
+
+- `model_gap`：模型产生相邻完整标点段的间隔
+- `synth`：该段在线合成和解码耗时
+- `queue_wait`：该段从接收到开始播放的时间
+- `playback_gap`：上段 pacat 结束到本段开始提交播放的进程间隔
+- `leading_silence` / `trailing_silence`：PCM 首尾近静音长度（阈值为绝对幅值 200）
+
+这一版仍为每段建立独立 Edge 请求和 pacat 进程。若 `playback_gap` 很小但现场仍听到
+明显断句，优先检查首尾静音；若 `playback_gap` 大而下一段尚未 `prepared`，看 `synth`
+和 `model_gap` 哪一项超过了前一段音频时长。进一步消除进程切换缝隙需要常驻播放队列，
+应在 Jetson 试听数据确认后实施。

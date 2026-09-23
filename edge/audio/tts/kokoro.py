@@ -16,6 +16,7 @@ import numpy as np
 from edge.audio.tts.text import (
     normalize_for_speech,
 )
+from edge.audio.tts.prepared import prepared_audio
 
 
 _sherpa_module = None
@@ -100,6 +101,8 @@ class KokoroTts:
                 ),
             ),
         )
+        # sherpa OfflineTts is kept resident and is not assumed thread-safe.
+        self._generation_lock = threading.Lock()
 
         required = [
             "model.onnx",
@@ -693,3 +696,50 @@ class KokoroTts:
             # application-level text chunks.
             chunks=1,
         )
+    def prepare(self, text, cancellation=None):
+        if cancellation is not None:
+            cancellation.check()
+        text = normalize_for_speech(text)
+        started = time.monotonic()
+        with self._generation_lock:
+            chunk = self._generate(text)
+        pcm = (
+            np.clip(chunk.samples, -1.0, 1.0) * 32767.0
+        ).astype(np.int16).tobytes()
+        if cancellation is not None:
+            cancellation.check()
+        return prepared_audio(
+            pcm, chunk.sample_rate, time.monotonic() - started,
+            chunk.generation_seconds)
+
+    def play_prepared(self, audio, sink, *, before_playback=None, cancellation=None):
+        self._prepare_sink(sink)
+        started = time.monotonic()
+        if before_playback is not None:
+            before_playback()
+        player = subprocess.Popen(
+            ["pacat", "--playback", "--raw", f"--device={sink}",
+             "--format=s16le", f"--rate={audio.sample_rate}", "--channels=1"],
+            stdin=subprocess.PIPE, bufsize=0)
+        if cancellation is not None:
+            cancellation.register(player)
+            cancellation.check()
+        try:
+            view = memoryview(audio.pcm)
+            while view:
+                written = player.stdin.write(view)
+                if not written:
+                    raise TtsError("Prepared player closed its input")
+                view = view[written:]
+            player.stdin.close()
+            if player.wait(timeout=max(10, audio.audio_seconds + 5)) != 0:
+                raise TtsError("Prepared player failed")
+        finally:
+            if player.poll() is None:
+                player.kill()
+                player.wait()
+            if player.stdin and not player.stdin.closed:
+                player.stdin.close()
+        return TtsResult(
+            audio.generation_seconds, audio.audio_seconds, audio.sample_rate,
+            audio.first_audio_latency_seconds, time.monotonic() - started, 1)

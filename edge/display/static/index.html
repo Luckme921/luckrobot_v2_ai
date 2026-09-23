@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LuckRobot</title>
+  <style>
+    :root { --glow:#66e6ff; --accent:#8177ff; --ink:#effcff; --muted:#8ba8bb; }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:#03080f; color:var(--ink); font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif; }
+    body { background:radial-gradient(circle at 50% 38%,#102b3b 0,#07111d 38%,#02050a 82%); }
+    .aurora { position:absolute; inset:-30%; background:conic-gradient(from 30deg,transparent,#2166ff22,transparent,#27e7c322,transparent); animation:drift 18s linear infinite; }
+    main { position:relative; height:100%; display:grid; grid-template-rows:1fr auto; place-items:center; padding:4vh 5vw 3vh; }
+    .face { width:min(62vw,70vh); aspect-ratio:1.45; position:relative; border:2px solid #76ddff50; border-radius:32% 32% 39% 39%/38% 38% 31% 31%; background:linear-gradient(145deg,#0a1724dd,#07111eee); box-shadow:0 0 7vh #35cfff22,inset 0 0 6vh #194c6640; transition:.35s; }
+    .eyes { position:absolute; left:12%; right:12%; top:29%; display:flex; justify-content:space-between; }
+    .eye { width:29%; aspect-ratio:1.65; border-radius:50%; background:var(--glow); box-shadow:0 0 2.2vh var(--glow),0 0 6vh #33c9ff88; animation:blink 5.5s infinite; transition:.3s; }
+    .mouth { position:absolute; width:19%; height:8%; left:40.5%; top:69%; border-bottom:.9vh solid var(--glow); border-radius:50%; filter:drop-shadow(0 0 1vh var(--glow)); transition:.25s; }
+    .badge { position:absolute; right:3.5vw; top:3vh; font-size:clamp(30px,5vw,76px); filter:drop-shadow(0 0 1.5vh #66e6ff80); animation:float 2.6s ease-in-out infinite; }
+    .copy { width:min(1100px,92vw); text-align:center; min-height:20vh; }
+    .label { color:var(--glow); letter-spacing:.18em; font-size:clamp(14px,1.8vw,27px); font-weight:700; margin-bottom:1.2vh; }
+    .user,.assistant { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .user { color:var(--muted); font-size:clamp(15px,1.8vw,26px); min-height:1.5em; }
+    .assistant { font-size:clamp(19px,2.6vw,40px); line-height:1.35; min-height:1.5em; margin-top:.6vh; }
+    .offline { position:absolute; left:2vw; top:2vh; color:#ffb5b5; opacity:0; transition:.3s; }
+    body.stale .offline { opacity:1; }
+    body[data-state="sleeping"] .face { opacity:.62; transform:scale(.96); }
+    body[data-state="sleeping"] .eye { height:8%; margin-top:15%; border-radius:50%; }
+    body[data-state="listening"] .face { box-shadow:0 0 8vh #37ffcc33,inset 0 0 5vh #37ffcc22; }
+    body[data-state="listening"] .eye { animation:look 2.2s ease-in-out infinite,blink 5.5s infinite; }
+    body[data-state="transcribing"] .eye { transform:scaleX(.72); }
+    body[data-state="thinking"] .eye:first-child { transform:translateY(-13%); }
+    body[data-state="thinking"] .eye:last-child { transform:translateY(13%); }
+    body[data-state="thinking"] .face { animation:pulse 1.8s ease-in-out infinite; }
+    body[data-state="speaking"] .mouth { height:13%; border:.7vh solid var(--glow); border-top-width:.25vh; animation:talk .24s ease-in-out infinite alternate; }
+    body[data-state="happy"] .eye { height:32%; border-radius:50% 50% 12% 12%; }
+    body[data-state="interrupted"] .eye { transform:scale(.55,1.2); }
+    body[data-state="music"] .mouth { width:24%; left:38%; height:12%; border:.65vh solid var(--glow); animation:talk .45s infinite alternate; }
+    @keyframes blink { 0%,46%,51%,100%{transform:scaleY(1)} 48%,49%{transform:scaleY(.06)} }
+    @keyframes talk { from{transform:scaleY(.45)} to{transform:scaleY(1.35)} }
+    @keyframes pulse { 50%{filter:brightness(1.35);transform:scale(1.015)} }
+    @keyframes look { 50%{translate:5% 0} }
+    @keyframes float { 50%{transform:translateY(-1.2vh) rotate(4deg)} }
+    @keyframes drift { to{transform:rotate(360deg)} }
+  </style>
+</head>
+<body data-state="sleeping">
+  <div class="aurora"></div><div class="offline">显示服务连接中…</div><div class="badge" id="badge">💤</div>
+  <main><section class="face"><div class="eyes"><i class="eye"></i><i class="eye"></i></div><div class="mouth"></div></section>
+    <section class="copy"><div class="label" id="label">等待 LUCKY</div><div class="user" id="user"></div><div class="assistant" id="assistant">你好，我是 LuckRobot</div></section>
+  </main>
+  <script>
+    const icons={sleeping:"💤",listening:"👂",transcribing:"✍️",thinking:"💭",speaking:"💬",happy:"✨",interrupted:"⚡",music:"🎵"};
+    const demos=[
+      {state:"sleeping",label:"等待 Lucky",assistant_text:""},
+      {state:"listening",label:"我在听",user_text:"播放一首周杰伦的歌"},
+      {state:"transcribing",label:"正在识别",user_text:"播放一首周杰伦的歌"},
+      {state:"thinking",label:"想一想",user_text:"播放一首周杰伦的歌"},
+      {state:"speaking",label:"正在回答",assistant_text:"好呀，给你播放《晴天》。"},
+      {state:"music",label:"音乐播放中",assistant_text:"周杰伦 · 晴天"}
+    ];
+    function render(s){
+      const state=s.state||"sleeping"; document.body.dataset.state=state;
+      document.querySelector("#badge").textContent=icons[state]||"🤖";
+      document.querySelector("#label").textContent=s.label||state;
+      document.querySelector("#user").textContent=s.user_text?"你："+s.user_text:"";
+      document.querySelector("#assistant").textContent=s.assistant_text||"";
+    }
+    let failures=0, demoIndex=0;
+    async function update(){
+      if(new URLSearchParams(location.search).has("demo")){ render(demos[demoIndex++%demos.length]); return; }
+      try{ const response=await fetch("/api/state",{cache:"no-store"}); if(!response.ok)throw Error(); render(await response.json()); failures=0; }
+      catch(e){ failures++; } document.body.classList.toggle("stale",failures>3);
+    }
+    update(); setInterval(update,new URLSearchParams(location.search).has("demo")?2200:250);
+  </script>
+</body></html>

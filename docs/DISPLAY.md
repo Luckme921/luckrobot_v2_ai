@@ -1,26 +1,62 @@
-# 屏幕显示规划
+# 屏幕表情与对话显示
 
-## 推荐边界
+## 当前初版
 
-第一版采用本机轻量 Web UI：机器人进程发布结构化显示事件，独立 FastAPI/静态页面负责渲染，Jetson 上 Chromium 使用 kiosk 模式全屏打开。显示进程故障不能阻塞音频、导航或工具执行；UI 只能发送白名单交互事件，不能构造 shell 命令或直接控制底盘。
+显示系统采用独立的本机 Web UI。音频运行时只把结构化状态原子写入
+`private/runtime/display_state.json`；显示服务读取该文件，浏览器每 250 ms
+刷新一次。屏幕故障不会阻塞 ASR、模型、TTS、工具或音乐播放。
 
-建议状态：sleeping、listening、transcribing、thinking、speaking、interrupted、music。页面包含常驻表情/眼睛、最近一轮用户与机器人文字，以及音乐封面、歌名、歌手、播放状态。正文流式事件可以逐步更新字幕；音乐只展示供应商返回的元数据和本地播放状态。
+页面支持以下状态：
 
-## 可参考的开源项目（调研于 2026-09-22）
+- `sleeping`：等待 Lucky，闭眼休眠
+- `listening`：已经唤醒，等待用户讲话
+- `transcribing`：语音转文字
+- `thinking`：本地处理或模型思考
+- `speaking`：流式显示回答，并播放说话动画
+- `interrupted`：Lucky 打断
+- `music`：音乐播放中
 
-- RobotFace：浏览器 Paper.js 动画脸，Socket.IO 控制 emotion、talking、message 和视线，结构与本项目最接近，可借鉴状态协议和动画，不建议直接沿用其旧 Node 工程。https://github.com/webbo89/RobotFace
-- Luna：Python/Pygame 的完整机器人助手，已有多种表情、说话嘴型和睡眠动画，可参考状态到表情的映射。它还包含自身 ASR/LLM/TTS，不能整体并入现有运行时。https://github.com/michaelharold/Luna
-- RoboEyes：线程安全眼睛动画和 REST 控制，适合小 OLED；全尺寸 HDMI 屏只能借鉴眼睛状态机。https://github.com/sachinthra/robo_eyes
-- Vizij：浏览器/原生/无头三种渲染、表情与 viseme 能力完整，适合未来 3D 脸和口型同步；Rust、GLB 和行为图的引入成本高于第一版。https://github.com/vizij-ai/vizij-rs
-- MagicMirror²：成熟的 Electron 模块化信息屏，可参考模块布局；作为常驻机器人表情前端偏重。https://github.com/MagicMirrorOrg/MagicMirror
-- Robotics UI 与 Foxglove 更适合 ROS 2 运维、地图和遥测，后续可作为工程师页面，不适合作为面向用户的主表情屏。https://github.com/sciotaio/robotics-ui 和 https://docs.foxglove.dev/docs/getting-started/frameworks/ros2
+页面还显示最近一轮用户文字和机器人回答。UI 纯 HTML/CSS/JavaScript，
+不依赖 CDN、图片或在线字体，断网后仍能显示。`?demo=1` 会自动轮播状态，
+可在 Windows 浏览器中预览。
 
-OpenVoiceOS 的现有 GUI 文档明确将旧 GUI 标为 deprecated、替代方案仍在重建，本项目暂不基于它开发。
+## 启动与预览
 
-## 实施顺序
+完整启动：
 
-1. 在 Jetson 确认屏幕分辨率、旋转、触摸能力、X11/Wayland 会话和 Chromium GPU 表现。
-2. 定义只含语义状态的 `DisplayEvent`，由音频运行时发送，UI 不读取日志文件。
-3. 实现 HTML/CSS/Canvas 表情、对话字幕与音乐卡片，Windows 浏览器先调试。
-4. 增加本机 WebSocket/SSE 和断线后的 idle 回退，再配置 kiosk 自启动。
-5. 现场测试音频优先级、GPU/CPU 占用、断网、屏幕拔插和进程崩溃隔离。
+```bash
+bash scripts/run_robot.sh
+```
+
+`run_robot.py` 会启动 Cloud、Display 和 Audio 三个子进程。显示服务只监听
+`127.0.0.1:8765`。在 Jetson 图形桌面中另开终端运行：
+
+```bash
+bash scripts/run_display_kiosk.sh
+```
+
+仅调试显示服务：
+
+```bash
+bash scripts/run_display.sh
+```
+
+然后打开 `http://127.0.0.1:8765/?demo=1`。首次现场验收需确认屏幕分辨率、
+旋转方向、Chromium 命令名以及 X11/Wayland 会话；确认后再配置桌面自启动。
+
+配置在 `configs/audio.yaml` 的 `display` 节：
+
+```yaml
+display:
+  enabled: true
+  state_path: private/runtime/display_state.json
+```
+
+## 设计参考
+
+- [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32)：LCD/OLED 表情、状态驱动与素材机制。
+- [xiaozhi-assets-generator](https://github.com/78/xiaozhi-assets-generator)：小智表情素材生成流程。
+- [otto-emoji-gif-component](https://github.com/txp666/otto-emoji-gif-component)：MIT 许可的 240×240 机器人循环表情，可作为后续动态素材参考。
+
+初版自行实现 CSS 表情，没有复制上述项目的图片或代码。后续若引入 GIF、封面或
+第三方组件，先核对许可证并在仓库中记录来源。

@@ -7,12 +7,13 @@ import socket
 import subprocess
 import time
 import urllib.request
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
-def port_in_use():
+def port_in_use(port):
     try:
-        with socket.create_connection(("127.0.0.1", 8000), timeout=0.5):
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
             return True
     except OSError:
         return False
@@ -55,8 +56,12 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise SystemExit("This project already has a robot supervisor.")
-        if port_in_use():
+        config = yaml.safe_load((ROOT/"configs/audio.yaml").read_text(encoding="utf-8"))
+        display_enabled = bool(config.get("display", {}).get("enabled", True))
+        if port_in_use(8000):
             raise SystemExit("Port 8000 is occupied. Stop the previous Cloud/audio pair first.")
+        if display_enabled and port_in_use(8765):
+            raise SystemExit("Port 8765 is occupied. Stop the previous display service first.")
         lock.seek(0); lock.truncate()
         lock.write(str(os.getpid())); lock.flush()
         logs = ROOT/"logs"; logs.mkdir(exist_ok=True)
@@ -92,8 +97,10 @@ def main():
                 time.sleep(0.2)
             if stopping: return 0
             if not ready: raise RuntimeError("Cloud health check timed out.")
+            if display_enabled:
+                start("display")
             audio = start("audio")
-            print("[SUPERVISOR] Started. Ctrl+C stops both services.", flush=True)
+            print("[SUPERVISOR] Started. Ctrl+C stops all services.", flush=True)
             while not stopping:
                 if any(p.poll() is not None for p in children):
                     raise RuntimeError("A child exited; stopping both services. Inspect logs.")

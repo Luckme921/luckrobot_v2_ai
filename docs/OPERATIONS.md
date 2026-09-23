@@ -70,3 +70,10 @@ Windows 阅读下载的日志可用 Get-Content logs/status.log -Wait。DOA 读�
 2026-09-22 起，同一监测器从 THINKING 持续到 TTS 结束。现场测试应覆盖：模型未返回时喊 Lucky，确认快速回到等待命令；检查历史只含用户输入和中断标记；将 `record_interrupted_turns` 临时设为 false 后确认不落库；长回复在第一个标点后开始合成；关闭 `agent.stream_text_enabled` 或 `agent_bridge.stream_text_to_tts` 后恢复整段回复。Cloud 断连取消依赖服务端感知连接关闭，底层供应商是否已经计费由供应商规则决定。
 
 验收：请求长回答 → 播放中喊 Lucky → 停止播报 → 稍停后问新问题；确认前一轮完整回复仍在历史、没有重复存档、不会续播或触发 Kokoro 重播。另测普通讲话不打断、连续三轮打断、Kokoro 离线回退、机器人说出 Lucky 的误触发、音乐播放与结束对话。此功能当前仅本地代码及模拟测试完成，硬件效果未验证。
+# 屏幕服务
+
+`bash scripts/run_robot.sh` 现在统一监管 Cloud、Display、Audio 三个进程。
+Display 使用本机端口 8765，日志写入 `logs/display-latency.log`；任一子进程退出，
+supervisor 会停止其余进程。Jetson 图形桌面的 kiosk 浏览器需单独运行
+`bash scripts/run_display_kiosk.sh`，现场确认 X11/Wayland 后再设置桌面自启动。
+具体状态和演示入口见 `docs/DISPLAY.md`。

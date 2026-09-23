@@ -9,6 +9,7 @@ import time
 from shared.timing import record
 from edge.audio.tts.kokoro import TtsError, TtsResult
 from edge.audio.tts.text import normalize_for_speech
+from edge.audio.tts.prepared import prepared_audio
 
 class EdgeOnlineTts:
     def __init__(self, config, fallback):
@@ -31,6 +32,99 @@ class EdgeOnlineTts:
                 raise TtsError("Online speech interrupted after playback began") from exc
             print(f"[TTS] FALLBACK provider=kokoro error={type(exc).__name__}", flush=True)
             return self.fallback.speak(text, sink, before_playback=before_playback, **({"cancellation": cancellation} if cancellation is not None else {}))
+
+    def prepare(self, text, cancellation=None):
+        """Download and decode a complete segment without playing it."""
+        try:
+            return self._prepare_online(text, cancellation)
+        except Exception as exc:
+            if cancellation is not None:
+                cancellation.check()
+            print(f"[TTS] PREPARE_FALLBACK provider=kokoro error={type(exc).__name__}", flush=True)
+            return self.fallback.prepare(text, cancellation=cancellation)
+
+    def _prepare_online(self, text, cancellation=None):
+        text = normalize_for_speech(text)
+        if not text:
+            raise TtsError("Empty speech")
+        start = time.monotonic()
+        last = start
+        first = None
+        chunks = []
+        worker = None
+        selector = selectors.DefaultSelector()
+        try:
+            worker = subprocess.Popen(
+                [self.python, str(Path(__file__).with_name("edge_worker.py"))],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, start_new_session=True)
+            worker.stdin.write(json.dumps({"text": text, "voice": self.voice}).encode())
+            worker.stdin.close()
+            selector.register(worker.stdout, selectors.EVENT_READ)
+            while True:
+                if cancellation is not None:
+                    cancellation.check()
+                now = time.monotonic()
+                budget = (self.first_timeout if first is None else self.idle_timeout) - (now - last)
+                if budget <= 0 or now - start > 120:
+                    raise TimeoutError("Online audio deadline")
+                if not selector.select(min(budget, 0.1)):
+                    continue
+                data = os.read(worker.stdout.fileno(), 16384)
+                if not data:
+                    break
+                last = time.monotonic()
+                if first is None:
+                    first = last - start
+                chunks.append(data)
+            if worker.wait(timeout=3) != 0 or not chunks:
+                raise TtsError("Online audio unavailable")
+            generation = time.monotonic() - start
+            return prepared_audio(b"".join(chunks), 24000, generation, first)
+        finally:
+            selector.close()
+            if worker is not None:
+                try:
+                    os.killpg(worker.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                worker.wait()
+                if worker.stdout:
+                    worker.stdout.close()
+                if worker.stdin and not worker.stdin.closed:
+                    worker.stdin.close()
+
+    def play_prepared(self, audio, sink, *, before_playback=None, cancellation=None):
+        self.fallback._prepare_sink(sink)
+        started = time.monotonic()
+        if before_playback is not None:
+            before_playback()
+        player = subprocess.Popen(
+            ["pacat", "--playback", "--raw", f"--device={sink}",
+             "--format=s16le", f"--rate={audio.sample_rate}", "--channels=1"],
+            stdin=subprocess.PIPE, bufsize=0)
+        if cancellation is not None:
+            cancellation.register(player)
+            cancellation.check()
+        try:
+            view = memoryview(audio.pcm)
+            while view:
+                written = player.stdin.write(view)
+                if not written:
+                    raise TtsError("Prepared player closed its input")
+                view = view[written:]
+            player.stdin.close()
+            if player.wait(timeout=max(10, audio.audio_seconds + 5)) != 0:
+                raise TtsError("Prepared player failed")
+        finally:
+            if player.poll() is None:
+                player.kill()
+                player.wait()
+            if player.stdin and not player.stdin.closed:
+                player.stdin.close()
+        return TtsResult(
+            audio.generation_seconds, audio.audio_seconds, audio.sample_rate,
+            audio.first_audio_latency_seconds, time.monotonic() - started, 1)
 
     def _online(self, text, sink, before_playback, state, cancellation=None):
         text = normalize_for_speech(text)

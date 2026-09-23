@@ -1,6 +1,17 @@
 # LuckRobot AI - Project State
 
-Last updated: 2026-09-13
+Last updated: 2026-09-23
+
+## 2026-09-23 display and streamed TTS work
+
+- Initial offline Web display implemented for sleeping, listening, ASR, thinking,
+  speaking, interruption and music states, plus current dialogue text.
+- The supervisor can run Cloud, Display and Audio together; Chromium kiosk launch
+  remains a separate graphical-session step pending Jetson screen acceptance.
+- Punctuation chunks now synthesize concurrently (default three workers) and play
+  in model-text order. Timing and PCM edge-silence diagnostics were added.
+- Windows automated validation is complete after implementation; Jetson audio gap,
+  Edge concurrency/network behavior and screen layout still require live acceptance.
 
 ## Hardware architecture
 
