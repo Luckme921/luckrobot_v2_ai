@@ -8,6 +8,8 @@ export QT_QPA_PLATFORM="$PLATFORM"
 export QT_SELECT="${QT_SELECT:-qt5}"
 export QT_QUICK_BACKEND="${QT_QUICK_BACKEND:-software}"
 export QT_QPA_EGLFS_ALWAYS_SET_MODE="${QT_QPA_EGLFS_ALWAYS_SET_MODE:-1}"
+# linuxfb otherwise draws Qt's software mouse cursor over the robot face.
+export QT_QPA_FB_HIDECURSOR="${QT_QPA_FB_HIDECURSOR:-1}"
 
 if [[ -z "${QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS:-}" ]]; then
   for candidate in /dev/input/event*; do

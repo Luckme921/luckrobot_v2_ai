@@ -82,6 +82,39 @@ supervisor 会停止其余进程。Jetson 图形桌面的 kiosk 浏览器需单�
 linuxfb 会独占 framebuffer，启动前必须停止 GDM/X11。首次切换应保留 SSH 连接，以便渲染
 失败时恢复 display manager。
 
+`run_robot.sh` 只统一监管 Cloud、Display API 和 Audio，不启动直接访问 `/dev/fb0` 的
+QML 渲染器。因此无桌面模式下应保留一个 SSH 会话，停止 tty1 登录提示并另行后台启动：
+
+```bash
+sudo systemctl stop getty@tty1.service
+sudo sh -c 'setterm --cursor off --blank 0 --powerdown 0 < /dev/tty1'
+cd /home/jetson/luckrobot_latency_test
+setsid bash scripts/run_display_qt.sh > logs/display-qt.log 2>&1 < /dev/null &
+```
+
+脚本默认设置 `QT_QPA_FB_HIDECURSOR=1`，Qt 不绘制鼠标指针。停止 getty 后 tty1 不再刷新
+登录提示和文本光标；内核严重错误仍可能写入 framebuffer console。检查与停止渲染器：
+
+```bash
+pgrep -af 'qmlscene.*edge/display/qml/main.qml'
+pkill -TERM -f 'qmlscene.*edge/display/qml/main.qml'
+```
+
+当前 QML 是只读界面，不依赖触摸。需要触摸时，`jetson` 必须具有 `/dev/input/event*` 的
+读取权限；可执行 `sudo usermod -aG input jetson` 后重新登录，不能把 input 设备改成全局
+可写。
+
+关闭桌面可临时执行 `sudo systemctl isolate multi-user.target`；用
+`sudo systemctl set-default multi-user.target` 设置重启后的默认模式。恢复桌面时执行：
+
+```bash
+sudo systemctl set-default graphical.target
+sudo systemctl isolate graphical.target
+```
+
+Jetson 当前的 `gdm.service` 是 static 单元，切换 target 即可，不需要单独 disable。切换
+target 可能影响 PulseAudio，仍按下文检查 XVF3800 source/sink 与 `AUDIO_OK`。
+
 Jetson 的 Qt 5 运行依赖为 `qmlscene`、`qml-module-qtquick2` 和
 `qml-module-qtquick-window2`；启动脚本显式设置 `QT_SELECT=qt5`。
 
