@@ -83,25 +83,33 @@ linuxfb 会独占 framebuffer，启动前必须停止 GDM/X11。首次切换应�
 失败时恢复 display manager。
 
 `run_robot.sh` 只统一监管 Cloud、Display API 和 Audio，不启动直接访问 `/dev/fb0` 的
-QML 渲染器。因此无桌面模式下应保留一个 SSH 会话，停止 tty1 登录提示并另行后台启动：
+QML 渲染器。`linuxfb` 和内核 framebuffer console 共用 `/dev/fb0`；只停止 getty 或隐藏
+光标不能避免 `console=tty0` 的日志覆盖。无桌面生产模式使用 systemd 独占显示服务：
 
 ```bash
-sudo systemctl mask --runtime --now getty@tty1.service
-sudo sh -c 'TERM=linux setterm --cursor off --blank 0 --powerdown 0 < /dev/tty1'
 cd /home/jetson/luckrobot_latency_test
-setsid bash scripts/run_display_qt.sh > logs/display-qt.log 2>&1 < /dev/null &
+sudo bash scripts/install_display_service.sh
+systemctl status luckrobot-display.service --no-pager
+journalctl -u luckrobot-display.service -f
 ```
 
-脚本默认设置 `QT_QPA_FB_HIDECURSOR=1`，Qt 不绘制鼠标指针。停止 getty 后 tty1 不再刷新
-登录提示和文本光标；`--runtime` mask 只在本次开机有效，重启后自动撤销。需要在本次
-开机恢复 tty1 时执行 `sudo systemctl unmask --runtime getty@tty1.service` 和
-`sudo systemctl start getty@tty1.service`。内核严重错误仍可能写入 framebuffer console。
-检查与停止渲染器：
+服务与 `getty@tty1` 冲突，启动前把 framebuffer 类型的 vtconsole 从 `/dev/fb0` 解绑，
+再以 `jetson` 用户运行 QML；停止服务时自动恢复 fbcon。串口控制台 `ttyTCU0` 和 SSH 不受
+影响。脚本默认设置 `QT_QPA_FB_HIDECURSOR=1`，Qt 不绘制鼠标指针。检查 QML：
 
 ```bash
 pgrep -af 'qmlscene.*edge/display/qml/main.qml'
-pkill -TERM -f 'qmlscene.*edge/display/qml/main.qml'
 ```
+
+恢复本地 tty 并移除开机显示服务：
+
+```bash
+sudo bash scripts/install_display_service.sh remove
+```
+
+不要通过 SSH 直接运行只有输入重定向的 `setterm ... < /dev/tty1`；`setterm` 会把控制序列
+写到 SSH 客户端终端。若电脑终端光标因此消失，Linux/macOS/Git Bash 执行
+`printf '\033[?25h'`，PowerShell 执行 `[Console]::CursorVisible = $true`。
 
 当前 QML 是只读界面，不依赖触摸。需要触摸时，`jetson` 必须具有 `/dev/input/event*` 的
 读取权限；可执行 `sudo usermod -aG input jetson` 后重新登录，不能把 input 设备改成全局
