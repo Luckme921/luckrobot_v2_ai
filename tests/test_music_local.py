@@ -74,7 +74,7 @@ class LocalMusicTests(unittest.TestCase):
         music, _ = self.setup_music([])
         request = music.local_request("我想听我想听宋冬野的安河桥")
         self.assertEqual(request["name"], "music_search")
-        self.assertEqual(request["arguments"]["query"], "宋冬野的安河桥")
+        self.assertEqual(request["arguments"]["query"], "宋冬野 安河桥")
         request = music.local_request("你可以放一首歌吗？")
         self.assertEqual(request["arguments"]["query"], "随便")
         self.assertIsNone(music.local_request("请告诉我今天的天气"))

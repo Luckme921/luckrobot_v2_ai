@@ -65,6 +65,9 @@ def _extract_music_query(text: str) -> str | None:
         return None
     value = re.sub(r"(?:给我听|来听|听听|可以吗|好吗|行吗|吧|呀|啊|呢|吗)$", "", value).strip()
     value = re.sub(r"^一首", "", value).strip()
+    artist_title = re.fullmatch(r"([^的]{2,8})的(.{2,40})", value)
+    if artist_title:
+        value = f"{artist_title.group(1).strip()} {artist_title.group(2).strip()}"
     return value or None
 
 
