@@ -86,14 +86,17 @@ linuxfb 会独占 framebuffer，启动前必须停止 GDM/X11。首次切换应�
 QML 渲染器。因此无桌面模式下应保留一个 SSH 会话，停止 tty1 登录提示并另行后台启动：
 
 ```bash
-sudo systemctl stop getty@tty1.service
-sudo sh -c 'setterm --cursor off --blank 0 --powerdown 0 < /dev/tty1'
+sudo systemctl mask --runtime --now getty@tty1.service
+sudo sh -c 'TERM=linux setterm --cursor off --blank 0 --powerdown 0 < /dev/tty1'
 cd /home/jetson/luckrobot_latency_test
 setsid bash scripts/run_display_qt.sh > logs/display-qt.log 2>&1 < /dev/null &
 ```
 
 脚本默认设置 `QT_QPA_FB_HIDECURSOR=1`，Qt 不绘制鼠标指针。停止 getty 后 tty1 不再刷新
-登录提示和文本光标；内核严重错误仍可能写入 framebuffer console。检查与停止渲染器：
+登录提示和文本光标；`--runtime` mask 只在本次开机有效，重启后自动撤销。需要在本次
+开机恢复 tty1 时执行 `sudo systemctl unmask --runtime getty@tty1.service` 和
+`sudo systemctl start getty@tty1.service`。内核严重错误仍可能写入 framebuffer console。
+检查与停止渲染器：
 
 ```bash
 pgrep -af 'qmlscene.*edge/display/qml/main.qml'
