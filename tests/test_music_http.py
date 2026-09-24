@@ -35,6 +35,14 @@ class TangTests(unittest.TestCase):
         provider._request.return_value = {"error": "offline"}
         with self.assertRaises(ValueError): provider.search("x")
 
+    def test_compacts_chinese_artist_title_query_for_provider(self):
+        provider = TangMusicProvider({})
+        provider._request = Mock(return_value=[
+            {"song_mid": "abc", "song_title": "安和桥", "singer_name": "宋冬野"}])
+        songs = provider.search("宋冬野 安河桥")
+        provider._request.assert_called_once_with({"msg": "宋冬野安河桥", "type": "json"})
+        self.assertEqual(songs[0]["query"], "宋冬野安河桥")
+
 class FallbackTests(unittest.TestCase):
     def test_empty_or_failed_primary_uses_backup(self):
         from robot_tools.music import FallbackMusicProvider

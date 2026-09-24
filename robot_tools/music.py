@@ -289,7 +289,12 @@ class TangMusicProvider:
         return json.loads(body)
 
     def search(self, query):
-        data = self._request({"msg": query, "type": "json"})
+        # This endpoint often returns an empty list for Chinese artist/title
+        # queries separated by spaces, while the compact form returns the
+        # expected catalog rows. Preserve spaces for non-Chinese searches.
+        provider_query = (re.sub(r"\s+", "", query)
+                          if re.search(r"[\u4e00-\u9fff]", query) else query)
+        data = self._request({"msg": provider_query, "type": "json"})
         data = data.get("data") if isinstance(data, dict) else data
         if not isinstance(data, list):
             raise ValueError("Invalid music search response")
@@ -302,7 +307,7 @@ class TangMusicProvider:
                 continue
             artist = item.get("singer_name")
             songs.append(dict(id=mid, title=title[:120], artists=[artist] if isinstance(artist, str) else [],
-                              query=query, backend="http", resolver="tang"))
+                              query=provider_query, backend="http", resolver="tang"))
             seen.add(mid)
             if len(songs) == self.limit:
                 break
