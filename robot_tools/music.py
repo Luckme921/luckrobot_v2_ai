@@ -12,6 +12,11 @@ from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+VERSION_MARKERS = (
+    "live", "现场", "dj", "remix", "翻唱", "cover", "伴奏", "纯音乐",
+    "吉他版", "女版", "男版", "原版", "版本", "版",
+)
+
 def result(message, *, ok=True, status="success", executed=False, playing=False, **data):
     return dict(ok=ok, status=status, executed=executed, playing=playing, message=message, **data)
 
@@ -19,6 +24,48 @@ def result(message, *, ok=True, status="success", executed=False, playing=False,
 def _normalize_text(value: str) -> str:
     """Strip decorative punctuation/spaces for fuzzy matching."""
     return re.sub(r"[^\w一-鿿]+", "", str(value).casefold(), flags=re.UNICODE)
+
+
+def _base_song_title(value: str) -> str:
+    """Remove provider-added version/cover annotations for title comparison."""
+    text = re.sub(r"[（(【\[].*?[）)】\]]", "", str(value).casefold())
+    text = _normalize_text(text)
+    for marker in VERSION_MARKERS:
+        text = text.replace(_normalize_text(marker), "")
+    return text
+
+
+def _extract_music_query(text: str) -> str | None:
+    """Extract a local music query without asking the LLM for common phrasings."""
+    value = re.sub(r"[，。！？,.!?]+$", "", str(text).strip())
+    if not value or any(word in value for word in
+                        ("不要", "别播放", "别放", "怎么", "为什么", "如何", "如果")):
+        return None
+    prefixes = (
+        "麻烦你帮我", "麻烦帮我", "你可以帮我", "可以帮我", "能不能帮我",
+        "我想听", "我要听", "想听", "请帮我", "帮我", "给我",
+        "你可以", "可以", "能不能", "请", "播放一首", "播放", "放一首",
+        "放首", "放", "来一首", "来首", "听一首", "听首", "点一首", "点首",
+    )
+    action_prefixes = {
+        "我想听", "我要听", "想听", "播放一首", "播放", "放一首", "放首",
+        "放", "来一首", "来首", "听一首", "听首", "点一首", "点首",
+    }
+    heard_action = False
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefixes:
+            if value.startswith(prefix):
+                value = value[len(prefix):].strip()
+                heard_action = heard_action or prefix in action_prefixes
+                changed = True
+                break
+    if not heard_action:
+        return None
+    value = re.sub(r"(?:给我听|来听|听听|可以吗|好吗|行吗|吧|呀|啊|呢|吗)$", "", value).strip()
+    value = re.sub(r"^一首", "", value).strip()
+    return value or None
 
 
 def _match_score(query: str, song: dict) -> float:
@@ -52,7 +99,7 @@ def _match_score(query: str, song: dict) -> float:
         score += 25.0 * min(artist_hits, 2)
 
     # Prefer studio versions when the user did not ask for a variant.
-    version_markers = ("live", "现场", "dj", "remix", "翻唱", "cover", "伴奏", "纯音乐")
+    version_markers = VERSION_MARKERS
     title_lower = str(song.get("title", "")).casefold()
     query_lower = str(query).casefold()
     for marker in version_markers:
@@ -138,7 +185,7 @@ def explicit_candidate(query, songs, minimum_score=0.62):
     """Pick the highest fuzzy title+artist match, including Live/Mix variants."""
     q = _normalize_text(query)
     matches = []
-    markers = ("live", "mix", "remix", "现场", "版本", "版", "伴奏", "dj")
+    markers = VERSION_MARKERS + ("mix",)
 
     def base(value):
         value = _normalize_text(value)
@@ -299,7 +346,11 @@ class NeteaseMusicProvider(TangMusicProvider):
         if not isinstance(data, list) or not data or not isinstance(data[0], dict):
             raise ValueError("Invalid Netease detail response")
         detail = data[0]
-        if detail.get("name") != song["title"]:
+        search_title = _base_song_title(song["title"])
+        detail_title = _base_song_title(detail.get("name", ""))
+        if (not search_title or not detail_title or
+                not (search_title in detail_title or detail_title in search_title or
+                     SequenceMatcher(None, search_title, detail_title).ratio() >= 0.8)):
             raise ValueError("Music detail title changed")
         url = detail.get("url")
         if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"} or not urlsplit(url).hostname:
@@ -453,6 +504,43 @@ class MusicTools:
         text = re.sub(r"^(?:请|帮我|给我|播放|放|选择|选|我要听|想听|听)+", "", text)
         return re.sub(r"(?:的版本|的那首|的|吧|谢谢|就这首)$", "", text)
 
+    @staticmethod
+    def _candidate_description(song):
+        artists = "、".join(song.get("artists", []))
+        title = str(song.get("title", "")).strip()
+        return f"{artists}的《{title}》" if artists else f"《{title}》"
+
+    def _selection_matches(self, text):
+        """Use pending titles/artists/versions as temporary ASR context."""
+        wanted = _normalize_text(self._clean_selection(text))
+        if len(wanted) < 2:
+            return []
+        scored = []
+        for song in self.pending:
+            title = _normalize_text(song.get("title", ""))
+            base_title = _base_song_title(song.get("title", ""))
+            artists = [_normalize_text(value) for value in song.get("artists", [])]
+            aliases = [title, base_title, *artists]
+            raw_title = str(song.get("title", "")).casefold()
+            aliases.extend(_normalize_text(marker) for marker in VERSION_MARKERS
+                           if marker in raw_title)
+            aliases = [alias for alias in aliases if len(alias) >= 2]
+            score = 0.0
+            for alias in aliases:
+                if wanted == alias:
+                    score = max(score, 1.0)
+                elif wanted in alias or alias in wanted:
+                    score = max(score, 0.9)
+                elif len(wanted) >= 3 and len(alias) >= 3:
+                    score = max(score, SequenceMatcher(None, wanted, alias).ratio())
+            if score >= 0.72:
+                scored.append((score, song))
+        if not scored:
+            return []
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        best = scored[0][0]
+        return [song for score, song in scored if best - score < 0.08]
+
     def selection_request(self, text):
         if not self.has_pending:
             return None
@@ -464,8 +552,8 @@ class MusicTools:
             return selection
         if re.fullmatch(r"第?[一二三四五六七八九十1-9][首个]?", selection):
             return selection
-        if any(selection == self._clean_selection(s["title"]) for s in self.pending):
-            return selection
+        if len(self._selection_matches(selection)) == 1:
+            return text
         return None
 
     def local_request(self, text):
@@ -479,11 +567,11 @@ class MusicTools:
             return {"name":"music_control", "arguments":{"action":controls[value]}}
         if is_random_request(value):
             return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
-        match = re.fullmatch(r"(?:请|帮我|给我)?(?:播放|放一首|放首|我想听|我要听)(.+?)(?:吧)?", value)
-        if match and not any(word in value for word in ["不要", "别播放", "怎么", "为什么", "如何", "如果"]):
-            query = re.sub(r"^一首", "", match.group(1)).strip()
-            if query:
-                return {"name":"music_search", "arguments":{"query":query,"utterance":text}}
+        query = _extract_music_query(value)
+        if query:
+            if _normalize_text(query) in {"歌", "歌曲", "音乐", "一首歌", "一首音乐"}:
+                return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
+            return {"name":"music_search", "arguments":{"query":query,"utterance":text}}
         return None
 
     def _random_play(self, *, shuffle=True):
@@ -571,6 +659,9 @@ class MusicTools:
         if not songs:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
 
+        # Merge order depends on network completion time. Rank every provider's
+        # result before choosing the visible subset.
+        songs = sorted(songs, key=lambda song: _match_score(query, song), reverse=True)
         self.pending = songs[:self.pending_limit]
         self.deadline = self.clock() + 120
 
@@ -590,11 +681,11 @@ class MusicTools:
         if len(self.pending)>1 and len(titles)==1 and all(artists) and len(set(artists))==len(artists):
             prompt = f"《{self.pending[0]['title']}》有几个版本，你想听" + "，还是".join(artists) + "的呀？"
         elif len(self.pending)==1:
-            prompt = f"找到{artists[0] or '这首'}的《{self.pending[0]['title']}》，要听这首吗？可以说第一首。"
+            prompt = f"找到了{self._candidate_description(self.pending[0])}，要听这首吗？"
         else:
-            choices = "；".join(f"{i}，{song['title']}" + (f"，{artists[i-1]}" if artists[i-1] else "")
-                               for i,song in enumerate(self.pending,1))
-            prompt = "你想听哪一首？" + choices + "。也可以说随便一首。"
+            choices = "、".join(self._candidate_description(song) for song in self.pending)
+            prompt = ("我找到了" + choices +
+                      "。你想听哪一首？可以直接说歌名、歌手或版本，也可以说随便一首。")
         return result(prompt, status="needs_selection", executed=True, candidates=public)
 
     def select(self, selection):
@@ -608,9 +699,8 @@ class MusicTools:
             index = int(number) - 1 if number.isdigit() else "一二三四五六七八九十".index(number)
             matches = self.pending[index:index+1]
         else:
-            matches = [s for s in self.pending if self._clean_selection(s["title"]) == text
-                       or s["id"] == selection
-                       or any(text == _normalize_text(a) for a in s.get("artists", []))]
+            matches = ([s for s in self.pending if s["id"] == selection]
+                       or self._selection_matches(text))
         if len(matches) != 1:
             return result("请用列表中的编号选择一首歌。", ok=False, status="needs_selection")
         song = matches[0]
@@ -621,10 +711,26 @@ class MusicTools:
                 return result("播放地址已过期，请重新搜索。", ok=False, status="expired")
             if self.player is None:
                 return result("音频播放器不可用。", ok=False, status="unavailable")
-            url = self.provider.resolve(song) if song.get("resolver") in {"tang", "netease"} else song["url"]
+            try:
+                url = (self.provider.resolve(song)
+                       if song.get("resolver") in {"tang", "netease"} else song["url"])
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+                print(f"[MUSIC] RESOLVE_FAILED provider={song.get('resolver', 'http')} "
+                      f"title={song.get('title')!r} error={type(exc).__name__} "
+                      f"reason={str(exc)[:160]!r}", flush=True)
+                return result(
+                    f"找到了{self._candidate_description(song)}，但暂时拿不到可播放地址。你可以换一首。",
+                    ok=False, status="unavailable", executed=True)
             if self.before_playback is not None:
                 self.before_playback()
-            self.player.play(url)
+            try:
+                self.player.play(url)
+            except (OSError, ValueError, RuntimeError) as exc:
+                print(f"[MUSIC] PLAY_FAILED title={song.get('title')!r} "
+                      f"error={type(exc).__name__} reason={str(exc)[:160]!r}", flush=True)
+                return result(
+                    f"{self._candidate_description(song)}的播放地址打开失败了，可以换一首。",
+                    ok=False, status="unavailable", executed=True)
         else:
             if self.before_playback is not None:
                 self.before_playback()

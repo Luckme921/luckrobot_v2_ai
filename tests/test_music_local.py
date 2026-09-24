@@ -69,6 +69,37 @@ class LocalMusicTests(unittest.TestCase):
         music,player=self.setup_music([song("b",artist="邓紫棋"),song("a")])
         self.assertTrue(music.search("周杰伦的龙卷风")["playing"])
         player.play.assert_called_once_with("https://example.com/a")
+
+    def test_repeated_natural_request_is_parsed_locally(self):
+        music, _ = self.setup_music([])
+        request = music.local_request("我想听我想听宋冬野的安河桥")
+        self.assertEqual(request["name"], "music_search")
+        self.assertEqual(request["arguments"]["query"], "宋冬野的安河桥")
+        request = music.local_request("你可以放一首歌吗？")
+        self.assertEqual(request["arguments"]["query"], "随便")
+        self.assertIsNone(music.local_request("请告诉我今天的天气"))
+
+    def test_natural_candidates_and_context_selection(self):
+        music, player = self.setup_music([
+            song("guitar", "安河桥 (吉他版)", "田洪林"),
+            song("dj", "安河桥 (DJ版)", "Dj榜单"),
+            song("cover", "莉莉安(翻自宋冬野)", "叫我老宋"),
+        ])
+        reply = music.search("安河桥")
+        self.assertNotIn("1，", reply["message"])
+        self.assertIn("田洪林的《安河桥 (吉他版)》", reply["message"])
+        self.assertEqual(music.local_request("吉他版的")["name"], "music_select")
+        self.assertTrue(music.select("田洪林的")["playing"])
+        player.play.assert_called_once_with("https://example.com/guitar")
+
+    def test_merged_results_are_ranked_before_visible_candidates(self):
+        music, _ = self.setup_music([
+            song("unrelated", "南山南到安河桥北", "陶玖"),
+            song("original", "安河桥", "宋冬野"),
+        ])
+        music.auto_play_enabled = False
+        reply = music.search("宋冬野的安河桥")
+        self.assertEqual(reply["candidates"][0]["id"], "original")
     def test_pending_random_and_bounded_failure(self):
         music,player=self.setup_music([song("a"),song("b")])
         music.search("龙卷风")

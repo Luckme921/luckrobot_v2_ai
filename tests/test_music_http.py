@@ -78,3 +78,26 @@ class FallbackTests(unittest.TestCase):
         provider = NeteaseMusicProvider({})
         with patch("robot_tools.music.TangMusicProvider._request", return_value=[{"name": "错歌", "url": "https://example.com/a"}]):
             with self.assertRaises(ValueError): provider.resolve({"id": "123", "title": "测试"})
+
+    def test_netease_resolve_accepts_provider_cover_annotation_difference(self):
+        from robot_tools.music import NeteaseMusicProvider
+        from unittest.mock import patch
+        provider = NeteaseMusicProvider({})
+        with patch("robot_tools.music.TangMusicProvider._request", return_value=[{
+                "name": "莉莉安", "url": "https://example.com/a"}]):
+            self.assertEqual(
+                provider.resolve({"id": "123", "title": "莉莉安(翻自宋冬野)"}),
+                "https://example.com/a")
+
+    def test_resolve_failure_returns_specific_message_and_keeps_candidates(self):
+        provider = TangMusicProvider({})
+        provider._request = Mock(side_effect=[
+            [{"song_mid": "abc", "song_title": "测试", "singer_name": "歌手"}],
+            {"song_mid": "other", "song_play_url": "https://example.com/x"}])
+        music = MusicTools({"enabled": True, "provider": "http"}, player=Mock())
+        music.provider = provider
+        music.search("测试")
+        answer = music.select("第一首")
+        self.assertFalse(answer["ok"])
+        self.assertIn("播放地址", answer["message"])
+        self.assertTrue(music.has_pending)
