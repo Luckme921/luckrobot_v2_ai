@@ -574,11 +574,12 @@ def main() -> None:
 
                 music_prewarm_thread.start()
 
-    tools_path = Path(__file__).resolve().parents[2] / "configs/tools.yaml"
+    project_root = Path(__file__).resolve().parents[2]
+    tools_path = project_root / "configs/tools.yaml"
     tools_config = load_config(tools_path) if tools_path.exists() else {}
     music_http_cfg = tools_config.get("music_http", {})
     music_cfg["http"] = music_http_cfg
-    preferences_path = repo_root / str(
+    preferences_path = project_root / str(
         music_http_cfg.get("preferences_path", "configs/music_preferences.yaml"))
     if preferences_path.exists():
         music_cfg["preferences"] = load_config(preferences_path).get("random_play", {})
