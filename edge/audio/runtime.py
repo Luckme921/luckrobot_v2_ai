@@ -52,6 +52,7 @@ def print(*args, **kwargs):
     return builtins.print(*args, **kwargs)
 
 import argparse
+import json
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
 from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, cache_path, valid_clip
 from shared.timing import begin_turn, measure, record, turn_started
@@ -2055,6 +2056,16 @@ def main() -> None:
                                             if turn_monitor is not None:
                                                 turn_monitor.cancellation.check()
                                             tool_name = tool_request["name"]
+                                            tool_source = (
+                                                "local" if agent_reply.model == "local-music"
+                                                else "model"
+                                            )
+                                            print(
+                                                "[TOOL_REQUEST] "
+                                                f"source={tool_source} name={tool_name} "
+                                                f"arguments={json.dumps(tool_request['arguments'], ensure_ascii=False, separators=(',', ':'))}",
+                                                flush=True,
+                                            )
                                             if tool_name == "music_search":
                                                 acknowledgements.on_event({"type": "tool_start", "action": "play_music"})
                                             tool_result = local_tools.execute(tool_name, tool_request["arguments"])

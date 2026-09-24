@@ -366,6 +366,7 @@ class FallbackMusicProvider:
     def __init__(self, config):
         self.providers = {"tang": TangMusicProvider(config), "netease": NeteaseMusicProvider(config)}
         self.url = self.providers["tang"].url
+        self.log_candidates = config.get("log_candidates", False) is True
 
     def search(self, query):
         errors = []
@@ -379,10 +380,24 @@ class FallbackMusicProvider:
                     songs = future.result()
                 except (OSError, ValueError, TypeError, KeyError) as exc:
                     errors.append(type(exc).__name__)
-                    print(f"[MUSIC] SEARCH_SOURCE_FAILED provider={name} error={type(exc).__name__}", flush=True)
+                    print(f"[MUSIC] SEARCH_SOURCE_FAILED provider={name} query={query!r} "
+                          f"error={type(exc).__name__}", flush=True)
                     continue
                 if songs:
-                    print(f"[MUSIC] SEARCH_SOURCE provider={name} candidates={len(songs)}", flush=True)
+                    print(f"[MUSIC] SEARCH_SOURCE provider={name} query={query!r} "
+                          f"candidates={len(songs)}", flush=True)
+                    if self.log_candidates:
+                        public = [
+                            {"id": song.get("id"), "title": song.get("title"),
+                             "artists": song.get("artists", [])}
+                            for song in songs
+                        ]
+                        print(
+                            "[MUSIC] SEARCH_RESULTS "
+                            f"provider={name} query={query!r} "
+                            f"songs={json.dumps(public, ensure_ascii=False, separators=(',', ':'))}",
+                            flush=True,
+                        )
                     found.extend(songs)
         if not found and errors:
             raise RuntimeError("Music search services unavailable")
@@ -705,7 +720,8 @@ class MusicTools:
             matches = ([s for s in self.pending if s["id"] == selection]
                        or self._selection_matches(text))
         if len(matches) != 1:
-            return result("请用列表中的编号选择一首歌。", ok=False, status="needs_selection")
+            return result("我还不能确定你想听哪一首，可以说歌手、歌名或版本。",
+                          ok=False, status="needs_selection")
         song = matches[0]
         if song["backend"] == "http":
             expires = song.get("expires_at")

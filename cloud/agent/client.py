@@ -1430,7 +1430,14 @@ class GLMAgent:
 
             print(
                 "[ROUTE] "
-                f"action={action}",
+                f"action={action}" + (
+                    f" music_query={getattr(route.get('music_request'), 'query', '')!r}"
+                    if action in {
+                        "play_music", "select_music", "pause_music", "resume_music",
+                        "next_music", "previous_music", "stop_music",
+                    }
+                    else ""
+                ),
                 flush=True,
             )
 
