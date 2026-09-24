@@ -50,6 +50,27 @@ class StreamingReplySpeakerTests(unittest.TestCase):
         self.assertFalse(speaker.finish())
         self.assertEqual(tts.prepared, [])
 
+    def test_decimal_point_split_across_model_deltas_is_not_a_boundary(self):
+        tts = _PreparedTts()
+        speaker = StreamingReplySpeaker(tts, "sink", SpeechCancellation())
+        speaker.on_event({"type": "text_delta", "text": "今天气温是23."})
+        speaker.on_event({"type": "text_delta", "text": "5摄氏度，注意保暖。"})
+        self.assertTrue(speaker.finish())
+        self.assertEqual(tts.played, ["今天气温是23.5摄氏度，", "注意保暖。"])
+
+    def test_numeric_periods_inside_version_and_ip_are_preserved(self):
+        tts = _PreparedTts()
+        speaker = StreamingReplySpeaker(tts, "sink", SpeechCancellation())
+        speaker.on_event({
+            "type": "text_delta",
+            "text": "版本是3.12.2，地址是192.168.3.23。",
+        })
+        self.assertTrue(speaker.finish())
+        self.assertEqual(
+            tts.played,
+            ["版本是3.12.2，", "地址是192.168.3.23。"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

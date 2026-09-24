@@ -1,12 +1,33 @@
 """Prepare streamed model text concurrently and play punctuation chunks in order."""
 from concurrent.futures import ThreadPoolExecutor
 import queue
-import re
 import threading
 import time
 
 
-_BOUNDARY = re.compile(r"^(.+?[,，、;；。.!！？?\n]+)(.*)$", re.S)
+_BOUNDARY_CHARS = frozenset(",，、;；。.!！？?\n")
+_NUMERIC_SEPARATORS = frozenset(".,")
+
+
+def _pop_spoken_chunk(buffer):
+    """Pop one punctuation chunk while preserving decimal separators.
+
+    A streamed delta may end at ``23.`` before the next delta supplies ``5``.
+    In that case the trailing period is ambiguous and must remain buffered.
+    """
+    for index, char in enumerate(buffer):
+        if char not in _BOUNDARY_CHARS:
+            continue
+        if char in _NUMERIC_SEPARATORS and index > 0 and buffer[index - 1].isdigit():
+            if index + 1 == len(buffer):
+                return None
+            if buffer[index + 1].isdigit():
+                continue
+        end = index + 1
+        while end < len(buffer) and buffer[end] in _BOUNDARY_CHARS:
+            end += 1
+        return buffer[:end], buffer[end:]
+    return None
 
 
 class StreamingReplySpeaker:
@@ -53,10 +74,10 @@ class StreamingReplySpeaker:
         self._received = True
         self._buffer += text
         while True:
-            match = _BOUNDARY.match(self._buffer)
-            if match is None:
+            parts = _pop_spoken_chunk(self._buffer)
+            if parts is None:
                 break
-            chunk, self._buffer = match.groups()
+            chunk, self._buffer = parts
             self._submit(chunk.strip())
 
     def finish(self):
