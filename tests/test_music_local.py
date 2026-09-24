@@ -1,6 +1,11 @@
 import unittest
 from unittest.mock import Mock
-from robot_tools.music import MusicTools, explicit_candidate, FallbackMusicProvider
+from robot_tools.music import (
+    FallbackMusicProvider,
+    MusicTools,
+    explicit_candidate,
+    is_random_request,
+)
 
 def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
@@ -12,13 +17,47 @@ class LocalMusicTests(unittest.TestCase):
         music.provider.search.return_value=songs
         return music,player
     def test_random_does_not_search_song_literal_or_ask_selection(self):
-        for phrase in ["播放一首歌","随便放一首歌","放点音乐","随便放一首","每日推荐"]:
+        for phrase in [
+            "播放一首歌", "随便放一首歌", "放点音乐", "随便放一首", "每日推荐",
+            "放一首音乐，随便播放一首就可以", "随便播放一首歌就可以",
+            "帮我随机播放一首好听的歌吧",
+        ]:
             music,player=self.setup_music([song("a")])
             request=music.local_request(phrase)
             self.assertIsNotNone(request,phrase)
             self.assertTrue(music.search(**request["arguments"])["playing"])
             self.assertNotEqual(music.provider.search.call_args.args[0],"歌")
             player.play.assert_called_once()
+
+    def test_full_random_request_replaces_old_pending_list(self):
+        music, player = self.setup_music([song("old", "冷门故事", "陌生歌手")])
+        music.pending = [song("old", "冷门故事", "陌生歌手")]
+        music.deadline = music.clock() + 120
+        request = music.local_request("随便播放一首歌就可以")
+        self.assertEqual(request["name"], "music_search")
+        self.assertTrue(is_random_request(request["arguments"]["utterance"]))
+
+    def test_preferred_track_is_searched_and_played_without_selection(self):
+        player = Mock()
+        music = MusicTools({
+            "enabled": True,
+            "provider": "http",
+            "http": {"auto_play_enabled": True},
+            "preferences": {
+                "search_attempts": 1,
+                "preferred_tracks": [{"artist": "周杰伦", "title": "晴天"}],
+            },
+        }, player=player)
+        music.provider = Mock(url="https://example.com")
+        music.provider.search.return_value = [
+            song("cover", "晴天", "翻唱歌手"),
+            song("original", "晴天 (Live)", "周杰伦"),
+        ]
+        music.provider.resolve.side_effect = lambda item: "https://example.com/" + item["id"]
+        answer = music.search("随便", utterance="随机播放一首歌")
+        self.assertTrue(answer["playing"])
+        music.provider.search.assert_called_once_with("周杰伦 晴天")
+        player.play.assert_called_once_with("https://example.com/original")
     def test_natural_singer_choice(self):
         music,player=self.setup_music([song("a"),song("b",artist="邓紫棋")])
         reply=music.search("龙卷风")

@@ -1,0 +1,24 @@
+# Curated seeds for generic requests such as "随便播放一首歌".
+# The runtime searches one artist/title pair and plays the closest trusted result.
+random_play:
+  search_attempts: 3
+  candidate_play_attempts: 4
+  preferred_tracks:
+    - {artist: 周杰伦, title: 晴天}
+    - {artist: 周杰伦, title: 稻香}
+    - {artist: 周杰伦, title: 七里香}
+    - {artist: 周杰伦, title: 夜曲}
+    - {artist: 周杰伦, title: 龙卷风}
+    - {artist: 陈奕迅, title: 十年}
+    - {artist: 陈奕迅, title: 好久不见}
+    - {artist: 陈奕迅, title: 孤勇者}
+    - {artist: 孙燕姿, title: 遇见}
+    - {artist: 孙燕姿, title: 天黑黑}
+    - {artist: 林俊杰, title: 江南}
+    - {artist: 林俊杰, title: 修炼爱情}
+    - {artist: 邓紫棋, title: 光年之外}
+    - {artist: 五月天, title: 突然好想你}
+    - {artist: 张学友, title: 吻别}
+    - {artist: 王菲, title: 红豆}
+  # Used only when preferred_tracks is empty or all configured tracks fail.
+  preferred_artists: [周杰伦, 陈奕迅, 孙燕姿, 林俊杰, 邓紫棋, 五月天]

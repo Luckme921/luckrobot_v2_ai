@@ -576,7 +576,12 @@ def main() -> None:
 
     tools_path = Path(__file__).resolve().parents[2] / "configs/tools.yaml"
     tools_config = load_config(tools_path) if tools_path.exists() else {}
-    music_cfg["http"] = tools_config.get("music_http", {})
+    music_http_cfg = tools_config.get("music_http", {})
+    music_cfg["http"] = music_http_cfg
+    preferences_path = repo_root / str(
+        music_http_cfg.get("preferences_path", "configs/music_preferences.yaml"))
+    if preferences_path.exists():
+        music_cfg["preferences"] = load_config(preferences_path).get("random_play", {})
     device_volume = PulseVolumeController(
         speaker_match_any=list(audio_cfg["speaker"]["match_any"]),
         step_percent=10, max_percent=100)

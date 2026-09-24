@@ -97,8 +97,41 @@ def _autoplay_candidate(query, candidates, threshold, gap):
 
 def is_random_request(text):
     value = _normalize_text(text)
-    return bool(re.fullmatch(r"(?:请|帮我|给我)?(?:随便|随机)?(?:播放|放|来|听|放点|放个)?(?:一首|首|个|点|一些)?(?:歌|歌曲|音乐)(?:吧|听听)?", value)
-                or value in {"随便", "随便吧", "都行", "随便一首", "随机播放", "每日推荐", "推荐音乐", "随便放一首", "随便来一首"})
+    if value in {"随便", "随便吧", "都行", "都可以", "任意", "随便一首", "随机播放",
+                 "每日推荐", "推荐音乐", "随便放一首", "随便来一首"}:
+        return True
+    if re.fullmatch(
+            r"(?:请|帮我|给我)?(?:随便|随机)?(?:播放|放|来|听|放点|放个)?"
+            r"(?:一首|首|个|点|一些)?(?:歌|歌曲|音乐)"
+            r"(?:吧|听听|就可以了?|就行了?|可以了?)?", value):
+        return True
+    # Strip only generic music/request words. Any remaining title or artist keeps
+    # the request on the explicit-search path.
+    generic_words = (
+        "随便播放", "随机播放", "帮我播放", "给我播放", "每日推荐", "推荐音乐",
+        "随便", "随机", "任意", "都可以", "都行", "什么都行", "好听的",
+        "播放", "放一首", "放首", "放点", "放个", "来一首", "来首", "听一首",
+        "歌曲", "音乐", "一首歌", "歌", "一首", "一些", "一个", "一下",
+        "请", "帮我", "给我", "听听", "就可以了", "就可以", "就行了", "就行",
+        "可以了", "可以", "吧", "呀", "啊",
+    )
+    remainder = value
+    # Repeat because removing one phrase can expose a shorter adjacent phrase.
+    previous = None
+    while remainder != previous:
+        previous = remainder
+        for word in sorted(generic_words, key=len, reverse=True):
+            remainder = remainder.replace(_normalize_text(word), "")
+    has_generic_music = any(word in value for word in ("歌", "歌曲", "音乐", "播放", "放", "来首"))
+    return has_generic_music and not remainder
+
+
+def is_pending_random_choice(text):
+    """Short replies choose an existing list; full requests start a fresh search."""
+    return _normalize_text(text) in {
+        _normalize_text(value) for value in
+        ("随便", "随便吧", "都行", "都可以", "任意", "随便一首")
+    }
 
 
 def explicit_candidate(query, songs, minimum_score=0.62):
@@ -379,6 +412,22 @@ class MusicTools:
         self.playing = False
         self.before_playback = before_playback
         self.random_queries = http_config.get("random_queries", ["周杰伦", "陈奕迅", "孙燕姿"])
+        preferences = config.get("preferences", {})
+        self.preferred_tracks = [
+            {"artist": str(item.get("artist", "")).strip(),
+             "title": str(item.get("title", "")).strip()}
+            for item in preferences.get("preferred_tracks", [])
+            if isinstance(item, dict) and str(item.get("artist", "")).strip()
+            and str(item.get("title", "")).strip()
+        ]
+        self.preferred_artists = [
+            str(item).strip() for item in preferences.get("preferred_artists", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        self.random_search_attempts = min(
+            10, max(1, int(preferences.get("search_attempts", 3))))
+        self.random_play_attempts = min(
+            10, max(1, int(preferences.get("candidate_play_attempts", 4))))
         self.auto_play_enabled = http_config.get("auto_play_enabled", False) is True
         self.search_limit = min(20, max(3, int(http_config.get("search_limit", 10))))
         self.pending_limit = min(10, max(3, int(http_config.get("pending_limit", 5))))
@@ -407,7 +456,7 @@ class MusicTools:
     def selection_request(self, text):
         if not self.has_pending:
             return None
-        if is_random_request(text): return "随便"
+        if is_pending_random_choice(text): return "随便"
         if len(self.pending) == 1 and _normalize_text(text) in {"好的", "好", "就这首", "可以", "播放吧"}:
             return "第一首"
         selection = self._clean_selection(text)
@@ -437,11 +486,12 @@ class MusicTools:
                 return {"name":"music_search", "arguments":{"query":query,"utterance":text}}
         return None
 
-    def _random_play(self):
+    def _random_play(self, *, shuffle=True):
         # Bounded attempts; never ask the user to choose again after a random request.
         songs = list(self.pending)
-        random.shuffle(songs)
-        for song in songs[:3]:
+        if shuffle:
+            random.shuffle(songs)
+        for song in songs[:self.random_play_attempts]:
             self.pending = [song]
             self.deadline = self.clock()+120
             try:
@@ -452,16 +502,58 @@ class MusicTools:
         self.clear_pending()
         return result("这次没能播放成功，稍后再试一下吧。", ok=False, status="unavailable")
 
+    def _provider_search(self, query):
+        if self.config.get("provider", "qqmusic") == "http":
+            if not self.provider.url:
+                raise RuntimeError("还没有配置音乐搜索接口。")
+            return self.provider.search(query)
+        if self.controller is None:
+            raise RuntimeError("QQ音乐控制器尚未就绪。")
+        matches = self.library.search(query, limit=3) if self.library else []
+        songs = [dict(id=s.mid, title=s.title, artists=list(s.artists), backend="qqmusic",
+                      query=query) for s in matches]
+        return songs or self.controller.search_candidates(query, limit=3)
+
+    def _random_search_and_play(self):
+        tracks = list(self.preferred_tracks)
+        random.shuffle(tracks)
+        plans = [(f"{item['artist']} {item['title']}", item) for item in tracks]
+        artists = list(self.preferred_artists or self.random_queries)
+        random.shuffle(artists)
+        plans.extend((artist, None) for artist in artists)
+        if not plans:
+            return result("还没有配置随机音乐来源。", ok=False, status="unavailable")
+
+        for query, track in plans[:self.random_search_attempts]:
+            try:
+                songs = self._provider_search(query)
+            except Exception as exc:
+                print(f"[MUSIC] RANDOM_SEARCH_FAILED query={query!r} error={type(exc).__name__}", flush=True)
+                continue
+            if track is not None:
+                matches = [song for song in songs
+                           if explicit_candidate(query, [song], self.fuzzy_auto_play_score) is not None]
+                matches.sort(key=lambda song: _match_score(query, song), reverse=True)
+                songs = matches
+            if not songs:
+                continue
+            self.pending = songs[:self.pending_limit]
+            self.deadline = self.clock() + 120
+            answer = self._random_play(shuffle=track is None)
+            if answer.get("playing"):
+                print(f"[MUSIC] RANDOM_PLAY query={query!r}", flush=True)
+                return answer
+        self.clear_pending()
+        return result("这次没能找到可播放的常听歌曲，稍后再试一下吧。",
+                      ok=False, status="unavailable")
+
     def search(self, query, utterance=""):
         self.clear_pending()
         if not self.config.get("enabled", False):
             return result("音乐功能目前未启用。", ok=False, status="unavailable")
         random_mode = is_random_request(utterance or query)
         if random_mode:
-            queries = [q for q in self.random_queries if isinstance(q, str) and q.strip()]
-            if not queries:
-                return result("还没有配置随机音乐来源。", ok=False, status="unavailable")
-            query = random.choice(queries)
+            return self._random_search_and_play()
         if not query.strip():
             return result("你想听哪首歌，或者哪位歌手的歌？", status="needs_input")
         if self.config.get("provider", "qqmusic") == "http":

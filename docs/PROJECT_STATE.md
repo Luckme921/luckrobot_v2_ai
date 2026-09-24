@@ -15,6 +15,8 @@ Last updated: 2026-09-23
 - Jetson display probe confirmed Qt5, `/dev/fb0` and a Fondar USB touchscreen.
   Qt linuxfb with the software scene graph rendered successfully without X11;
   the packaged EGLFS and NVIDIA EGLDevice paths failed and are not the baseline.
+- Generic random-music requests now use a curated artist/title configuration and
+  bypass candidate selection. Real ASR phrases ending in “就可以” are regression tested.
 
 ## Hardware architecture
 

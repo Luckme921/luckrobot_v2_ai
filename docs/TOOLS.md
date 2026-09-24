@@ -49,7 +49,16 @@ music_http.auto_play_enabled 默认 false，只有明确配置 true 才开启；
 
 本地先匹配明确播放/暂停/继续和候选选择短句，命中时不调用 LLM。否定、解释性问句不在本地执行。匹配在现有 ASR/身份处理之后，因此不是完全零等待。
 
-“播放一首歌”“随便放一首”“放点音乐”“每日推荐”用 music_http.random_queries 随机选一个搜索来源，再随机尝试最多三个候选，成功直接播放，失败明确反馈并清空候选；不反复让用户选择。该来源是配置的歌手/关键词池，不是平台每日推荐接口，不保证结果个性化或每次不重复。
+“播放一首歌”“随便放一首”“放点音乐”“每日推荐”属于通用随机请求，成功后直接
+播放，失败明确反馈并清空候选，不反复让用户选择。`music_http.random_queries` 现在只
+是偏好文件没有可用配置时的兼容后备项，不是平台每日推荐接口。
+
+2026-09-24 起，随机音乐优先读取 `configs/music_preferences.yaml`。其中
+`preferred_tracks` 配置常听的歌手和歌曲，`preferred_artists` 只作为曲目全部失败后的
+后备搜索；`search_attempts` 限制不同偏好搜索次数，`candidate_play_attempts` 限制同一
+搜索结果的播放尝试。完整随机请求会清除上一轮候选并直接播放，不进入选择流程。
+已经覆盖现场 ASR 文本“放一首音乐，随便播放一首就可以”和
+“随便播放一首歌就可以”。用户只回答“随便/都行”时，仍表示从当前候选中任选一首。
 
 已开启 auto_play_enabled。明确歌手+歌名时，比较返回的全部候选：歌手须匹配，歌名完全匹配或至少三字且相似度>=0.85；最佳候选与次佳相似度差小于0.1时仍询问。单独歌名/歌手继续选择，同名不同歌手时询问“你想听周杰伦，还是邓紫棋的呀？”。用户可说歌手、“第一首”或“随便”；单个候选也可说“好的”。原 auto_play_threshold/gap 是旧打分配置，新明确匹配规则不使用它们。
 
@@ -61,5 +70,36 @@ music_http.auto_play_enabled 默认 false，只有明确配置 true 才开启；
 ## 音乐并发搜索与模糊直播放（2026-09-22）
 
 `music_http.adapter=fallback` 现在并发请求 Tang/QQ 与网易云两个已接入接口，而不是第一个有结果就停止。`search_limit` 控制每个接口最多候选数，默认 10；合并后 `pending_limit` 默认展示 5 首。接口失败彼此隔离，全部失败才返回服务不可用。仍不接受模型或用户直接提供的播放 URL。
+
+## wangye.html 中的公开音乐接口
+
+页面包含四组搜索/详情调用。这些均为第三方公开接口，项目无法保证长期稳定性、服务
+条款或曲目授权，生产逻辑只能把它们当作可替换的数据源。
+
+- 咪咕搜索：`GET https://api.xcvts.cn/api/music/migu?gm=<关键词>&n=&num=<数量>&type=json`。
+  返回 `code=200` 和 `data[]`；播放详情继续请求同一地址，把 `n` 设置为搜索结果序号，
+  读取 `music_url`、`lrc_url`、`cover`。当前机器人尚未接入此来源。
+- 网易云搜索：`GET https://api.vkeys.cn/v2/music/netease?word=<关键词>&page=1&num=<数量>`，
+  从 `data[]` 读取 `id/song/singer/album/cover`。播放详情调用
+  `GET https://api.qijieya.cn/meting/?type=song&id=<歌曲ID>`，读取数组首项的
+  `url/name/artist/pic`；歌词调用 vkeys 的 `/v2/music/netease/lyric?id=<歌曲ID>`。
+  当前机器人已接入搜索和播放详情，没有在语音流程中使用歌词。
+- QQ 搜索：`GET https://tang.api.s01s.cn/music_open_api.php?msg=<关键词>&type=json`，
+  返回数组或 `{data: [...]}`，主要字段为 `song_mid/song_title/singer_name`。详情在同一
+  请求上增加 `mid=<song_mid>`，读取 `song_play_url_standard`、`song_play_url_hq`、
+  `song_play_url` 等。当前机器人已接入，并校验详情返回的 `song_mid` 必须与选择一致。
+- 酷我搜索：`GET https://kw-api.cenguigui.cn/?name=<关键词>&page=1&limit=<数量>`，
+  读取 `data[].rid/name/artist/album/pic`。详情请求增加
+  `id=<rid>&type=song&level=zp&format=json`，播放地址位于 `data.url`。当前机器人尚未
+  接入此来源。
+
+只读通断检查：
+
+```bash
+.venv/bin/python scripts/check_music_apis.py
+```
+
+脚本只检查搜索、JSON 结构、详情和播放地址是否存在，不下载或播放音频。结果中的
+`reachable=true` 表示本次调用成功，不代表以后持续可用。
 
 明确包含歌手和歌名的请求会计算歌手与标题综合分并直接播放最高分；支持歌手简称，如“杰伦的龙卷风”。标题比较会忽略 Live、Mix、Remix、现场、版本、伴奏、DJ 等版本词，因此允许直接选择最相近版本。`fuzzy_auto_play_score` 默认 0.62，可提高以减少误播。只说歌名或歌手时仍保留候选选择，随机播放逻辑不变。

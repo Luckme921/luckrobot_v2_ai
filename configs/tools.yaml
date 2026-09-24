@@ -1,6 +1,7 @@
 # Music API extracted from user-provided wangye.html.
 # audio.yaml music.enabled/provider control whether it is used.
 music_http:
+  preferences_path: configs/music_preferences.yaml
   adapter: fallback
   search_url: https://tang.api.s01s.cn/music_open_api.php
   timeout_seconds: 10
@@ -10,5 +11,5 @@ music_http:
   # Explicit opt-in; otherwise always ask the user to select.
   auto_play_enabled: true
   fuzzy_auto_play_score: 0.62
-  # Search seeds, not a provider daily-recommendation API.
+  # Legacy fallback when the dedicated preference file has no usable entries.
   random_queries: [周杰伦, 陈奕迅, 孙燕姿]
