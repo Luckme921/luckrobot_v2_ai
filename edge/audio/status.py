@@ -25,6 +25,10 @@ def display_dialogue(*, user_text=None, assistant_text=None):
     _display.publish(user_text=user_text, assistant_text=assistant_text)
 
 
+def display_music(music):
+    _display.publish(music_marker=True, music=music)
+
+
 def status(value):
     global _logger, _last
     if value == _last:

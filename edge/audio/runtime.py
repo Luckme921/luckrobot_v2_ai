@@ -18,6 +18,7 @@ import builtins
 from edge.audio.status import (
     configure_display,
     display_dialogue,
+    display_music,
     display_state,
     status,
 )
@@ -48,7 +49,7 @@ def print(*args, **kwargs):
         display_state("speaking", "我在呢")
     if "reason=music_playback" in message:
         status("音乐播放中，等待 Lucky")
-        display_state("music", "音乐播放中 · 说 Lucky 可以打断")
+        display_state("music", "等待 Lucky")
     return builtins.print(*args, **kwargs)
 
 import argparse
@@ -2070,6 +2071,8 @@ def main() -> None:
                                                 acknowledgements.on_event({"type": "tool_start", "action": "play_music"})
                                             tool_result = local_tools.execute(tool_name, tool_request["arguments"])
                                             music_playing = tool_result.get("playing", music_playing)
+                                            if "music" in tool_result:
+                                                display_music(tool_result.get("music"))
                                             agent_client.record_completed_turn(command_text, tool_result["message"])
                                             turn_memory_recorded = True
                                             agent_reply = AgentReply(text=tool_result["message"], model="local-tool")

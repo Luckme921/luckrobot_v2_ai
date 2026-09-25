@@ -484,6 +484,7 @@ class MusicTools:
         self.pending = []
         self.deadline = 0.0
         self.playing = False
+        self.current_song = None
         self.before_playback = before_playback
         self.random_queries = http_config.get("random_queries", ["周杰伦", "陈奕迅", "孙燕姿"])
         preferences = config.get("preferences", {})
@@ -532,6 +533,14 @@ class MusicTools:
         artists = "、".join(song.get("artists", []))
         title = str(song.get("title", "")).strip()
         return f"{artists}的《{title}》" if artists else f"《{title}》"
+
+    @staticmethod
+    def _display_song(song):
+        return {
+            "title": str(song.get("title", "")).strip(),
+            "artists": [str(value).strip() for value in song.get("artists", [])
+                        if str(value).strip()],
+        }
 
     def _selection_matches(self, text):
         """Use pending titles/artists/versions as temporary ASR context."""
@@ -761,8 +770,10 @@ class MusicTools:
             self.controller.play(song.get("query", song["title"]),
                                  preferred_mid=song["id"], strict_mid=True)
         self.playing = True
+        self.current_song = self._display_song(song)
         self.clear_pending()
-        return result("正在播放" + song["title"] + "。", executed=True, playing=True)
+        return result("正在播放" + song["title"] + "。", executed=True, playing=True,
+                      music=self.current_song)
 
     def control(self, action):
         if action == "stop_music":
@@ -784,11 +795,15 @@ class MusicTools:
                 return result("QQ音乐控制器尚未就绪。", ok=False, status="unavailable")
             getattr(self.controller, name)()
             self.playing = name in {"resume", "next", "previous"}
+        if name == "stop":
+            self.current_song = None
         return result({"pause": "已暂停音乐。", "resume": "继续播放音乐。",
                        "next": "已切换下一首。", "previous": "已切换上一首。",
-                       "stop": "已停止音乐。"}[name], executed=True, playing=self.playing)
+                       "stop": "已停止音乐。"}[name], executed=True, playing=self.playing,
+                      music=self.current_song)
 
     def close(self):
         self.clear_pending()
+        self.current_song = None
         if self.player is not None:
             self.player.stop()

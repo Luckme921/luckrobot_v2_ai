@@ -12,6 +12,7 @@ Window {
     property string stateLabel: "等待 Lucky"
     property string userText: ""
     property string assistantText: ""
+    property var musicInfo: null
     property bool blinking: false
     property bool connected: true
 
@@ -31,15 +32,22 @@ Window {
         if (robotState === "music") return "♫"
         return "●"
     }
+    function musicTitle() {
+        return musicInfo && musicInfo.title ? musicInfo.title : "正在播放音乐"
+    }
+    function musicArtists() {
+        return musicInfo && musicInfo.artists ? musicInfo.artists.join(" · ") : ""
+    }
 
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#102b3b" }
+            GradientStop { position: 0.0; color: root.robotState === "music" ? "#27133d" : "#102b3b" }
             GradientStop { position: 0.48; color: "#07111d" }
             GradientStop { position: 1.0; color: "#02050a" }
         }
     }
+
     Text {
         anchors { top: parent.top; right: parent.right; margins: root.height * 0.045 }
         text: root.symbol(); color: root.accent(); font.bold: true
@@ -54,9 +62,10 @@ Window {
 
     Rectangle {
         id: face
-        width: Math.min(root.width * 0.62, root.height * 0.78)
+        visible: root.robotState !== "music"
+        width: Math.min(root.width * 0.62, root.height * 0.70)
         height: width / 1.45
-        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.08 }
+        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.065 }
         radius: width * 0.22; color: "#d90a1724"
         border.width: Math.max(2, root.height * 0.003); border.color: root.accent()
         opacity: root.robotState === "sleeping" ? 0.63 : 1
@@ -84,43 +93,167 @@ Window {
             Behavior on y { NumberAnimation { duration: 240 } }
         }
         Rectangle {
-            width: face.width * (root.robotState === "music" ? 0.24 : 0.19)
+            width: face.width * 0.19
             height: speakingAnimation.running ? face.height * 0.11 : face.height * 0.025
             anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: face.height * 0.68 }
             radius: height / 2; color: "transparent"
             border.width: Math.max(3, face.height * 0.018); border.color: root.accent()
             SequentialAnimation on scale {
                 id: speakingAnimation
-                running: root.robotState === "speaking" || root.robotState === "music"
+                running: root.robotState === "speaking"
                 loops: Animation.Infinite
-                NumberAnimation { to: 0.62; duration: root.robotState === "music" ? 260 : 130 }
-                NumberAnimation { to: 1.18; duration: root.robotState === "music" ? 260 : 130 }
+                NumberAnimation { to: 0.62; duration: 130 }
+                NumberAnimation { to: 1.18; duration: 130 }
             }
         }
     }
 
-    Column {
-        width: root.width * 0.90; spacing: root.height * 0.012
-        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.045 }
+    Item {
+        id: musicPanel
+        visible: root.robotState === "music"
+        anchors { top: parent.top; topMargin: root.height * 0.055; horizontalCenter: parent.horizontalCenter }
+        width: root.width * 0.88
+        height: root.height * 0.68
+
+        Item {
+            id: record
+            width: Math.min(parent.width * 0.42, parent.height * 0.62)
+            height: width
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top }
+            RotationAnimation on rotation {
+                from: 0; to: 360; duration: 12000
+                loops: Animation.Infinite; running: musicPanel.visible
+            }
+            Rectangle {
+                anchors.fill: parent; radius: width / 2
+                color: "#11131a"; border.color: "#b98cff"; border.width: Math.max(3, width * 0.012)
+            }
+            Repeater {
+                model: 4
+                Rectangle {
+                    width: record.width * (0.86 - index * 0.14)
+                    height: width; radius: width / 2
+                    anchors.centerIn: parent; color: "transparent"
+                    border.color: index % 2 ? "#433451" : "#2c2732"
+                    border.width: Math.max(1, record.width * 0.006)
+                }
+            }
+            Rectangle {
+                width: parent.width * 0.34; height: width; radius: width / 2
+                anchors.centerIn: parent
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#66e6ff" }
+                    GradientStop { position: 1.0; color: "#b98cff" }
+                }
+                Text {
+                    anchors.centerIn: parent; text: "♫"; color: "#07111d"; font.bold: true
+                    font.pixelSize: Math.max(24, parent.width * 0.38)
+                }
+            }
+            Rectangle {
+                width: parent.width * 0.06; height: width; radius: width / 2
+                anchors.centerIn: parent; color: "#07111d"
+            }
+        }
+
+        Row {
+            id: equalizer
+            width: Math.min(parent.width * 0.62, root.width * 0.56)
+            height: root.height * 0.105
+            spacing: width * 0.025
+            anchors { horizontalCenter: parent.horizontalCenter; top: record.bottom; topMargin: root.height * 0.018 }
+            Repeater {
+                model: 13
+                Item {
+                    width: (equalizer.width - equalizer.spacing * 12) / 13
+                    height: equalizer.height
+                    Rectangle {
+                        width: parent.width; height: parent.height * 0.28
+                        anchors.bottom: parent.bottom; radius: width / 2
+                        color: index % 2 ? "#66e6ff" : "#b98cff"
+                        SequentialAnimation on height {
+                            running: musicPanel.visible; loops: Animation.Infinite
+                            NumberAnimation { to: equalizer.height * (0.35 + (index % 5) * 0.12); duration: 240 + index * 19; easing.type: Easing.InOutQuad }
+                            NumberAnimation { to: equalizer.height * (0.16 + (index % 3) * 0.08); duration: 280 + index * 13; easing.type: Easing.InOutQuad }
+                        }
+                    }
+                }
+            }
+        }
+
         Text {
+            id: musicTitleText
+            anchors { top: equalizer.bottom; topMargin: root.height * 0.018; horizontalCenter: parent.horizontalCenter }
+            width: parent.width * 0.92; horizontalAlignment: Text.AlignHCenter
+            text: root.musicTitle(); color: "#f7f1ff"; font.bold: true
+            font.pixelSize: Math.max(24, root.height * 0.052)
+            elide: Text.ElideRight
+        }
+        Text {
+            anchors { top: musicTitleText.bottom; topMargin: root.height * 0.008; horizontalCenter: parent.horizontalCenter }
+            width: parent.width * 0.88; horizontalAlignment: Text.AlignHCenter
+            text: root.musicArtists(); color: "#b9d6e5"
+            font.pixelSize: Math.max(17, root.height * 0.030)
+            elide: Text.ElideRight
+        }
+    }
+
+    Item {
+        id: lowerPanel
+        width: root.width * 0.92
+        height: root.height * 0.29
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.025 }
+
+        Text {
+            id: stateText
             width: parent.width; horizontalAlignment: Text.AlignHCenter
             text: root.stateLabel.toUpperCase(); color: root.accent(); font.bold: true
             font.pixelSize: Math.max(18, root.height * 0.032); font.letterSpacing: 2
         }
         Text {
+            id: nowPlayingText
+            visible: root.robotState === "music"
+            anchors { top: stateText.bottom; topMargin: root.height * 0.010 }
             width: parent.width; horizontalAlignment: Text.AlignHCenter
-            text: root.userText ? "你：" + root.userText : ""; color: "#8ba8bb"
-            font.pixelSize: Math.max(16, root.height * 0.028); elide: Text.ElideRight
+            text: "正在播放：《" + root.musicTitle() + "》" + (root.musicArtists() ? " · " + root.musicArtists() : "")
+            color: "#effcff"; font.bold: true
+            font.pixelSize: Math.max(18, root.height * 0.034); elide: Text.ElideRight
         }
-        Text {
-            width: parent.width; horizontalAlignment: Text.AlignHCenter
-            text: root.assistantText; color: "#effcff"; font.bold: true
-            font.pixelSize: Math.max(21, root.height * 0.043); elide: Text.ElideRight
+
+        Item {
+            id: dialoguePanel
+            visible: root.robotState !== "music"
+            anchors { top: stateText.bottom; topMargin: root.height * 0.010; left: parent.left; right: parent.right; bottom: parent.bottom }
+
+            Text {
+                id: userLine
+                width: parent.width; horizontalAlignment: Text.AlignHCenter
+                text: root.userText ? "你：" + root.userText : ""; color: "#8ba8bb"
+                font.pixelSize: Math.max(15, root.height * 0.025)
+                wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+            }
+            Flickable {
+                id: assistantViewport
+                anchors { top: userLine.bottom; topMargin: root.height * 0.008; left: parent.left; right: parent.right; bottom: parent.bottom }
+                contentWidth: width; contentHeight: Math.max(height, assistantBody.paintedHeight)
+                clip: true; boundsBehavior: Flickable.StopAtBounds
+                Text {
+                    id: assistantBody
+                    width: assistantViewport.width
+                    text: root.assistantText; color: "#effcff"; font.bold: true
+                    font.pixelSize: Math.max(19, root.height * 0.036)
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    onTextChanged: Qt.callLater(function() {
+                        assistantViewport.contentY = Math.max(0, assistantBody.paintedHeight - assistantViewport.height)
+                    })
+                }
+            }
         }
     }
 
     Timer {
-        interval: 5200; repeat: true; running: root.robotState !== "sleeping"
+        interval: 5200; repeat: true; running: root.robotState !== "sleeping" && root.robotState !== "music"
         onTriggered: { root.blinking = true; closeBlink.start() }
     }
     Timer { id: closeBlink; interval: 130; onTriggered: root.blinking = false }
@@ -137,6 +270,7 @@ Window {
                     root.stateLabel = value.label || root.robotState
                     root.userText = value.user_text || ""
                     root.assistantText = value.assistant_text || ""
+                    root.musicInfo = value.music || null
                     root.connected = true
                 } catch (error) { root.connected = false }
             }

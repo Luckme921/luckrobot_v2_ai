@@ -14,6 +14,36 @@ Jetson 使用 Qt Quick/QML 渲染器。当前设备验证通过的路径为 Qt `
 `interrupted` 和 `music`。界面显示最近一轮用户文字、流式模型回复、眼睛、眨眼、
 嘴型和状态符号动画。
 
+音乐播放状态显示程序化绘制的旋转唱片、装饰性均衡器动画、真实曲名和歌手。该均衡器
+目前按 QML 动画参数运动，不读取 PCM 或 FFT，因此只表示“正在播放”，不代表真实频谱。
+音乐工具通过 `display_state.json` 的 `music.title` 与 `music.artists` 传递元数据；停止
+播放时清除该字段。当前第三方音乐源不能稳定提供封面，因此唱片中心也是 QML 图形。后续
+取得可信封面 URL 或本地缓存文件后，可以在唱片内增加 `Image` 并保留当前图形作为回退。
+
+对话区域使用多行 `Text.Wrap`。助手文本放在 `Flickable` 中，流式文字增长时自动滚动到
+底部，触摸屏也可以手动上下滚动。用户文字最多显示两行；完整内容仍保存在显示状态和对话
+日志中。
+
+## 界面如何绘制与修改
+
+当前生产界面不是一张整屏图片。`edge/display/qml/main.qml` 里的 `Rectangle`、`Text`、
+`Repeater`、`Flickable` 和动画由 Qt Quick 实时计算位置与尺寸，再由 software scene graph
+光栅化到 framebuffer：
+
+- `Window` 与背景 `Gradient`：全屏画布和底色。
+- `face`、`leftEye`、`rightEye`：按屏幕宽高比例计算的圆角矩形表情。
+- `speakingAnimation`：回答时的嘴型缩放。
+- `musicPanel`、`record`、`equalizer`：音乐唱片、旋转和律动区域。
+- `lowerPanel`、`assistantViewport`：状态、正在播放信息和可滚动多行对话。
+- 最后的 250 ms `Timer`：读取 `http://127.0.0.1:8765/api/state` 并更新 QML 属性。
+
+修改颜色、比例、字体、间距、动画速度和布局，主要编辑
+`edge/display/qml/main.qml`。修改状态字段或增加封面、歌词、播放进度时，同时修改
+`edge/display/state.py`、`edge/audio/status.py` 和产生数据的音乐/音频运行时代码。修改
+framebuffer 平台、软件渲染、触屏设备发现时编辑 `scripts/run_display_qt.sh`；修改开机独占
+显示服务时编辑 `scripts/install_display_service.sh`。`edge/display/static/index.html` 只是
+浏览器备用原型，不控制当前 Jetson Qt 直显界面。
+
 ## 启动
 
 完整机器人服务：
@@ -72,6 +102,10 @@ GPU 占用和显示进程异常退出后的恢复方式。验收完成后再配�
 - [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32)：LCD/OLED 表情与状态驱动机制。
 - [xiaozhi-assets-generator](https://github.com/78/xiaozhi-assets-generator)：小智表情素材生成流程。
 - [otto-emoji-gif-component](https://github.com/txp666/otto-emoji-gif-component)：MIT 许可的机器人循环表情。
+- [xiaozhi-esp32-music](https://github.com/Maggotxy/xiaozhi-esp32-music)：MIT 许可的小智音乐固件，包含音乐与歌词显示思路。
+- [dj-turntable](https://github.com/ltomuta/dj-turntable)：Qt Quick 唱片机和旋转动画示例。
+- [Qt Embedded Linux](https://doc.qt.io/qt-6/embedded-linux.html)：linuxfb 与 software scene graph 的官方说明。
+- [Qt Quick Text](https://doc.qt.io/qt-6/qml-qtquick-text.html)：多行换行与文本截断属性。
 
 当前 CSS 和 QML 表情均为自行实现，没有复制上述项目的图片或代码。以后引入第三方
 素材时需核对许可证并记录来源。

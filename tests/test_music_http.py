@@ -16,6 +16,7 @@ class TangTests(unittest.TestCase):
         player.play.assert_not_called()
         self.assertEqual(provider._request.call_count, 1)
         self.assertTrue(music.select("第一首")["playing"])
+        self.assertEqual(music.current_song, {"title": "测试", "artists": ["歌手"]})
         provider._request.assert_called_with({"msg": "测试", "type": "json", "mid": "abc"})
         player.play.assert_called_once_with("https://audio.example/song.mp3")
 
