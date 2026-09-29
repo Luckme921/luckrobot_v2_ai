@@ -4,12 +4,21 @@ from robot_tools.music import (
     FallbackMusicProvider,
     MusicTools,
     explicit_candidate,
+    has_explicit_music_intent,
     is_random_request,
 )
 
 def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
 class LocalMusicTests(unittest.TestCase):
+    def test_fresh_music_search_requires_explicit_cue(self):
+        for text in ["放一首", "一首歌", "音乐", "歌曲", "来点小曲", "播放晴天", "我想听稻香"]:
+            with self.subTest(text=text):
+                self.assertTrue(has_explicit_music_intent(text))
+        for text in ["马蹄", "苹果", "周杰伦", "为什么播放音乐没声音", "不要播放歌曲"]:
+            with self.subTest(text=text):
+                self.assertFalse(has_explicit_music_intent(text))
+
     def setup_music(self,songs):
         player=Mock()
         music=MusicTools({"enabled":True,"provider":"http","http":{"auto_play_enabled":True}},player=player)
@@ -20,7 +29,7 @@ class LocalMusicTests(unittest.TestCase):
         for phrase in [
             "播放一首歌", "随便放一首歌", "放点音乐", "随便放一首", "每日推荐",
             "放一首音乐，随便播放一首就可以", "随便播放一首歌就可以",
-            "帮我随机播放一首好听的歌吧",
+            "帮我随机播放一首好听的歌吧", "来点小曲",
         ]:
             music,player=self.setup_music([song("a")])
             request=music.local_request(phrase)

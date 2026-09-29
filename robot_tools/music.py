@@ -71,6 +71,19 @@ def _extract_music_query(text: str) -> str | None:
     return value or None
 
 
+def has_explicit_music_intent(text: str) -> bool:
+    """Require an audible music cue before a fresh model-routed search."""
+    value = re.sub(r"[\s，。！？,.!?]+", "", str(text)).casefold()
+    if not value or any(marker in value for marker in
+                        ("不要", "别播放", "别放", "怎么", "为什么", "如何", "如果")):
+        return False
+    return any(marker in value for marker in (
+        "放一首", "放首", "放点", "播放", "一首歌", "一首音乐", "一首歌曲",
+        "歌曲", "音乐", "小曲", "我想听", "我要听", "想听", "听一首", "听首",
+        "点一首", "点首", "来一首", "来首",
+    ))
+
+
 def _match_score(query: str, song: dict) -> float:
     """Return 0-100 confidence that *song* is what the user asked for.
 
@@ -152,7 +165,7 @@ def is_random_request(text):
         return True
     if re.fullmatch(
             r"(?:请|帮我|给我)?(?:随便|随机)?(?:播放|放|来|听|放点|放个)?"
-            r"(?:一首|首|个|点|一些)?(?:歌|歌曲|音乐)"
+            r"(?:一首|首|个|点|一些)?(?:歌|歌曲|音乐|小曲)"
             r"(?:吧|听听|就可以了?|就行了?|可以了?)?", value):
         return True
     # Strip only generic music/request words. Any remaining title or artist keeps
@@ -160,8 +173,8 @@ def is_random_request(text):
     generic_words = (
         "随便播放", "随机播放", "帮我播放", "给我播放", "每日推荐", "推荐音乐",
         "随便", "随机", "任意", "都可以", "都行", "什么都行", "好听的",
-        "播放", "放一首", "放首", "放点", "放个", "来一首", "来首", "听一首",
-        "歌曲", "音乐", "一首歌", "歌", "一首", "一些", "一个", "一下",
+        "播放", "放一首", "放首", "放点", "放个", "来一首", "来首", "来点", "听一首",
+        "歌曲", "音乐", "小曲", "一首歌", "歌", "一首", "一些", "一个", "一下",
         "请", "帮我", "给我", "听听", "就可以了", "就可以", "就行了", "就行",
         "可以了", "可以", "吧", "呀", "啊",
     )
@@ -172,7 +185,8 @@ def is_random_request(text):
         previous = remainder
         for word in sorted(generic_words, key=len, reverse=True):
             remainder = remainder.replace(_normalize_text(word), "")
-    has_generic_music = any(word in value for word in ("歌", "歌曲", "音乐", "播放", "放", "来首"))
+    has_generic_music = any(word in value for word in
+                            ("歌", "歌曲", "音乐", "小曲", "播放", "放", "来首"))
     return has_generic_music and not remainder
 
 

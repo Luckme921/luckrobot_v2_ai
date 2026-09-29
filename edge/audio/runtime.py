@@ -12,7 +12,7 @@ from edge.music.personal_library import (
 )
 
 from robot_tools.edge import build_edge_tools
-from robot_tools.music import MusicTools, DirectAudioPlayer
+from robot_tools.music import DirectAudioPlayer, MusicTools, has_explicit_music_intent
 
 import builtins
 from edge.audio.status import (
@@ -2045,8 +2045,20 @@ def main() -> None:
                                         if agent_reply.music_request is not None:
                                             request = agent_reply.music_request
                                             if request.action == "play_music":
-                                                tool_request = {"name": "music_search",
-                                                    "arguments": {"query": request.query, "utterance": command_text}}
+                                                if has_explicit_music_intent(command_text):
+                                                    tool_request = {"name": "music_search",
+                                                        "arguments": {"query": request.query, "utterance": command_text}}
+                                                else:
+                                                    print(
+                                                        "[MUSIC] ROUTE_REJECTED "
+                                                        "reason=missing_explicit_cue",
+                                                        flush=True,
+                                                    )
+                                                    tool_request = None
+                                                    agent_reply = AgentReply(
+                                                        text="我在呢，请再说具体一点。",
+                                                        model="local-music-guard",
+                                                    )
                                             elif request.action == "select_music":
                                                 tool_request = {"name": "music_select",
                                                     "arguments": {"selection": request.query}}
