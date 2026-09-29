@@ -54,6 +54,12 @@ def create_gate() -> InteractionGate:
             "停止",
             "别动",
         ],
+        post_kws_transcript_aliases=[
+            "拉uck",
+            "拉圾",
+            "垃圾",
+            "马蹄",
+        ],
     )
 
 
@@ -255,6 +261,7 @@ class InteractionGateTest(
             "拉ucky。",
             "拉。",
             "马蹄。",
+            "拉圾。",
         ]
 
         for variant in variants:
@@ -280,6 +287,27 @@ class InteractionGateTest(
                 self.assertIsNone(
                     result.command
                 )
+
+    def test_wake_alias_with_command_is_normalized_only_for_model(self):
+        gate = create_gate()
+        gate.on_wake(now=0.0)
+
+        result = gate.process("拉圾，帮我看看天气", now=1.0)
+
+        self.assertEqual(result.action, "command")
+        self.assertEqual(result.command, "帮我看看天气")
+        self.assertTrue(result.wake_detected)
+        self.assertEqual(result.command_for_model, "Lucky，帮我看看天气")
+
+    def test_ambiguous_post_kws_alias_remains_normal_during_active_turn(self):
+        gate = create_gate()
+        gate.on_wake(now=0.0)
+        gate.process("你是谁", now=1.0)
+
+        result = gate.process("垃圾分类怎么做", now=2.0)
+
+        self.assertEqual(result.command, "垃圾分类怎么做")
+        self.assertFalse(result.wake_detected)
 
     def test_observed_mixed_wake_command(self):
         gate = create_gate()

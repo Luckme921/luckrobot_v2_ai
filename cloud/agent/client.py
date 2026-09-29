@@ -1003,6 +1003,9 @@ class GLMAgent:
                 "role": "system",
                 "content": (
                     "你是 LuckRobot 的内部语义路由器。"
+                    "用户可能先说 Lucky 唤醒机器人。拉uck、拉圾、垃圾、"
+                    "拉可、拉克、马蹄等位于句首时是 Lucky 的 ASR 变体，"
+                    "必须按 Lucky 理解，不能按垃圾、马蹄等字面含义解释。"
                     "你不负责生成最终聊天回答，"
                     "只负责调用 route_turn 选择 action。"
                     "普通聊天、稳定知识或身份问题"

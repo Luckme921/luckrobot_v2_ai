@@ -89,11 +89,17 @@ interaction:
     - 老uck克
     - 老克
     - 拉卡
+    # Ambiguous ASR forms are aliases only for the first segment after KWS.
+    # They remain ordinary words during an active conversation.
+    post_kws_transcript_aliases:
+    - 拉uck
+    - 拉圾
+    - 垃圾
+    - 马蹄
     transcript_exact_aliases:
     - 拉
     - 拉克
     - 那可
-    - 马蹄
     - 那可以
     - 拉uck克
     - 那uck克

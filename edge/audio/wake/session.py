@@ -26,6 +26,14 @@ class GateDecision:
     mode: str
     reason: str
 
+    @property
+    def command_for_model(self) -> str | None:
+        if self.command is None:
+            return None
+        if self.wake_detected:
+            return f"Lucky，{self.command}"
+        return self.command
+
 
 class InteractionGate:
     SLEEPING = "sleeping"
@@ -48,6 +56,7 @@ class InteractionGate:
         chat_mode_triggers: list[str],
         sleep_phrases: list[str],
         emergency_stop_phrases: list[str],
+        post_kws_transcript_aliases: list[str] | None = None,
         enabled: bool = True,
     ) -> None:
         self.enabled = bool(
@@ -78,6 +87,12 @@ class InteractionGate:
             item.strip()
             for item
             in transcript_exact_aliases
+            if item.strip()
+        ]
+
+        self.post_kws_transcript_aliases = [
+            item.strip()
+            for item in (post_kws_transcript_aliases or [])
             if item.strip()
         ]
 
@@ -226,6 +241,8 @@ class InteractionGate:
     def _strip_wake_echo(
         self,
         text: str,
+        *,
+        after_kws: bool = False,
     ) -> str:
         """
         Clean SenseVoice's transcription of the
@@ -257,7 +274,8 @@ class InteractionGate:
                 return ""
 
         aliases = sorted(
-            self.transcript_aliases,
+            self.transcript_aliases
+            + (self.post_kws_transcript_aliases if after_kws else []),
             key=len,
             reverse=True,
         )
@@ -385,9 +403,12 @@ class InteractionGate:
         ):
             command = self._clean(
                 self._strip_wake_echo(
-                    text
+                    text,
+                    after_kws=True,
                 )
             )
+
+            wake_echo_detected = command != text
 
             # The VAD/ASR segment contained only
             # the wake word. Keep waiting.
@@ -396,7 +417,7 @@ class InteractionGate:
                 return GateDecision(
                     action="awake",
                     command=None,
-                    wake_detected=False,
+                    wake_detected=wake_echo_detected,
                     state=self.state,
                     mode=self.mode,
                     reason="wake_greeting" if command else "wake_echo_only",
@@ -410,7 +431,7 @@ class InteractionGate:
             return GateDecision(
                 action="command",
                 command=command,
-                wake_detected=False,
+                wake_detected=wake_echo_detected,
                 state=self.state,
                 mode=self.mode,
                 reason="command_after_kws",

@@ -896,6 +896,12 @@ def main() -> None:
                     [],
                 )
             ),
+            post_kws_transcript_aliases=(
+                wake_cfg.get(
+                    "post_kws_transcript_aliases",
+                    [],
+                )
+            ),
             chat_mode_triggers=(
                 interaction_cfg[
                     "chat_mode_triggers"
@@ -1830,6 +1836,10 @@ def main() -> None:
                                             decision.command
                                             or ""
                                         )
+                                        model_command_text = (
+                                            decision.command_for_model
+                                            or command_text
+                                        )
 
                                         fast_path_request = (
                                             infer_explicit_vision_fast_path(
@@ -1895,7 +1905,7 @@ def main() -> None:
                                             agent_reply = (
                                                 agent_client
                                                 .chat(
-                                                    command_text,
+                                                    model_command_text,
                                                     jpeg_frames=[
                                                         frame.jpeg_bytes
                                                         for frame
@@ -1919,7 +1929,7 @@ def main() -> None:
                                             agent_reply = (
                                                 agent_client
                                                 .chat(
-                                                    command_text,
+                                                    model_command_text,
                                                     local_identity=(
                                                         turn_identity_state
                                                     ),
@@ -1991,7 +2001,7 @@ def main() -> None:
                                             agent_reply = (
                                                 agent_client
                                                 .chat(
-                                                    command_text,
+                                                    model_command_text,
                                                     jpeg_frames=[
                                                         frame
                                                         .jpeg_bytes
