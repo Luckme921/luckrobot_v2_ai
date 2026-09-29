@@ -33,6 +33,7 @@ def create_gate() -> InteractionGate:
             "那可以",
             "拉uck克",
             "那uck克",
+            "马蹄",
             "拉ucky",
             "老uck克",
             "老克",
@@ -253,6 +254,7 @@ class InteractionGateTest(
             "拉uckK。",
             "拉ucky。",
             "拉。",
+            "马蹄。",
         ]
 
         for variant in variants:

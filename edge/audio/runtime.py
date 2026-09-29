@@ -2301,7 +2301,17 @@ def main() -> None:
                                             )
 
                                         if interaction_gate.state == InteractionGate.SLEEPING:
-                                            print('[WAKE] Waiting for "Lucky".', flush=True)
+                                            if music_playing:
+                                                # Keep the music presentation active while
+                                                # KWS remains the only accepted input.  A
+                                                # generic wake-wait log would publish the
+                                                # sleeping face and immediately overwrite it.
+                                                print(
+                                                    "[STATE] SLEEPING reason=music_playback",
+                                                    flush=True,
+                                                )
+                                            else:
+                                                print('[WAKE] Waiting for "Lucky".', flush=True)
                                         else:
                                             print("[STATE] LISTENING", flush=True)
 
