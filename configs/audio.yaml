@@ -110,6 +110,7 @@ interaction:
     - 那克
     - 拉卡
     - 拉开
+    - 拉y
     - 挖皮
   followup:
     normal_timeout_seconds: 12.0

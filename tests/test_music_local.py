@@ -6,6 +6,7 @@ from robot_tools.music import (
     explicit_candidate,
     has_explicit_music_intent,
     is_random_request,
+    is_recommendation_request,
 )
 
 def song(id,title="龙卷风",artist="周杰伦"):
@@ -30,6 +31,53 @@ class LocalMusicTests(unittest.TestCase):
         controller.stop.assert_called_once()
         self.assertFalse(answer["playing"])
         self.assertIsNone(answer["music"])
+
+    def test_recommendation_uses_curated_titles_without_provider_search_until_choice(self):
+        controller = Mock()
+        music = MusicTools({"enabled": True, "provider": "qqmusic",
+                            "preferences": {"preferred_tracks": [
+                                {"artist": "周杰伦", "title": "晴天"},
+                                {"artist": "邓紫棋", "title": "泡沫"},
+                            ]}}, controller=controller)
+        self.assertTrue(is_recommendation_request("有什么推荐的歌曲吗？"))
+        request = music.local_request("有什么推荐的歌曲吗？")
+        self.assertEqual(request["arguments"]["query"], "推荐")
+        reply = music.search(**request["arguments"])
+        self.assertEqual(reply["status"], "needs_selection")
+        self.assertIn("晴天", reply["message"])
+        self.assertIn("泡沫", reply["message"])
+        controller.search_candidates.assert_not_called()
+
+    def test_recommended_choice_searches_qq_then_plays_exact_artist_title(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="studio", title="泡沫", artists=["G.E.M.邓紫棋"],
+                 backend="qqmusic", query="邓紫棋 泡沫"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic",
+                            "preferences": {"preferred_tracks": [
+                                {"artist": "邓紫棋", "title": "泡沫"},
+                            ]}}, controller=controller)
+        music.search("推荐", utterance="有什么推荐的歌曲吗")
+        answer = music.select("泡沫")
+        self.assertTrue(answer["playing"])
+        controller.search_candidates.assert_called_once_with("邓紫棋 泡沫", limit=3)
+        controller.play.assert_called_once_with("邓紫棋 泡沫", preferred_mid="studio", strict_mid=True)
+
+    def test_reference_to_pending_artist_uses_existing_choice(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("other", "风象星座", "BigYear大年"),
+                         song("wanted", "032.救命的调味品", "米小圈")]
+        music.deadline = music.clock() + 120
+        by_artist = music.local_request("我想听你上次搜到的米小圈的那一首")
+        self.assertEqual(by_artist, {"name": "music_select",
+                                     "arguments": {"selection": "wanted"}})
+        by_number = music.local_request("我想听03二点那首")
+        self.assertEqual(by_number, {"name": "music_select",
+                                     "arguments": {"selection": "wanted"}})
+        music.clear_pending()
+        self.assertIsNone(music.local_request("我想听你上次搜到的米小圈那首"))
+        self.assertIsNone(music.local_request("我忘了歌名，歌词里有一句下雨"))
 
     def test_fresh_music_search_requires_explicit_cue(self):
         for text in [

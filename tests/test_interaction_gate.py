@@ -39,6 +39,7 @@ def create_gate() -> InteractionGate:
             "老克",
             "拉客",
             "那克",
+            "拉y",
         ],
         chat_mode_triggers=[
             "陪我聊",
@@ -262,6 +263,7 @@ class InteractionGateTest(
             "拉。",
             "马蹄。",
             "拉圾。",
+            "拉y。",
         ]
 
         for variant in variants:
@@ -396,6 +398,19 @@ class InteractionGateTest(
         self.assertIsNone(
             result.command
         )
+
+    def test_short_fragments_after_wake_never_reach_model(self):
+        gate = create_gate()
+        gate.on_wake(now=0.0)
+        echo = gate.process("拉y。", now=1.0)
+        self.assertEqual(echo.action, "awake")
+        self.assertIsNone(echo.command_for_model)
+        fragment = gate.process("体。", now=2.0)
+        self.assertEqual(fragment.action, "ignore")
+        self.assertEqual(gate.state, gate.AWAKE_WAIT_COMMAND)
+        command = gate.process("帮我查天气", now=3.0)
+        self.assertEqual(command.action, "command")
+        self.assertEqual(command.command_for_model, "帮我查天气")
 
 
 if __name__ == "__main__":

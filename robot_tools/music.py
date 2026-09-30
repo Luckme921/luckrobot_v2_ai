@@ -229,6 +229,27 @@ def is_pending_random_choice(text):
     }
 
 
+def is_recommendation_request(text):
+    value = _normalize_text(text)
+    if "推荐" not in value or not any(word in value for word in ("歌", "音乐", "小曲")):
+        return False
+    for word in ("有什么", "有没有", "能不能", "可不可以", "推荐", "好听的",
+                 "歌曲", "音乐", "小曲", "一首", "几首", "一些", "的", "歌",
+                 "给我", "帮我", "请", "你", "听", "吗", "呢", "吧", "呀"):
+        value = value.replace(word, "")
+    return not value
+
+
+def needs_model_music_interpretation(text):
+    """Let the model interpret incomplete descriptions after pending choices fail."""
+    value = _normalize_text(text)
+    return any(marker in value for marker in (
+        "歌词里", "歌词有", "有一句", "唱着", "忘了歌名", "不记得歌名",
+        "歌名忘了", "那首什么", "那首叫", "那首歌叫什么", "之前搜到",
+        "上次搜到", "刚才搜到",
+    ))
+
+
 def explicit_candidate(query, songs, minimum_score=0.62):
     """Pick the highest fuzzy title+artist match, including Live/Mix variants."""
     q = _normalize_text(query)
@@ -645,6 +666,20 @@ class MusicTools:
         if not self.has_pending:
             return None
         if is_pending_random_choice(text): return "随便"
+        spoken_number = re.search(r"(?:^|听)(0?\d{1,2}[一二三四五六七八九十\d]?)", _normalize_text(text))
+        if spoken_number:
+            number = spoken_number.group(1).translate(str.maketrans("一二三四五六七八九", "123456789"))
+            matches = [song for song in self.pending if
+                       re.match(r"0?\d{1,3}", _normalize_text(song.get("title", "")))
+                       and re.match(r"0?\d{1,3}", _normalize_text(song["title"])).group() == number]
+            if len(matches) == 1:
+                return matches[0]["id"]
+        spoken = _normalize_text(text)
+        artist_matches = [song for song in self.pending if any(
+            len(_normalize_text(artist)) >= 3 and _normalize_text(artist) in spoken
+            for artist in song.get("artists", []))]
+        if len(artist_matches) == 1:
+            return artist_matches[0]["id"]
         if len(self.pending) == 1 and _normalize_text(text) in {"好的", "好", "就这首", "可以", "播放吧"}:
             return "第一首"
         selection = self._clean_selection(text)
@@ -673,6 +708,10 @@ class MusicTools:
         selection = self.selection_request(text)
         if selection is not None:
             return {"name": "music_select", "arguments": {"selection": selection}}
+        if needs_model_music_interpretation(value):
+            return None
+        if is_recommendation_request(value):
+            return {"name": "music_search", "arguments": {"query": "推荐", "utterance": text}}
         if _normalize_text(value) in {
             "换歌", "换一首", "换首", "换一首歌", "换一首歌曲", "换个歌",
             "再来一首", "再来首", "再找一首", "再找首", "再找一首歌",
@@ -760,10 +799,26 @@ class MusicTools:
         return result("这次没能找到可播放的常听歌曲，稍后再试一下吧。",
                       ok=False, status="unavailable")
 
+    def _recommend(self):
+        tracks = list(self.preferred_tracks)
+        random.shuffle(tracks)
+        if not tracks:
+            return result("还没有配置推荐歌单。", ok=False, status="unavailable")
+        self.pending = [dict(id=f"recommend:{index}", title=track["title"],
+                             artists=[track["artist"]], backend="recommendation",
+                             query=f"{track['artist']} {track['title']}")
+                        for index, track in enumerate(tracks[:3])]
+        self.deadline = self.clock() + 120
+        choices = "、".join(self._candidate_description(song) for song in self.pending)
+        return result(f"可以听听{choices}。你想听哪首？", status="needs_selection",
+                      executed=True, candidates=[self._display_song(song) for song in self.pending])
+
     def search(self, query, utterance=""):
         self.clear_pending()
         if not self.config.get("enabled", False):
             return result("音乐功能目前未启用。", ok=False, status="unavailable")
+        if is_recommendation_request(utterance or query):
+            return self._recommend()
         random_mode = is_random_request(utterance or query)
         if random_mode:
             return self._random_search_and_play()
@@ -840,6 +895,22 @@ class MusicTools:
             return result("我还不能确定你想听哪一首，可以说歌手、歌名或版本。",
                           ok=False, status="needs_selection")
         song = matches[0]
+        if song["backend"] == "recommendation":
+            try:
+                candidates = self._provider_search(song["query"])
+            except (OSError, RuntimeError) as exc:
+                print(f"[MUSIC] RECOMMEND_SEARCH_FAILED error={type(exc).__name__}", flush=True)
+                self.clear_pending()
+                return result("这首推荐曲目暂时搜索失败了，请换一首。",
+                              ok=False, status="unavailable")
+            chosen = explicit_candidate(song["query"], candidates, self.fuzzy_auto_play_score)
+            if chosen is None:
+                self.clear_pending()
+                return result("QQ 音乐没有找到这位歌手的这首推荐曲目，请换一首。",
+                              ok=False, status="not_found")
+            self.pending = [chosen]
+            self.deadline = self.clock() + 120
+            return self.select("第一首")
         if song["backend"] == "http":
             expires = song.get("expires_at")
             if expires is not None and expires <= time.time():

@@ -423,6 +423,12 @@ class InteractionGate:
                     reason="wake_greeting" if command else "wake_echo_only",
                 )
 
+            if len(re.sub(r"[\s\W_]+", "", command, flags=re.UNICODE)) < 3:
+                return GateDecision(
+                    action="ignore", command=None, wake_detected=wake_echo_detected,
+                    state=self.state, mode=self.mode, reason="short_after_wake",
+                )
+
             self._activate(
                 command,
                 now,
@@ -461,6 +467,12 @@ class InteractionGate:
                     state=self.state,
                     mode=self.mode,
                     reason="active_wake_echo_only",
+                )
+
+            if len(re.sub(r"[\s\W_]+", "", command, flags=re.UNICODE)) < 2:
+                return GateDecision(
+                    action="ignore", command=None, wake_detected=False,
+                    state=self.state, mode=self.mode, reason="short_active_fragment",
                 )
 
             self._activate(

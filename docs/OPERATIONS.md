@@ -133,3 +133,26 @@ Jetson 的 Qt 5 运行依赖为 `qmlscene`、`qml-module-qtquick2` 和
 `XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart pulseaudio.service`，Audio
 Runtime 会在 source/sink 重新出现后自动恢复到 `AUDIO_OK`。正式无桌面部署前需把
 PulseAudio 作为独立用户服务验证，不能依赖 GDM 会话生命周期。
+
+无桌面运行时，使用 systemd linger 保持 `jetson` 的用户管理器和 PulseAudio 在没有
+GDM、桌面登录或 SSH 会话时继续运行：
+
+```bash
+sudo loginctl enable-linger jetson
+systemctl --user enable --now pulseaudio.socket pulseaudio.service
+```
+
+配置只需执行一次，状态保存在系统中。检查开机配置和运行状态：
+
+```bash
+loginctl show-user jetson -p Linger -p State -p RuntimePath
+systemctl --user is-enabled pulseaudio.socket pulseaudio.service
+systemctl --user is-active pulseaudio.socket pulseaudio.service
+pactl list short sources
+pactl list short sinks
+```
+
+预期 `Linger=yes`，两个用户单元均为 `enabled` 和 `active`，并能看到 XVF3800 的
+USB source/sink。项目按 USB 设备名称显式解析输入和输出，不依赖 ALSA card 编号或
+PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 会话中可显式加
+`XDG_RUNTIME_DIR=/run/user/$(id -u)`；systemd 用户服务本身会在启动时创建运行目录。
