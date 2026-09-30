@@ -1,10 +1,57 @@
 from __future__ import annotations
 
 import unittest
+import threading
+from selenium.common.exceptions import InvalidSessionIdException
 
 from edge.music.qqmusic import (
     QQMusicController,
+    QQMusicError,
+    _driver_locked,
 )
+
+
+class QQMusicSessionRecoveryTest(unittest.TestCase):
+    def test_search_restarts_dead_browser_once(self):
+        class FakeController:
+            def __init__(self):
+                self._driver_lock = threading.RLock()
+                self.calls = 0
+                self.closed = 0
+
+            def close(self):
+                self.closed += 1
+
+            @_driver_locked
+            def search_candidates(self, query):
+                self.calls += 1
+                if self.calls == 1:
+                    raise InvalidSessionIdException("browser exited")
+                return [query]
+
+        controller = FakeController()
+        self.assertEqual(controller.search_candidates("泡沫"), ["泡沫"])
+        self.assertEqual((controller.calls, controller.closed), (2, 1))
+
+    def test_controls_do_not_repeat_after_browser_exits(self):
+        class FakeController:
+            def __init__(self):
+                self._driver_lock = threading.RLock()
+                self.calls = 0
+                self.closed = 0
+
+            def close(self):
+                self.closed += 1
+
+            @_driver_locked
+            def next(self):
+                self.calls += 1
+                raise InvalidSessionIdException("browser exited")
+
+        controller = FakeController()
+        with self.assertRaises(QQMusicError):
+            controller.next()
+        self.assertEqual((controller.calls, controller.closed), (1, 1))
 
 
 class QQMusicSelectionTest(

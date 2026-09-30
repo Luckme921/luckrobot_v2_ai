@@ -266,6 +266,19 @@ class EdgeEventsTests(unittest.TestCase):
                 client._post_chat({}, token)
         self.assertTrue(response_stream.closed)
 
+    def test_cancelled_stream_close_attribute_error_is_interruption(self):
+        client = self.client()
+        token = SpeechCancellation()
+
+        class ClosingResponse(io.BytesIO):
+            def readline(self, *args):
+                token.cancel()
+                raise AttributeError("'NoneType' object has no attribute 'peek'")
+
+        with patch("edge.agent.cloud_client.urlopen", return_value=ClosingResponse()):
+            with self.assertRaises(SpeechInterrupted):
+                client._post_chat({}, token)
+
     def test_only_missing_endpoint_falls_back(self):
         for code in (404, 405, 500):
             client = self.client()

@@ -13,7 +13,9 @@ from urllib.parse import quote
 
 from selenium import webdriver
 from selenium.common.exceptions import (
+    InvalidSessionIdException,
     NoSuchElementException,
+    NoSuchWindowException,
     TimeoutException,
     WebDriverException,
 )
@@ -58,11 +60,29 @@ def _driver_locked(method):
     @wraps(method)
     def wrapped(self, *args, **kwargs):
         with self._driver_lock:
-            return method(
-                self,
-                *args,
-                **kwargs,
-            )
+            try:
+                return method(self, *args, **kwargs)
+            except (InvalidSessionIdException, NoSuchWindowException) as exc:
+                # A desktop-session transition or Firefox crash can leave a
+                # live geckodriver object pointing at a dead browser. Search
+                # and play can safely start a fresh browser once; transport
+                # controls cannot restore their previous playback state.
+                self.close()
+                if method.__name__ not in {"search_candidates", "play"}:
+                    raise QQMusicError(
+                        "QQ Music browser session ended; retry the request"
+                    ) from exc
+                print(
+                    f"[MUSIC] QQ_SESSION_RESTART action={method.__name__}",
+                    flush=True,
+                )
+                try:
+                    return method(self, *args, **kwargs)
+                except (InvalidSessionIdException, NoSuchWindowException) as retry_exc:
+                    self.close()
+                    raise QQMusicError(
+                        "QQ Music browser session could not be restored"
+                    ) from retry_exc
 
     return wrapped
 

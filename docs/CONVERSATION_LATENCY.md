@@ -123,6 +123,10 @@ Lucky KWS 监测范围扩展为身份处理、Cloud 请求、正文流式合成�
 
 回合监测线程必须收到首个麦克风音频块后才报告 `MONITOR_READY`。独立 PulseAudio 采集异常时最多自动重建三次并打印 `MONITOR_RETRY`；识别到唤醒词打印 `KWS_DETECTED`。连续失败打印 `MONITOR_ERROR`，本轮会明确退回不可打断模式，便于区分 KWS 未命中和采集链路故障。
 
+取消令牌会主动关闭 Cloud 的事件流。底层 `readline()` 在并发关闭时偶尔抛出
+`AttributeError`（例如 `NoneType.peek`）；若此时取消令牌已触发，应按 Lucky 主动打断
+归档，而不是当作模型故障。流式 TTS 已成功播完时也不再误记“speaker unavailable”。
+
 `agent.stream_text_enabled` 让 GLM 最终文本回答使用供应商流式接口，并通过 `/chat/events` 发送 `text_delta`；JSON 路由仍等待完整 JSON。`agent_bridge.stream_text_to_tts` 让 Edge 按逗号、顿号、分号、句号、问号、感叹号及英文对应符号切分，依次提交给晓晓。两项均默认 true，可分别回退。普通文字回答和工具执行后的最终文字支持该链路；多模态首轮可能包含工具调用，仍采用完整响应。分段会更早出声，但每段单独建立 Edge TTS 请求，停顿和整体韵律需设备实测。
 
 2026-09-24 起，数字两侧的英文句点和逗号不作为 TTS 分段边界。流式数据暂时停在

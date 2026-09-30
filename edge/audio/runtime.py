@@ -1612,6 +1612,7 @@ def main() -> None:
 
                                         elif (
                                             tts is not None
+                                            and speaker == "<unavailable>"
                                         ):
                                             print(
                                                 "[TTS] ERROR "

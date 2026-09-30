@@ -217,7 +217,7 @@ class CloudAgentClient:
                     return self._post_json(self.endpoint, payload)
                 return self._post_json(self.endpoint, payload, cancellation)
             raise CloudAgentError(f"Agent progress HTTP error {exc.code}") from exc
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, AttributeError) as exc:
             if cancellation is not None:
                 cancellation.check()
             raise CloudAgentError("Invalid or interrupted Agent progress response") from exc
