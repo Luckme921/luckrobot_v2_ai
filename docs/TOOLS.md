@@ -25,7 +25,7 @@ robot_tools/catalog.py 定义云端和端侧工具参数 schema；registry.py �
 
 流程：用户点歌 → 最多三个候选 → 用户说第一首或完整歌名 → 用缓存 ID 查询详情 → GStreamer 播放。只在选择后请求详情，避免提前查询三个地址造成等待；有直接 URL 的通用后端直接用缓存 URL。候选 120 秒过期，结束对话/会话超时清除候选；重名时要求编号。
 
-配置 configs/tools.yaml 的 music_http.adapter=fallback 和 search_url；configs/audio.yaml 的 music.provider=http、music.enabled=true 才启用。当前测试分支已启用 music.enabled=true、music.provider=http。音频播放需要 gst-launch-1.0 和 PulseAudio。HTTP 后端支持暂停、恢复、停止，下一首/上一首尚无播放队列。
+HTTP 备用后端由 configs/tools.yaml 的 music_http.adapter=fallback 和 search_url 配置；设 configs/audio.yaml 的 music.provider=http、music.enabled=true 时启用。音频播放需要 gst-launch-1.0 和 PulseAudio。HTTP 后端支持暂停、恢复、停止，下一首/上一首尚无播放队列。
 
 2026-09-19 Jetson 实测：QQ、网易云搜索返回 JSON，QQ 详情返回 stream.qqmusic.qq.com 音频地址；酷我证书过期，未关闭 TLS 校验。外部接口是否长期可用无法由一次测试保证。实测没有自动播放声音。
 
@@ -139,8 +139,15 @@ LLM 路由。
 旧版 `luckrobot_release/edge/music/qqmusic.py` 使用 Selenium、Firefox 和已登录的持久化
 profile 打开 QQ 音乐网页搜索/播放器；它不是 H5 OpenID API。设备上旧 profile 位于
 `/home/jetson/luckrobot_release/private/qqmusic-firefox`，Firefox 与 geckodriver 仍存在，
-但 profile/cookie 属于 private 数据，禁止复制进 Git。当前先验证修复后的 JSON 双来源；
-只有原唱仍持续缺失时，才把浏览器控制器作为显式配置的备用后端。
+但 profile/cookie 属于 private 数据，禁止复制进 Git。
+
+2026-09-30 在测试目录 `/home/jetson/luckrobot_latency_test/private/qqmusic-firefox`
+新建独立 Firefox profile，用户在 Jetson 图形桌面完成 QQ 音乐登录。无桌面 Selenium
+随后搜索“邓紫棋”返回 5 首候选；按歌曲 ID 打开并播放《泡沫》，播放器及音频路由完成，
+测试后已停止。因此 `configs/audio.yaml` 在测试分支改用 `music.provider: qqmusic`。
+这是控制已登录的 QQ 音乐网页，仍不是 QPlay/OpenAPI；手机会员权益是否覆盖所有指定歌曲，
+需按曲目现场验证。首次启用时暂关个人歌单后台刷新，以免它占用浏览器锁影响点歌延迟。
+网页后端失效时可把 `music.provider` 改回 `http` 并重启机器人。
 
 QQ 音乐开发者平台的 H5 接入属于 QPlay Auth 登录鉴权：需要先注册应用取得 appId/appKey、
 配置 callback，通过授权得到 openID/openToken，再申请相应 OpenAPI 权限。扫码/H5 授权本身
@@ -164,8 +171,8 @@ Tang/QQ 第三方端点对中文组合关键词有额外兼容处理：本地意
 搜索只返回翻唱、DJ 或其他版本，没有返回宋冬野原唱。这只能说明当前第三方接口在本次请求中
 没有提供原唱，不能据此判断 QQ 音乐正式曲库中不存在该歌曲。旧版 Firefox profile 的副本也已
 做只读搜索验证：页面跳转到新版 `ryqq_v2` 搜索页，显示“登录”，并且没有生成可用的歌曲详情
-链接，说明旧 cookie 已失效；因此当前没有把 Selenium 后端接入正式流程。重新扫码登录只能恢复
-网页会话，网页结构及播放权限仍可能变化。
+链接，说明旧 cookie 已失效；当时没有把 Selenium 后端接入正式流程。2026-09-30 用户在
+测试目录的新 profile 重新登录后，搜索和一次短播放已通过。网页结构及播放权限仍可能变化。
 
 QPlay Auth 官方文档中的扫码流程适合车机、带屏音箱等设备：先取得二维码、约每秒轮询授权
 状态，再由服务端用授权码换取 token；H5 流程则需要 appId、签名参数、包名和 callbackUrl。

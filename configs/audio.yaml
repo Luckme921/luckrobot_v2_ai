@@ -153,12 +153,14 @@ agent_bridge:
   archive_retrieval_limit: 6
 music:
   enabled: true
-  provider: http
+  provider: qqmusic
   profile_path: private/qqmusic-firefox
   firefox_binary: /usr/bin/firefox
   timeout_seconds: 30.0
   prewarm: true
   headless: true
+  # Keep the first QQ rollout responsive; enable after playlist refresh is timed.
+  library_refresh_enabled: false
 tts:
   # Prepare several streamed clauses concurrently, then play them in text order.
   stream_prefetch_workers: 3
