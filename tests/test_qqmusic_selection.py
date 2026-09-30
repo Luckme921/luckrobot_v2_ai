@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import threading
+import subprocess
 from unittest.mock import Mock, patch
 from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import MaxRetryError
@@ -14,6 +15,29 @@ from edge.music.qqmusic import (
 
 
 class QQMusicSessionRecoveryTest(unittest.TestCase):
+    def test_audio_route_retries_disappeared_firefox_input(self):
+        controller = QQMusicController(profile_path=".", speaker_match_any=["XVF3800"])
+        controller._firefox_sink_inputs = Mock(side_effect=[["old"], ["new"]])
+        def run(args, **kwargs):
+            if args[:2] == ["pactl", "move-sink-input"] and args[2] == "old":
+                raise subprocess.CalledProcessError(1, args, stderr="No such entity")
+            return Mock(returncode=0)
+        with patch("edge.music.qqmusic.resolve_speaker", return_value="usb-speaker"), \
+             patch("edge.music.qqmusic.subprocess.run", side_effect=run), \
+             patch("edge.music.qqmusic.time.sleep"):
+            self.assertEqual(controller.route_audio(wait_seconds=1), "usb-speaker")
+        self.assertEqual(controller._firefox_sink_inputs.call_count, 2)
+
+    def test_stop_pauses_every_active_player_window(self):
+        controller = QQMusicController(profile_path=".")
+        driver = Mock()
+        driver.window_handles = ["player-one", "player-two"]
+        driver.current_url = "https://y.qq.com/portal/player.html"
+        driver.find_element.return_value.get_attribute.return_value = "btn_big_play btn_big_play--pause"
+        with patch.object(controller, "_require_driver", return_value=driver):
+            controller.stop()
+        self.assertEqual(driver.execute_script.call_count, 2)
+
     def test_search_candidate_reads_artist_from_song_row(self):
         controller = QQMusicController(profile_path=".")
         driver = Mock()

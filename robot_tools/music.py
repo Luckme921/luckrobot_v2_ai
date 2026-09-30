@@ -38,7 +38,7 @@ def _base_song_title(value: str) -> str:
 def _canonical_music_query(value: str) -> str:
     """Correct a known singer/title ASR pair before searching QQ Music."""
     compact = re.sub(r"[\s的]+", "", str(value).strip())
-    if re.fullmatch(r"[宋孙]冬野[南安][河和]桥", compact):
+    if re.fullmatch(r"[宋孙松][冬东农]野[南安][河和]桥", compact):
         return "宋冬野 安和桥"
     return value
 
@@ -244,6 +244,9 @@ def explicit_candidate(query, songs, minimum_score=0.62):
     for song in songs:
         title = _normalize_text(song.get("title", ""))
         if not title:
+            continue
+        if any(marker in title and marker not in q for marker in
+               ("伴奏", "纯音乐", "dj", "remix", "翻唱")):
             continue
         for artist in song.get("artists", []):
             a = _normalize_text(artist)
@@ -590,7 +593,8 @@ class MusicTools:
     def _clean_selection(text):
         text = re.sub(r"[\s，。！？,.!?《》]+", "", text)
         text = re.sub(r"^(?:请|帮我|给我|播放|放|选择|选|我要听|想听|听)+", "", text)
-        return re.sub(r"(?:的版本|的那首|的|吧|谢谢|就这首)$", "", text)
+        text = re.sub(r"(?:的版本|的那首|的|吧|谢谢|就这首)$", "", text)
+        return "宋冬野" if text in {"宋东野", "孙冬野", "松农野"} else text
 
     @staticmethod
     def _candidate_description(song):
@@ -644,7 +648,8 @@ class MusicTools:
         if len(self.pending) == 1 and _normalize_text(text) in {"好的", "好", "就这首", "可以", "播放吧"}:
             return "第一首"
         selection = self._clean_selection(text)
-        if any(selection == _normalize_text(a) for song in self.pending for a in song.get("artists", [])):
+        if any(_normalize_text(selection) in _normalize_text(a)
+               for song in self.pending for a in song.get("artists", [])):
             return selection
         if re.fullmatch(r"第?[一二三四五六七八九十1-9][首个]?", selection):
             return selection
@@ -773,6 +778,15 @@ class MusicTools:
         if not songs:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
 
+        if self.config.get("provider", "qqmusic") == "qqmusic" and " " in query:
+            # A singer/title request must not surface unrelated QQ search
+            # results merely because the page has a populated result list.
+            songs = [song for song in songs if
+                     explicit_candidate(query, [song], self.fuzzy_auto_play_score)]
+            if not songs:
+                return result("没有找到这位歌手的这首歌，请再说一次歌手和歌名。",
+                              status="not_found")
+
         # Merge order depends on network completion time. Rank every provider's
         # result before choosing the visible subset.
         songs = sorted(songs, key=lambda song: _match_score(query, song), reverse=True)
@@ -849,8 +863,24 @@ class MusicTools:
         else:
             if self.before_playback is not None:
                 self.before_playback()
-            self.controller.play(song.get("query", song["title"]),
-                                 preferred_mid=song["id"], strict_mid=True)
+            try:
+                self.controller.play(song.get("query", song["title"]),
+                                     preferred_mid=song["id"], strict_mid=True)
+            except (OSError, RuntimeError) as exc:
+                print(f"[MUSIC] QQ_PLAY_FAILED title={song.get('title')!r} "
+                      f"error={type(exc).__name__} reason={str(exc)[:160]!r} "
+                      f"cause={type(exc.__cause__).__name__ if exc.__cause__ else 'none'}",
+                      flush=True)
+                try:
+                    self.controller.stop()
+                except (OSError, RuntimeError) as stop_exc:
+                    print(f"[MUSIC] QQ_STOP_AFTER_FAILURE_FAILED "
+                          f"error={type(stop_exc).__name__}", flush=True)
+                self.playing = False
+                self.current_song = None
+                self.clear_pending()
+                return result("找到了歌曲，但 QQ 音乐没有完成播放；我已停止播放器。请稍后再试。",
+                              ok=False, status="unavailable", executed=True)
         self.playing = True
         self.current_song = self._display_song(song)
         self.clear_pending()

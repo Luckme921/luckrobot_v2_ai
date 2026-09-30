@@ -180,6 +180,50 @@ class LocalMusicTests(unittest.TestCase):
         controller.search_candidates.assert_called_once_with("宋冬野 安和桥", limit=3)
         controller.play.assert_called_once_with("宋冬野 安和桥", preferred_mid="original", strict_mid=True)
 
+    def test_asr_singer_variants_search_the_same_official_track(self):
+        music, _ = self.setup_music([])
+        for utterance in ("放一首松农野的安河桥", "放一首宋东野的安河桥"):
+            with self.subTest(utterance=utterance):
+                self.assertEqual(music.local_request(utterance)["arguments"]["query"],
+                                 "宋冬野 安和桥")
+
+    def test_qq_singer_title_does_not_offer_unrelated_audiobook(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="book", title="第428章 中原劝农安黎庶", artists=["鹤乡文化书场"],
+                 backend="qqmusic", query="陌生歌手 安和桥"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic",
+                            "http": {"auto_play_enabled": True}}, controller=controller)
+        reply = music.search("陌生歌手 安和桥")
+        self.assertEqual(reply["status"], "not_found")
+        controller.play.assert_not_called()
+
+    def test_qq_playback_failure_stops_player_and_reports_it(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="studio", title="安和桥", artists=["宋冬野"],
+                 backend="qqmusic", query="宋冬野 安和桥"),
+        ]
+        controller.play.side_effect = RuntimeError("route failed")
+        music = MusicTools({"enabled": True, "provider": "qqmusic",
+                            "http": {"auto_play_enabled": True}}, controller=controller)
+        reply = music.search("宋冬野 安和桥")
+        self.assertEqual(reply["status"], "unavailable")
+        self.assertIn("QQ 音乐没有完成播放", reply["message"])
+        self.assertFalse(music.playing)
+        controller.stop.assert_called_once()
+
+    def test_singer_only_choice_with_multiple_versions_stays_local(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("one", "安河桥 (Live)", "宋冬野"),
+                         song("two", "安河桥 (Demo)", "宋冬野")]
+        music.deadline = music.clock() + 120
+        request = music.local_request("宋东野")
+        self.assertEqual(request["name"], "music_select")
+        self.assertEqual(music.select(request["arguments"]["selection"])["status"],
+                         "needs_selection")
+
     def test_natural_candidates_and_context_selection(self):
         music, player = self.setup_music([
             song("guitar", "安河桥 (吉他版)", "田洪林"),

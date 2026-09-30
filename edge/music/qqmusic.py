@@ -855,7 +855,7 @@ class QQMusicController:
         driver = self._require_driver()
 
         def find_player(_):
-            for handle in (
+            for handle in reversed(
                 driver.window_handles
             ):
                 driver.switch_to.window(
@@ -958,6 +958,7 @@ class QQMusicController:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=3,
             )
 
             data = json.loads(
@@ -966,6 +967,7 @@ class QQMusicController:
         except (
             subprocess.CalledProcessError,
             json.JSONDecodeError,
+            subprocess.TimeoutExpired,
         ) as exc:
             raise QQMusicError(
                 "Failed to inspect "
@@ -1025,10 +1027,14 @@ class QQMusicController:
                     sink,
                 ],
                 check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
             )
         except (
             subprocess.CalledProcessError,
             RuntimeError,
+            subprocess.TimeoutExpired,
         ) as exc:
             raise QQMusicError(
                 "Failed to select "
@@ -1050,6 +1056,7 @@ class QQMusicController:
             )
 
             if indices:
+                moved = False
                 for index in indices:
                     try:
                         subprocess.run(
@@ -1060,22 +1067,29 @@ class QQMusicController:
                                 sink,
                             ],
                             check=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=3,
                         )
+                        moved = True
                     except (
                         subprocess
-                        .CalledProcessError
+                        .CalledProcessError,
+                        subprocess.TimeoutExpired,
                     ) as exc:
-                        raise QQMusicError(
-                            "Failed to route "
-                            "Firefox audio"
-                        ) from exc
+                        print(f"[MUSIC] ROUTE_RETRY sink_input={index} "
+                              f"error={type(exc).__name__} "
+                              f"reason={str(exc)[:120]!r}", flush=True)
 
-                return sink
+                if moved:
+                    return sink
 
             if (
                 time.monotonic()
                 >= deadline
             ):
+                if indices:
+                    raise QQMusicError("Firefox audio routing did not settle")
                 return sink
 
             time.sleep(0.25)
@@ -1139,6 +1153,9 @@ class QQMusicController:
         play_t0 = time.monotonic()
 
         driver = self._require_driver()
+        # QQ can leave an earlier player tab active when a new search opens
+        # another one. Silence all existing player tabs before replacing it.
+        self.stop()
 
         driver_done = (
             time.monotonic()
@@ -1474,11 +1491,24 @@ class QQMusicController:
     def stop(
         self,
     ) -> str:
-        # QQ Music Web does not expose a
-        # separate stop transport control.
-        # V1 stop means leave the current
-        # track selected but pause playback.
-        return self.pause()
+        # QQ Music Web has no stop control. Pause every player tab: the page
+        # may open a new tab while an older one continues to play.
+        driver = self._require_driver()
+        paused = 0
+        for handle in list(driver.window_handles):
+            try:
+                driver.switch_to.window(handle)
+                if self.PLAYER_PATH not in driver.current_url:
+                    continue
+                button = driver.find_element(By.CSS_SELECTOR, ".btn_big_play")
+                if self._is_playing(button):
+                    driver.execute_script("arguments[0].click();", button)
+                    paused += 1
+            except (NoSuchWindowException, NoSuchElementException):
+                continue
+        if paused:
+            print(f"[MUSIC] PLAYER_STOPPED tabs={paused}", flush=True)
+        return ""
 
     def __enter__(
         self,
