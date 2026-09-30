@@ -44,12 +44,18 @@ def _extract_music_query(text: str) -> str | None:
     prefixes = (
         "麻烦你帮我", "麻烦帮我", "你可以帮我", "可以帮我", "能不能帮我",
         "我想听", "我要听", "想听", "请帮我", "帮我", "给我",
+        "再帮我搜一下", "再帮我搜", "帮我搜一下", "帮我搜", "再搜一下", "再搜索",
+        "搜一下", "搜索一下", "搜搜", "搜索", "再找一首", "再找首", "再找一下",
+        "再找", "找一首", "找首", "找一下", "找", "换一首", "换首", "换",
         "你可以", "可以", "能不能", "请", "播放一首", "播放", "放一首",
         "放首", "放", "来一首", "来首", "听一首", "听首", "点一首", "点首",
     )
     action_prefixes = {
         "我想听", "我要听", "想听", "播放一首", "播放", "放一首", "放首",
         "放", "来一首", "来首", "听一首", "听首", "点一首", "点首",
+        "再帮我搜一下", "再帮我搜", "帮我搜一下", "帮我搜", "再搜一下", "再搜索",
+        "搜一下", "搜索一下", "搜搜", "搜索", "再找一首", "再找首", "再找一下",
+        "再找", "找一首", "找首", "找一下", "找", "换一首", "换首", "换",
     }
     heard_action = False
     changed = True
@@ -61,10 +67,17 @@ def _extract_music_query(text: str) -> str | None:
                 heard_action = heard_action or prefix in action_prefixes
                 changed = True
                 break
-    if not heard_action:
-        return None
     value = re.sub(r"(?:给我听|来听|听听|可以吗|好吗|行吗|吧|呀|啊|呢|吗)$", "", value).strip()
     value = re.sub(r"^一首", "", value).strip()
+    artist_only = re.search(
+        r"(?:^|[，。！？,.!?])([^，。！？,.!?]{2,12}?)(?:的)?(?:歌曲|音乐|歌)$",
+        value,
+    )
+    if artist_only:
+        value = artist_only.group(1).strip()
+        heard_action = True
+    if not heard_action:
+        return None
     artist_title = re.fullmatch(r"([^的]{2,8})的(.{2,40})", value)
     if artist_title:
         value = f"{artist_title.group(1).strip()} {artist_title.group(2).strip()}"
@@ -77,11 +90,16 @@ def has_explicit_music_intent(text: str) -> bool:
     if not value or any(marker in value for marker in
                         ("不要", "别播放", "别放", "怎么", "为什么", "如何", "如果")):
         return False
-    return any(marker in value for marker in (
+    if any(marker in value for marker in (
         "放一首", "放首", "放点", "播放", "一首歌", "一首音乐", "一首歌曲",
         "歌曲", "音乐", "小曲", "我想听", "我要听", "想听", "听一首", "听首",
-        "点一首", "点首", "来一首", "来首",
-    ))
+        "点一首", "点首", "来一首", "来首", "换歌", "换一首", "换首",
+        "再来一首", "再找一首", "下一首",
+    )):
+        return True
+    if re.search(r"(?:搜|搜索|找|换).{0,18}(?:歌曲|音乐|歌)", value):
+        return True
+    return bool(re.search(r"[^的]{2,12}的(?:歌曲|音乐|歌)(?:吧)?$", value))
 
 
 def _match_score(query: str, song: dict) -> float:
@@ -629,6 +647,12 @@ class MusicTools:
                     "继续播放":"resume_music", "继续音乐":"resume_music"}
         if value in controls:
             return {"name":"music_control", "arguments":{"action":controls[value]}}
+        if _normalize_text(value) in {
+            "换歌", "换一首", "换首", "换一首歌", "换一首歌曲", "换个歌",
+            "再来一首", "再来首", "再找一首", "再找首", "再找一首歌",
+            "再找一首歌曲", "下一首", "下一首歌",
+        }:
+            return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
         if is_random_request(value):
             return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
         query = _extract_music_query(value)

@@ -201,11 +201,12 @@ Window {
     Item {
         id: lowerPanel
         width: root.width * 0.92
-        height: root.height * 0.29
+        height: root.height * (root.robotState === "music" ? 0.18 : 0.29)
         anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.025 }
 
         Text {
             id: stateText
+            visible: root.robotState !== "music"
             width: parent.width; horizontalAlignment: Text.AlignHCenter
             text: root.stateLabel.toUpperCase(); color: root.accent(); font.bold: true
             font.pixelSize: Math.max(18, root.height * 0.032); font.letterSpacing: 2
@@ -213,7 +214,7 @@ Window {
         Text {
             id: nowPlayingText
             visible: root.robotState === "music"
-            anchors { top: stateText.bottom; topMargin: root.height * 0.010 }
+            anchors { top: parent.top }
             width: parent.width; horizontalAlignment: Text.AlignHCenter
             text: "正在播放：《" + root.musicTitle() + "》" + (root.musicArtists() ? " · " + root.musicArtists() : "")
             color: "#effcff"; font.bold: true

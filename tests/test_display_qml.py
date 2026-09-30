@@ -18,6 +18,8 @@ class DisplayQmlTests(unittest.TestCase):
         self.assertIn("RotationAnimation on rotation", source)
         self.assertIn("id: equalizer", source)
         self.assertIn("正在播放：《", source)
+        self.assertIn('visible: root.robotState !== "music"', source)
+        self.assertIn('root.robotState === "music" ? 0.18 : 0.29', source)
         self.assertIn("id: assistantViewport", source)
         self.assertIn("Flickable", source)
         self.assertIn("wrapMode: Text.Wrap", source)

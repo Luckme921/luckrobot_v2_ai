@@ -2089,7 +2089,7 @@ def main() -> None:
                                                     )
                                                     tool_request = None
                                                     agent_reply = AgentReply(
-                                                        text="我在呢，请再说具体一点。",
+                                                        text="我没听清，能再说一遍吗？",
                                                         model="local-music-guard",
                                                     )
                                             elif request.action == "select_music":

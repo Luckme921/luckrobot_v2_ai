@@ -12,7 +12,10 @@ def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
 class LocalMusicTests(unittest.TestCase):
     def test_fresh_music_search_requires_explicit_cue(self):
-        for text in ["放一首", "一首歌", "音乐", "歌曲", "来点小曲", "播放晴天", "我想听稻香"]:
+        for text in [
+            "放一首", "一首歌", "音乐", "歌曲", "来点小曲", "播放晴天", "我想听稻香",
+            "搜一下邓紫棋的歌吧", "换歌", "再找一首歌曲", "邓紫棋的歌",
+        ]:
             with self.subTest(text=text):
                 self.assertTrue(has_explicit_music_intent(text))
         for text in ["马蹄", "苹果", "周杰伦", "为什么播放音乐没声音", "不要播放歌曲"]:
@@ -105,6 +108,15 @@ class LocalMusicTests(unittest.TestCase):
         self.assertEqual(request["arguments"]["query"], "宋冬野 安河桥")
         request = music.local_request("你可以放一首歌吗？")
         self.assertEqual(request["arguments"]["query"], "随便")
+        request = music.local_request("搜一下邓紫棋的歌吧")
+        self.assertEqual(request["arguments"]["query"], "邓紫棋")
+        request = music.local_request("这还不接听吗？邓紫棋的歌")
+        self.assertEqual(request["arguments"]["query"], "邓紫棋")
+        for text in ("换歌", "再找一首歌曲", "下一首"):
+            with self.subTest(text=text):
+                request = music.local_request(text)
+                self.assertEqual(request["name"], "music_search")
+                self.assertEqual(request["arguments"]["query"], "随便")
         self.assertIsNone(music.local_request("请告诉我今天的天气"))
 
     def test_natural_candidates_and_context_selection(self):
