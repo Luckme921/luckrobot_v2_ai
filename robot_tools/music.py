@@ -43,7 +43,7 @@ def _extract_music_query(text: str) -> str | None:
         return None
     prefixes = (
         "麻烦你帮我", "麻烦帮我", "你可以帮我", "可以帮我", "能不能帮我",
-        "我想听", "我要听", "想听", "请帮我", "帮我", "给我",
+        "我想要听", "想要听", "我想听", "我要听", "想听", "请帮我", "帮我", "给我",
         "再帮我搜一下", "再帮我搜", "帮我搜一下", "帮我搜", "再搜一下", "再搜索",
         "搜一下", "搜索一下", "搜搜", "搜索", "再找一首", "再找首", "再找一下",
         "再找", "找一首", "找首", "找一下", "找", "换一首", "换首", "换",
@@ -51,7 +51,7 @@ def _extract_music_query(text: str) -> str | None:
         "放首", "放", "来一首", "来首", "听一首", "听首", "点一首", "点首",
     )
     action_prefixes = {
-        "我想听", "我要听", "想听", "播放一首", "播放", "放一首", "放首",
+        "我想要听", "想要听", "我想听", "我要听", "想听", "播放一首", "播放", "放一首", "放首",
         "放", "来一首", "来首", "听一首", "听首", "点一首", "点首",
         "再帮我搜一下", "再帮我搜", "帮我搜一下", "帮我搜", "再搜一下", "再搜索",
         "搜一下", "搜索一下", "搜搜", "搜索", "再找一首", "再找首", "再找一下",
@@ -78,6 +78,12 @@ def _extract_music_query(text: str) -> str | None:
         heard_action = True
     if not heard_action:
         return None
+    # A narrowly scoped correction for the observed ASR rendering of
+    # "宋冬野的安和桥". Keep it behind an explicit music request.
+    if re.fullmatch(r"[宋孙]冬野(?:的)?[南安][河和]桥", value) and (
+        value.startswith("孙") or "南河桥" in value or "南和桥" in value
+    ):
+        return "宋冬野 安和桥"
     artist_title = re.fullmatch(r"([^的]{2,8})的(.{2,40})", value)
     if artist_title:
         value = f"{artist_title.group(1).strip()} {artist_title.group(2).strip()}"
@@ -92,7 +98,7 @@ def has_explicit_music_intent(text: str) -> bool:
         return False
     if any(marker in value for marker in (
         "放一首", "放首", "放点", "播放", "一首歌", "一首音乐", "一首歌曲",
-        "歌曲", "音乐", "小曲", "我想听", "我要听", "想听", "听一首", "听首",
+        "歌曲", "音乐", "小曲", "我想要听", "想要听", "我想听", "我要听", "想听", "听一首", "听首",
         "点一首", "点首", "来一首", "来首", "换歌", "换一首", "换首",
         "再来一首", "再找一首", "下一首",
     )):

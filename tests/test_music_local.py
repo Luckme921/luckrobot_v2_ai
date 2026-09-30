@@ -15,10 +15,11 @@ class LocalMusicTests(unittest.TestCase):
         for text in [
             "放一首", "一首歌", "音乐", "歌曲", "来点小曲", "播放晴天", "我想听稻香",
             "搜一下邓紫棋的歌吧", "换歌", "再找一首歌曲", "邓紫棋的歌",
+            "我想要听孙冬野南河桥",
         ]:
             with self.subTest(text=text):
                 self.assertTrue(has_explicit_music_intent(text))
-        for text in ["马蹄", "苹果", "周杰伦", "为什么播放音乐没声音", "不要播放歌曲"]:
+        for text in ["马蹄", "苹果", "周杰伦", "孙冬野南河桥", "为什么播放音乐没声音", "不要播放歌曲"]:
             with self.subTest(text=text):
                 self.assertFalse(has_explicit_music_intent(text))
 
@@ -123,6 +124,9 @@ class LocalMusicTests(unittest.TestCase):
 
     def test_repeated_natural_request_is_parsed_locally(self):
         music, _ = self.setup_music([])
+        request = music.local_request("我想要听孙冬野南河桥")
+        self.assertEqual(request["arguments"]["query"], "宋冬野 安和桥")
+        self.assertIsNone(music.local_request("孙冬野南河桥"))
         request = music.local_request("我想听我想听宋冬野的安河桥")
         self.assertEqual(request["name"], "music_search")
         self.assertEqual(request["arguments"]["query"], "宋冬野 安河桥")
