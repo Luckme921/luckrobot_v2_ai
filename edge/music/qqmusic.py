@@ -1504,6 +1504,9 @@ class QQMusicController:
                 if self._is_playing(button):
                     driver.execute_script("arguments[0].click();", button)
                     paused += 1
+                driver.execute_script(
+                    "document.querySelectorAll('audio, video').forEach(m => m.pause());"
+                )
             except (NoSuchWindowException, NoSuchElementException):
                 continue
         if paused:

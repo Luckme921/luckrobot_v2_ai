@@ -36,7 +36,9 @@ class QQMusicSessionRecoveryTest(unittest.TestCase):
         driver.find_element.return_value.get_attribute.return_value = "btn_big_play btn_big_play--pause"
         with patch.object(controller, "_require_driver", return_value=driver):
             controller.stop()
-        self.assertEqual(driver.execute_script.call_count, 2)
+        clicks = [call for call in driver.execute_script.call_args_list
+                  if "arguments[0].click()" in call.args[0]]
+        self.assertEqual(len(clicks), 2)
 
     def test_search_candidate_reads_artist_from_song_row(self):
         controller = QQMusicController(profile_path=".")
