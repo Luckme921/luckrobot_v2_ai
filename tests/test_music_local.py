@@ -89,6 +89,26 @@ class LocalMusicTests(unittest.TestCase):
         self.assertTrue(answer["playing"])
         music.provider.search.assert_called_once_with("周杰伦 晴天")
         player.play.assert_called_once_with("https://example.com/original")
+
+    def test_qq_preferred_track_uses_artist_and_title(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="cover", title="泡沫", artists=["其他歌手"],
+                 backend="qqmusic", query="邓紫棋 泡沫"),
+            dict(id="original", title="泡沫", artists=["G.E.M.邓紫棋"],
+                 backend="qqmusic", query="邓紫棋 泡沫"),
+        ]
+        music = MusicTools({
+            "enabled": True, "provider": "qqmusic",
+            "preferences": {
+                "search_attempts": 1,
+                "preferred_tracks": [{"artist": "邓紫棋", "title": "泡沫"}],
+            },
+        }, controller=controller)
+        answer = music.search("随便", utterance="随便播放一首歌曲")
+        self.assertTrue(answer["playing"])
+        controller.play.assert_called_once_with(
+            "邓紫棋 泡沫", preferred_mid="original", strict_mid=True)
     def test_natural_singer_choice(self):
         music,player=self.setup_music([song("a"),song("b",artist="邓紫棋")])
         reply=music.search("龙卷风")

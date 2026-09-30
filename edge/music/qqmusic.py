@@ -1095,8 +1095,19 @@ class QQMusicController:
                     mid = href.split("/songDetail/", 1)[-1].split("?")[0].strip("/")
                     if not title or not link.is_displayed() or not mid or mid in seen:
                         continue
+                    try:
+                        row = link.find_element(
+                            By.XPATH,
+                            "./ancestor::*[contains(@class,'songlist__item')][1]",
+                        )
+                        artist_cells = row.find_elements(By.CSS_SELECTOR, ".songlist__artist")
+                        artist_text = artist_cells[0].text.strip() if artist_cells else ""
+                    except WebDriverException:
+                        artist_text = ""
+                    artists = [name.strip() for name in re.split(r"[/、\n]+", artist_text)
+                               if name.strip()]
                     seen.add(mid)
-                    results.append({"id": mid, "title": title, "artists": [],
+                    results.append({"id": mid, "title": title, "artists": artists,
                                     "backend": "qqmusic", "query": query})
                     if len(results) >= limit:
                         break

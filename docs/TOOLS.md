@@ -152,6 +152,8 @@ profile 打开 QQ 音乐网页搜索/播放器；它不是 H5 OpenID API。设�
 `search_candidates` / `play` 遇到该错误，或 geckodriver 本地连接断开时，会关闭旧
 WebDriver、重建浏览器并重试一次，
 日志记录 `[MUSIC] QQ_SESSION_RESTART`。连续失败仍向用户明确报错，不会无限重试。
+QQ 网页搜索候选同时提取歌曲行中的歌手，用于偏好歌单的“歌手 + 歌名”校验；
+否则随机播放会因所有候选歌手为空而全部被过滤。
 
 QQ 音乐开发者平台的 H5 接入属于 QPlay Auth 登录鉴权：需要先注册应用取得 appId/appKey、
 配置 callback，通过授权得到 openID/openToken，再申请相应 OpenAPI 权限。扫码/H5 授权本身

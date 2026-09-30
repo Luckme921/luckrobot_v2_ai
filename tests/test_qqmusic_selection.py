@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import threading
+from unittest.mock import Mock, patch
 from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import MaxRetryError
 
@@ -13,6 +14,23 @@ from edge.music.qqmusic import (
 
 
 class QQMusicSessionRecoveryTest(unittest.TestCase):
+    def test_search_candidate_reads_artist_from_song_row(self):
+        controller = QQMusicController(profile_path=".")
+        driver = Mock()
+        link = Mock()
+        link.text = "泡沫"
+        link.get_attribute.return_value = "https://y.qq.com/n/ryqq/songDetail/song-123"
+        link.is_displayed.return_value = True
+        artist_cell = Mock(text="G.E.M.邓紫棋 / 合唱歌手")
+        link.find_element.return_value.find_elements.return_value = [artist_cell]
+        driver.find_elements.return_value = [link]
+        with patch.object(controller, "_require_driver", return_value=driver), \
+             patch.object(controller, "_ensure_search_window"), \
+             patch.object(controller, "_wait") as wait:
+            wait.return_value.until.side_effect = lambda collect: collect(driver)
+            songs = controller.search_candidates("邓紫棋 泡沫")
+        self.assertEqual(songs[0]["artists"], ["G.E.M.邓紫棋", "合唱歌手"])
+
     def test_search_restarts_dead_browser_once(self):
         class FakeController:
             def __init__(self):
