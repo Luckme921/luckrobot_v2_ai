@@ -167,6 +167,7 @@ class LocalMusicTests(unittest.TestCase):
             "播放一首歌", "随便放一首歌", "放点音乐", "随便放一首", "每日推荐",
             "放一首音乐，随便播放一首就可以", "随便播放一首歌就可以",
             "帮我随机播放一首好听的歌吧", "来点小曲",
+            "放吧，你随便放一首音乐",
         ]:
             music,player=self.setup_music([song("a")])
             request=music.local_request(phrase)
@@ -174,6 +175,13 @@ class LocalMusicTests(unittest.TestCase):
             self.assertTrue(music.search(**request["arguments"])["playing"])
             self.assertNotEqual(music.provider.search.call_args.args[0],"歌")
             player.play.assert_called_once()
+
+    def test_generic_random_utterance_overrides_bad_extracted_query(self):
+        music, player = self.setup_music([song("a")])
+        answer = music.search("你随便放一首", utterance="放吧，你随便放一首音乐")
+        self.assertTrue(answer["playing"])
+        self.assertNotEqual(music.provider.search.call_args.args[0], "你随便放一首")
+        player.play.assert_called_once()
 
     def test_full_random_request_replaces_old_pending_list(self):
         music, player = self.setup_music([song("old", "冷门故事", "陌生歌手")])
