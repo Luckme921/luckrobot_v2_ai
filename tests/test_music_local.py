@@ -21,10 +21,29 @@ class LocalMusicTests(unittest.TestCase):
 
     def setup_music(self,songs):
         player=Mock()
+        player.active = True
         music=MusicTools({"enabled":True,"provider":"http","http":{"auto_play_enabled":True}},player=player)
         music.provider=Mock(url="https://example.com")
         music.provider.search.return_value=songs
         return music,player
+
+    def test_natural_player_exit_clears_music_state_once(self):
+        music, player = self.setup_music([])
+        music.playing = True
+        music.current_song = {"title": "晴天", "artists": ["周杰伦"]}
+        player.active = False
+        self.assertTrue(music.playback_finished())
+        self.assertFalse(music.playing)
+        self.assertIsNone(music.current_song)
+        self.assertFalse(music.playback_finished())
+
+    def test_paused_player_is_not_treated_as_finished(self):
+        music, player = self.setup_music([])
+        music.playing = False
+        music.current_song = {"title": "晴天", "artists": ["周杰伦"]}
+        player.active = True
+        self.assertFalse(music.playback_finished())
+        self.assertIsNotNone(music.current_song)
     def test_random_does_not_search_song_literal_or_ask_selection(self):
         for phrase in [
             "播放一首歌", "随便放一首歌", "放点音乐", "随便放一首", "每日推荐",

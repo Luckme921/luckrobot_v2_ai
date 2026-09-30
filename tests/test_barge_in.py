@@ -4,11 +4,23 @@ from edge.agent.memory_store import ConversationMemory
 import threading
 import unittest
 from unittest.mock import Mock, patch
-from edge.audio.barge_in import speak_with_wake
+from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
+from edge.audio.capture.pulse import PulseCaptureError
 from edge.audio.tts.cancellation import SpeechCancellation, SpeechInterrupted
 
 
 class BargeInTests(unittest.TestCase):
+    @staticmethod
+    def capture_config():
+        return Mock(
+            source="microphone",
+            sample_rate=16000,
+            channels=1,
+            sample_format="s16le",
+            input_channels=1,
+            selected_channel=None,
+        )
+
     def test_cancel_kills_registered_and_late_players(self):
         token = SpeechCancellation()
         first, late = Mock(), Mock()
@@ -73,3 +85,20 @@ class BargeInTests(unittest.TestCase):
         self.assertIs(result, tts.speak.return_value)
         tts.speak.assert_called_once_with("reply", "sink", before_playback=None)
         factory.return_value.stop.assert_called_once()
+
+    @patch("edge.audio.barge_in.PulseCapture")
+    def test_turn_monitor_retries_capture_and_becomes_ready(self, factory):
+        failed, recovered = Mock(), Mock()
+        failed.start.side_effect = PulseCaptureError("device busy")
+        recovered.chunks.return_value = [b"\0\0" * 320]
+        factory.side_effect = [failed, recovered]
+        kws = Mock()
+        kws.accept.return_value = "LUCKY"
+
+        monitor = WakeInterruptMonitor(self.capture_config(), kws).start()
+        self.assertTrue(monitor.cancellation.event.wait(2))
+        monitor.stop()
+
+        self.assertEqual(factory.call_count, 2)
+        failed.stop.assert_called()
+        recovered.stop.assert_called()

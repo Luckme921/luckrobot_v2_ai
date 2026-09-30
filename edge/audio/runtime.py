@@ -1169,6 +1169,21 @@ def main() -> None:
                     for pcm in capture.chunks(
                         vad.window_size
                     ):
+                        if (
+                            music_playing
+                            and music_tools.playback_finished()
+                        ):
+                            music_playing = False
+                            display_music(None)
+                            print(
+                                "[MUSIC] PLAYBACK_FINISHED",
+                                flush=True,
+                            )
+                            print(
+                                "[STATE] SLEEPING reason=music_finished",
+                                flush=True,
+                            )
+
                         samples = (
                             np.frombuffer(
                                 pcm,
@@ -1361,17 +1376,25 @@ def main() -> None:
                                 time.monotonic()
                             )
 
-                            begin_turn()
-                            record("vad_buffer_after_segment", vad.last_endpoint_buffer_seconds)
-                            status("声音转文字 / ASR")
-                            display_state("transcribing", "正在识别")
-                            with measure("asr"):
+                            if sleeping_segment:
                                 text = (
                                     asr.transcribe(
                                         asr_samples,
                                         sample_rate,
                                     )
                                 )
+                            else:
+                                begin_turn()
+                                record("vad_buffer_after_segment", vad.last_endpoint_buffer_seconds)
+                                status("声音转文字 / ASR")
+                                display_state("transcribing", "正在识别")
+                                with measure("asr"):
+                                    text = (
+                                        asr.transcribe(
+                                            asr_samples,
+                                            sample_rate,
+                                        )
+                                    )
 
                             elapsed = (
                                 time.monotonic()

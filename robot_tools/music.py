@@ -445,6 +445,11 @@ class DirectAudioPlayer:
     def playing(self):
         return self.process is not None and self.process.poll() is None and not self.paused
 
+    @property
+    def active(self):
+        """Return whether the player process still exists, including while paused."""
+        return self.process is not None and self.process.poll() is None
+
     def play(self, url):
         if urlsplit(url).scheme not in {"http", "https"}:
             raise ValueError("Only provider HTTP audio addresses are supported")
@@ -535,6 +540,19 @@ class MusicTools:
         if self.clock() >= self.deadline:
             self.clear_pending()
         return bool(self.pending)
+
+    def playback_finished(self):
+        """Consume a natural HTTP-player exit and clear stale playback state."""
+        if (
+            self.config.get("provider", "qqmusic") == "http"
+            and self.playing
+            and self.player is not None
+            and not self.player.active
+        ):
+            self.playing = False
+            self.current_song = None
+            return True
+        return False
 
     @staticmethod
     def _clean_selection(text):
