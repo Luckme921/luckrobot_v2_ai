@@ -495,6 +495,7 @@ class CloudAgentClient:
         local_identity: str = "uncertain",
         tool_mode: str = "auto",
         cancellation=None,
+        music_candidates: list[dict] | None = None,
     ) -> AgentReply:
         command = text.strip()
 
@@ -612,6 +613,8 @@ class CloudAgentClient:
                 archive_context
             ),
         }
+        if music_candidates:
+            payload["music_candidates"] = music_candidates[:10]
 
         if images_jpeg_base64:
             payload[

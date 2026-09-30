@@ -597,6 +597,14 @@ class MusicTools:
             self.clear_pending()
         return bool(self.pending)
 
+    def pending_context(self):
+        """Only public candidate names and indices may be sent to the router."""
+        if not self.has_pending:
+            return []
+        return [dict(index=index, title=str(song.get("title", ""))[:120],
+                     artists=[str(artist)[:80] for artist in song.get("artists", [])[:4]])
+                for index, song in enumerate(self.pending[:10], 1)]
+
     def playback_finished(self):
         """Consume a natural HTTP-player exit and clear stale playback state."""
         if (
@@ -630,6 +638,16 @@ class MusicTools:
             "artists": [str(value).strip() for value in song.get("artists", [])
                         if str(value).strip()],
         }
+
+    @staticmethod
+    def _qq_track_metadata(track, fallback=None):
+        """Use the QQ player's actual track text after playback or track change."""
+        if not isinstance(track, str) or not track.strip():
+            return fallback
+        lines = [line.strip() for line in track.splitlines() if line.strip()]
+        if not lines:
+            return fallback
+        return {"title": lines[0], "artists": lines[1:3]}
 
     def _selection_matches(self, text):
         """Use pending titles/artists/versions as temporary ASR context."""
@@ -708,6 +726,8 @@ class MusicTools:
         selection = self.selection_request(text)
         if selection is not None:
             return {"name": "music_select", "arguments": {"selection": selection}}
+        if any(phrase in normalized for phrase in ("再找点其他歌", "再找些其他歌", "换点别的歌", "换一首别的歌")):
+            return {"name": "music_search", "arguments": {"query": "随便", "utterance": text}}
         if needs_model_music_interpretation(value):
             return None
         if is_recommendation_request(value):
@@ -819,7 +839,7 @@ class MusicTools:
             return result("音乐功能目前未启用。", ok=False, status="unavailable")
         if is_recommendation_request(utterance or query):
             return self._recommend()
-        random_mode = is_random_request(utterance or query)
+        random_mode = is_random_request(query) or is_random_request(utterance)
         if random_mode:
             return self._random_search_and_play()
         query = _canonical_music_query(query)
@@ -942,8 +962,8 @@ class MusicTools:
             if self.before_playback is not None:
                 self.before_playback()
             try:
-                self.controller.play(song.get("query", song["title"]),
-                                     preferred_mid=song["id"], strict_mid=True)
+                actual_track = self.controller.play(song.get("query", song["title"]),
+                                                    preferred_mid=song["id"], strict_mid=True)
             except (OSError, RuntimeError) as exc:
                 print(f"[MUSIC] QQ_PLAY_FAILED title={song.get('title')!r} "
                       f"error={type(exc).__name__} reason={str(exc)[:160]!r} "
@@ -960,9 +980,13 @@ class MusicTools:
                 return result("找到了歌曲，但 QQ 音乐没有完成播放；我已停止播放器。请稍后再试。",
                               ok=False, status="unavailable", executed=True)
         self.playing = True
-        self.current_song = self._display_song(song)
+        self.current_song = (self._qq_track_metadata(actual_track, self._display_song(song))
+                             if song["backend"] == "qqmusic" else self._display_song(song))
+        if song["backend"] == "qqmusic":
+            print(f"[MUSIC] NOW_PLAYING source=qq track={actual_track!r} "
+                  f"selected={song['title']!r}", flush=True)
         self.clear_pending()
-        return result("正在播放" + song["title"] + "。", executed=True, playing=True,
+        return result("正在播放" + self.current_song["title"] + "。", executed=True, playing=True,
                       music=self.current_song)
 
     def control(self, action):
@@ -983,8 +1007,13 @@ class MusicTools:
         else:
             if self.controller is None:
                 return result("QQ音乐控制器尚未就绪。", ok=False, status="unavailable")
-            getattr(self.controller, name)()
+            actual_track = getattr(self.controller, name)()
             self.playing = name in {"resume", "next", "previous"}
+            if name in {"next", "previous", "resume"}:
+                self.current_song = self._qq_track_metadata(
+                    actual_track, self.current_song if name == "resume" else None)
+                print(f"[MUSIC] NOW_PLAYING source=qq action={name} "
+                      f"track={actual_track!r}", flush=True)
         if name == "stop":
             self.current_song = None
         return result({"pause": "已暂停音乐。", "resume": "继续播放音乐。",

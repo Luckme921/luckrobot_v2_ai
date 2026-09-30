@@ -933,6 +933,7 @@ class GLMAgent:
             dict[str, str]
         ] | None = None,
         local_identity: str = "uncertain",
+        music_candidates: list[dict] | None = None,
     ) -> list[dict]:
         previous_user = ""
 
@@ -988,6 +989,32 @@ class GLMAgent:
                 ]
             )
 
+        if music_candidates:
+            choices = []
+            for item in music_candidates[:10]:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    index = int(item.get("index", 0))
+                except (ValueError, TypeError):
+                    continue
+                if not 1 <= index <= 10:
+                    continue
+                title = str(item.get("title", ""))[:120]
+                artists = item.get("artists", [])
+                if not isinstance(artists, list):
+                    artists = []
+                names = "、".join(str(name)[:80] for name in artists[:4])
+                choices.append(f"{index}. {names}《{title}》")
+            if choices:
+                route_input_parts.append("PENDING_MUSIC_CANDIDATES=\n" + "\n".join(choices))
+                route_input_parts.append(
+                    "If the CURRENT utterance refers to one of these candidates, "
+                    "choose select_music and set music_query to its number, such as 第一首. "
+                    "Do not choose play_music or search again for a pending choice. "
+                    "If the reference is ambiguous, ask which candidate."
+                )
+
         route_input_parts.extend(
             [
                 (
@@ -1026,7 +1053,9 @@ class GLMAgent:
                     "调节或查询音量选择 volume_control，volume_action 为 get/set/up/down/max，"
                     "set 时 percent 为整数百分比。"
                     "用户从刚才音乐候选中选择时选 select_music，music_query 保留编号或歌名。"
-                    "只有用户明确说出放一首、一首歌、音乐、歌曲、小曲、"
+                    "若有当前候选列表，用户对列表中歌曲或歌手的指代视为选歌，"
+                    "选择 select_music 并返回候选编号，不要重新搜索。"
+                    "仅在没有候选选歌语境时，只有用户明确说出放一首、一首歌、音乐、歌曲、小曲、"
                     "播放、我想听、想听等播放或音乐控制提示时，"
                     "才能选择音乐 action。孤立的短词、人名、物名或"
                     "可能由唤醒词误识别产生的词选择 respond_text，"
@@ -1211,8 +1240,8 @@ class GLMAgent:
             return await self.tool_router.execute(name, arguments, **kwargs)
 
     @staticmethod
-    def _json_route_messages(text, history, local_identity):
-        messages = GLMAgent._build_route_messages(text, history, local_identity)
+    def _json_route_messages(text, history, local_identity, music_candidates=None):
+        messages = GLMAgent._build_route_messages(text, history, local_identity, music_candidates)
         messages[0]["content"] = messages[0]["content"].replace(
             "调用 route_turn", "输出路由 JSON").replace("通过 route_turn", "通过路由 JSON")
         messages[-1]["content"] = messages[-1]["content"].replace(
@@ -1253,14 +1282,14 @@ class GLMAgent:
                 raise ValueError("Route field is too long")
         return GLMAgent._parse_turn_route_arguments(raw)
 
-    async def _route(self, text, history, local_identity):
+    async def _route(self, text, history, local_identity, music_candidates=None):
         common = dict(model=self.model, temperature=self.temperature,
                       max_tokens=self.max_tokens, extra_body=self._extra_body())
         if getattr(self, "route_protocol", "json") == "json":
             try:
                 response = await self._completion(
                     stage="model_route_json",
-                    messages=self._json_route_messages(text, history, local_identity),
+                    messages=self._json_route_messages(text, history, local_identity, music_candidates),
                     response_format={"type": "json_object"}, **common)
                 return self._validated_json_route(response.choices[0])
             except (ValueError, BadRequestError) as exc:
@@ -1269,7 +1298,7 @@ class GLMAgent:
                 print(f"[ROUTE] JSON_FALLBACK reason={type(exc).__name__}", flush=True)
         response = await self._completion(
             stage="model_route_tool",
-            messages=self._build_route_messages(text, history, local_identity),
+            messages=self._build_route_messages(text, history, local_identity, music_candidates),
             **self._completion_tool_options(has_images=False, tool_mode="auto"), **common)
         choice = response.choices[0]
         calls = choice.message.tool_calls or []
@@ -1289,6 +1318,7 @@ class GLMAgent:
         image_data_urls: list[str] | None = None,
         local_identity: str = "uncertain",
         tool_mode: str = "auto",
+        music_candidates: list[dict] | None = None,
     ) -> str:
         tool_mode = (
             self._normalize_tool_mode(
@@ -1437,7 +1467,7 @@ class GLMAgent:
             message = choice.message
 
         if not image_data_urls:
-            route = await self._route(text, history, local_identity)
+            route = await self._route(text, history, local_identity, music_candidates)
             action = route[
                 "action"
             ]

@@ -32,6 +32,24 @@ class LocalMusicTests(unittest.TestCase):
         self.assertFalse(answer["playing"])
         self.assertIsNone(answer["music"])
 
+    def test_qq_next_uses_player_track_instead_of_stale_selected_song(self):
+        controller = Mock()
+        controller.next.return_value = "七里香\n周杰伦"
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.playing = True
+        music.current_song = {"title": "龙卷风", "artists": ["周杰伦"]}
+        answer = music.control("next_music")
+        self.assertEqual(answer["music"], {"title": "七里香", "artists": ["周杰伦"]})
+        self.assertEqual(music.current_song, answer["music"])
+
+    def test_qq_next_without_metadata_does_not_display_old_title(self):
+        controller = Mock()
+        controller.next.return_value = ""
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.current_song = {"title": "龙卷风", "artists": ["周杰伦"]}
+        answer = music.control("next_music")
+        self.assertIsNone(answer["music"])
+
     def test_recommendation_uses_curated_titles_without_provider_search_until_choice(self):
         controller = Mock()
         music = MusicTools({"enabled": True, "provider": "qqmusic",
@@ -78,6 +96,18 @@ class LocalMusicTests(unittest.TestCase):
         music.clear_pending()
         self.assertIsNone(music.local_request("我想听你上次搜到的米小圈那首"))
         self.assertIsNone(music.local_request("我忘了歌名，歌词里有一句下雨"))
+
+    def test_pending_context_and_change_song_do_not_search_literal_suibian(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("one", "I don't wanna see u anymore", "乃万NINEONE")]
+        music.deadline = music.clock() + 120
+        self.assertEqual(music.pending_context(), [{
+            "index": 1, "title": "I don't wanna see u anymore", "artists": ["乃万NINEONE"]}])
+        request = music.local_request("我不想听随便你再找点其他歌")
+        self.assertEqual(request["arguments"]["query"], "随便")
+        music._random_search_and_play = Mock(return_value={"status": "success"})
+        music.search(**request["arguments"])
+        music._random_search_and_play.assert_called_once()
 
     def test_fresh_music_search_requires_explicit_cue(self):
         for text in [

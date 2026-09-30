@@ -153,6 +153,15 @@ class RouteValidationTests(unittest.TestCase):
         self.assertNotIn("调用 route_turn", str(messages))
         self.assertIn("JSON", str(messages))
 
+    def test_pending_music_candidates_are_visible_to_router_only(self):
+        candidates = [{"index": 2, "title": "I don't wanna see u anymore",
+                       "artists": ["乃万NINEONE"]}]
+        messages = GLMAgent._json_route_messages("奶袜的那首", [], "uncertain", candidates)
+        self.assertIn("PENDING_MUSIC_CANDIDATES", str(messages))
+        self.assertIn("乃万NINEONE", str(messages))
+        self.assertIn("select_music", str(messages))
+        self.assertIn("2. ", str(messages))
+
     def test_all_route_actions_validate(self):
         cases = [
             {"action": "respond_text"},

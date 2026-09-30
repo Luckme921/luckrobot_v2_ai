@@ -99,6 +99,7 @@ class ChatRequest(BaseModel):
         default="",
         max_length=30000,
     )
+    music_candidates: list[dict] = Field(default_factory=list, max_length=10)
 
 
 MAX_VISION_IMAGES = 5
@@ -328,6 +329,7 @@ async def _chat(
             archive_context=(
                 request.archive_context
             ),
+            music_candidates=request.music_candidates,
             image_data_urls=(
                 image_data_urls
             ),

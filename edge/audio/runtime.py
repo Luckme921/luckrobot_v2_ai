@@ -1950,6 +1950,11 @@ def main() -> None:
                                             )
 
                                         else:
+                                            music_candidates = music_tools.pending_context()
+                                            if music_candidates:
+                                                print("[MUSIC] ROUTE_CANDIDATES " + json.dumps(
+                                                    music_candidates, ensure_ascii=False,
+                                                    separators=(',', ':')), flush=True)
                                             agent_reply = (
                                                 agent_client
                                                 .chat(
@@ -1957,6 +1962,7 @@ def main() -> None:
                                                     local_identity=(
                                                         turn_identity_state
                                                     ),
+                                                    music_candidates=music_candidates,
                                                     cancellation=(
                                                         turn_monitor.cancellation
                                                         if turn_monitor is not None
