@@ -7,6 +7,7 @@ from robot_tools.music import (
     has_explicit_music_intent,
     is_random_request,
     is_recommendation_request,
+    is_change_music_request,
 )
 
 def song(id,title="龙卷风",artist="周杰伦"):
@@ -108,6 +109,21 @@ class LocalMusicTests(unittest.TestCase):
         music._random_search_and_play = Mock(return_value={"status": "success"})
         music.search(**request["arguments"])
         music._random_search_and_play.assert_called_once()
+
+    def test_followup_change_requests_skip_literal_search(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("old", "龙卷风", "周杰伦")]
+        music.deadline = music.clock() + 120
+        for phrase in (
+            "再换一首歌", "再找一点其他的", "我不想听，随便换一首",
+            "我让你再换一首，不是说歌名是叫再换一首，而是让你再去找一首歌",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertTrue(is_change_music_request(phrase, has_context=True))
+                request = music.local_request(phrase)
+                self.assertEqual(request, {"name": "music_search", "arguments": {
+                    "query": "随便", "utterance": phrase}})
+        self.assertFalse(is_change_music_request("再找一点其他的", has_context=False))
 
     def test_fresh_music_search_requires_explicit_cue(self):
         for text in [

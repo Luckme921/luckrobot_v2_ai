@@ -229,6 +229,26 @@ def is_pending_random_choice(text):
     }
 
 
+def is_change_music_request(text, *, has_context=False):
+    """Treat conversational 'another one' as a new curated play request."""
+    value = _normalize_text(text)
+    if (has_context and ("不是说歌名" in value or "不是歌名" in value)
+            and re.search(r"(?:换|找)(?:一首|首)", value)):
+        return True
+    value = re.sub(r"^(?:我不想听|不想听|这首不喜欢|随便|你)+", "", value)
+    if re.fullmatch(
+            r"(?:再|重新)?换(?:一首|首|个|点)?(?:别的|其他的)?(?:歌|歌曲|音乐)?",
+            value):
+        return True
+    if re.fullmatch(r"再(?:来|找)(?:一首|首)(?:别的|其他的)?(?:歌|歌曲|音乐)?", value):
+        return True
+    if has_context and re.fullmatch(
+            r"(?:再|重新)?(?:找|来|放|播)(?:一首|首|点|一点|一些)?"
+            r"(?:别的|其他的|其他|新的)(?:歌|歌曲|音乐)?", value):
+        return True
+    return False
+
+
 def is_recommendation_request(text):
     value = _normalize_text(text)
     if "推荐" not in value or not any(word in value for word in ("歌", "音乐", "小曲")):
@@ -723,6 +743,9 @@ class MusicTools:
         }
         if normalized in controls:
             return {"name": "music_control", "arguments": {"action": controls[normalized]}}
+        if is_change_music_request(value, has_context=(
+                self.playing or self.current_song is not None or self.has_pending)):
+            return {"name": "music_search", "arguments": {"query": "随便", "utterance": text}}
         selection = self.selection_request(text)
         if selection is not None:
             return {"name": "music_select", "arguments": {"selection": selection}}
@@ -785,9 +808,12 @@ class MusicTools:
             if fresh:
                 tracks = fresh
         plans = [(f"{item['artist']} {item['title']}", item) for item in tracks]
-        artists = list(self.preferred_artists or self.random_queries)
-        random.shuffle(artists)
-        plans.extend((artist, None) for artist in artists)
+        # Broad artist-only searches can include audiobooks and unrelated
+        # recordings. Use that legacy fallback only if no curated track exists.
+        if not plans:
+            artists = list(self.preferred_artists or self.random_queries)
+            random.shuffle(artists)
+            plans.extend((artist, None) for artist in artists)
         if not plans:
             return result("还没有配置随机音乐来源。", ok=False, status="unavailable")
 

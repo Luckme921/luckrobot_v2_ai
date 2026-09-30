@@ -58,9 +58,13 @@ music_http.auto_play_enabled 默认 false，只有明确配置 true 才开启；
 是偏好文件没有可用配置时的兼容后备项，不是平台每日推荐接口。
 
 2026-09-24 起，随机音乐优先读取 `configs/music_preferences.yaml`。其中
-`preferred_tracks` 配置常听的歌手和歌曲，`preferred_artists` 只作为曲目全部失败后的
-后备搜索；`search_attempts` 限制不同偏好搜索次数，`candidate_play_attempts` 限制同一
+`preferred_tracks` 配置常听的歌手和歌曲；只有未配置任何曲目时才使用
+`preferred_artists` 做兼容搜索。已配置曲目全部失败时直接报告失败，避免宽泛的歌手
+搜索混入听书章节。`search_attempts` 限制不同偏好搜索次数，`candidate_play_attempts` 限制同一
 搜索结果的播放尝试。完整随机请求会清除上一轮候选并直接播放，不进入选择流程。
+音乐上下文中的“再找一点其他的”“再换一首歌”等也按换歌处理，不把“其他的”
+或“再换一首”当作歌名交给 QQ 搜索。
+“不是说歌名叫再换一首，而是让你再找一首歌”一类纠正句同样按换歌处理。
 已经覆盖现场 ASR 文本“放一首音乐，随便播放一首就可以”和
 “随便播放一首歌就可以”。用户只回答“随便/都行”时，仍表示从当前候选中任选一首。
 
