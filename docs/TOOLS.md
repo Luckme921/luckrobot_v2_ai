@@ -149,7 +149,8 @@ profile 打开 QQ 音乐网页搜索/播放器；它不是 H5 OpenID API。设�
 需按曲目现场验证。首次启用时暂关个人歌单后台刷新，以免它占用浏览器锁影响点歌延迟。
 网页后端失效时可把 `music.provider` 改回 `http` 并重启机器人。
 图形桌面退出或 Firefox 崩溃后，Selenium 可能保留已失效的 session ID；下一次
-`search_candidates` / `play` 遇到该错误时会关闭旧 WebDriver、重建浏览器并重试一次，
+`search_candidates` / `play` 遇到该错误，或 geckodriver 本地连接断开时，会关闭旧
+WebDriver、重建浏览器并重试一次，
 日志记录 `[MUSIC] QQ_SESSION_RESTART`。连续失败仍向用户明确报错，不会无限重试。
 
 QQ 音乐开发者平台的 H5 接入属于 QPlay Auth 登录鉴权：需要先注册应用取得 appId/appKey、

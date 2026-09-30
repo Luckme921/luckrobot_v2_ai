@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import threading
 from selenium.common.exceptions import InvalidSessionIdException
+from urllib3.exceptions import MaxRetryError
 
 from edge.music.qqmusic import (
     QQMusicController,
@@ -31,6 +32,27 @@ class QQMusicSessionRecoveryTest(unittest.TestCase):
 
         controller = FakeController()
         self.assertEqual(controller.search_candidates("泡沫"), ["泡沫"])
+        self.assertEqual((controller.calls, controller.closed), (2, 1))
+
+    def test_search_restarts_when_driver_connection_is_gone(self):
+        class FakeController:
+            def __init__(self):
+                self._driver_lock = threading.RLock()
+                self.calls = 0
+                self.closed = 0
+
+            def close(self):
+                self.closed += 1
+
+            @_driver_locked
+            def search_candidates(self, query):
+                self.calls += 1
+                if self.calls == 1:
+                    raise MaxRetryError(None, "/session/dead", reason="refused")
+                return [query]
+
+        controller = FakeController()
+        self.assertEqual(controller.search_candidates("安和桥"), ["安和桥"])
         self.assertEqual((controller.calls, controller.closed), (2, 1))
 
     def test_controls_do_not_repeat_after_browser_exits(self):

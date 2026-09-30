@@ -26,6 +26,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
+from urllib3.exceptions import MaxRetryError, ProtocolError
 
 from edge.audio.device_resolver.pulse import (
     resolve_speaker,
@@ -62,7 +63,12 @@ def _driver_locked(method):
         with self._driver_lock:
             try:
                 return method(self, *args, **kwargs)
-            except (InvalidSessionIdException, NoSuchWindowException) as exc:
+            except (
+                InvalidSessionIdException,
+                NoSuchWindowException,
+                MaxRetryError,
+                ProtocolError,
+            ) as exc:
                 # A desktop-session transition or Firefox crash can leave a
                 # live geckodriver object pointing at a dead browser. Search
                 # and play can safely start a fresh browser once; transport
@@ -78,7 +84,12 @@ def _driver_locked(method):
                 )
                 try:
                     return method(self, *args, **kwargs)
-                except (InvalidSessionIdException, NoSuchWindowException) as retry_exc:
+                except (
+                    InvalidSessionIdException,
+                    NoSuchWindowException,
+                    MaxRetryError,
+                    ProtocolError,
+                ) as retry_exc:
                     self.close()
                     raise QQMusicError(
                         "QQ Music browser session could not be restored"
@@ -224,7 +235,7 @@ class QQMusicController:
 
             try:
                 driver.quit()
-            except WebDriverException:
+            except (WebDriverException, MaxRetryError, ProtocolError, OSError):
                 pass
 
     def prewarm(self) -> str:
