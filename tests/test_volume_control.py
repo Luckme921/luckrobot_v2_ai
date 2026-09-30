@@ -1,7 +1,11 @@
 import unittest
+import subprocess
+from unittest.mock import patch
 
 from edge.audio.volume import (
     parse_volume_command,
+    PulseVolumeController,
+    PulseVolumeError,
 )
 
 
@@ -51,6 +55,16 @@ class VolumeCommandTest(
             "音量调大一点",
             "up",
         )
+
+    def test_requested_volume_up_phrase(self):
+        self.assert_action("我想加大点音量", "up")
+
+    def test_pactl_timeout_returns_an_error(self):
+        with patch("edge.audio.volume.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired("pactl", 3)) as run:
+            with self.assertRaises(PulseVolumeError):
+                PulseVolumeController._run(["pactl", "info"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 3)
 
     def test_volume_down_natural_order(self):
         self.assert_action(

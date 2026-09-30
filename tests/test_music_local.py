@@ -129,7 +129,7 @@ class LocalMusicTests(unittest.TestCase):
         self.assertIsNone(music.local_request("孙冬野南河桥"))
         request = music.local_request("我想听我想听宋冬野的安河桥")
         self.assertEqual(request["name"], "music_search")
-        self.assertEqual(request["arguments"]["query"], "宋冬野 安河桥")
+        self.assertEqual(request["arguments"]["query"], "宋冬野 安和桥")
         request = music.local_request("你可以放一首歌吗？")
         self.assertEqual(request["arguments"]["query"], "随便")
         request = music.local_request("搜一下邓紫棋的歌吧")
@@ -142,6 +142,43 @@ class LocalMusicTests(unittest.TestCase):
                 self.assertEqual(request["name"], "music_search")
                 self.assertEqual(request["arguments"]["query"], "随便")
         self.assertIsNone(music.local_request("请告诉我今天的天气"))
+
+    def test_random_prefers_a_different_track_on_next_request(self):
+        controller = Mock()
+        def candidates(query, limit=3):
+            artist, title = query.split(" ", 1)
+            return [dict(id=query, title=title, artists=[artist],
+                         backend="qqmusic", query=query)]
+        controller.search_candidates.side_effect = candidates
+        music = MusicTools({
+            "enabled": True, "provider": "qqmusic",
+            "preferences": {"search_attempts": 1, "preferred_tracks": [
+                {"artist": "周杰伦", "title": "晴天"},
+                {"artist": "邓紫棋", "title": "泡沫"},
+            ]},
+        }, controller=controller)
+        first = music.search("随便", utterance="随机播放一首歌")
+        second = music.search("随便", utterance="随机播放一首歌")
+        self.assertTrue(first["playing"])
+        self.assertTrue(second["playing"])
+        self.assertNotEqual(controller.play.call_args_list[0].args[0],
+                            controller.play.call_args_list[1].args[0])
+
+    def test_known_singer_title_uses_official_qq_title(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="original", title="安和桥", artists=["宋冬野"],
+                 backend="qqmusic", query="宋冬野 安和桥"),
+            dict(id="backing", title="安河桥 (伴奏)", artists=["其他人"],
+                 backend="qqmusic", query="宋冬野 安和桥"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic",
+                            "http": {"auto_play_enabled": True}}, controller=controller)
+        request = music.local_request("我要听宋冬野的安河桥")
+        answer = music.search(**request["arguments"])
+        self.assertTrue(answer["playing"])
+        controller.search_candidates.assert_called_once_with("宋冬野 安和桥", limit=3)
+        controller.play.assert_called_once_with("宋冬野 安和桥", preferred_mid="original", strict_mid=True)
 
     def test_natural_candidates_and_context_selection(self):
         music, player = self.setup_music([

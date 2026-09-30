@@ -35,6 +35,14 @@ def _base_song_title(value: str) -> str:
     return text
 
 
+def _canonical_music_query(value: str) -> str:
+    """Correct a known singer/title ASR pair before searching QQ Music."""
+    compact = re.sub(r"[\s的]+", "", str(value).strip())
+    if re.fullmatch(r"[宋孙]冬野[南安][河和]桥", compact):
+        return "宋冬野 安和桥"
+    return value
+
+
 def _extract_music_query(text: str) -> str | None:
     """Extract a local music query without asking the LLM for common phrasings."""
     value = re.sub(r"[，。！？,.!?]+$", "", str(text).strip())
@@ -80,10 +88,9 @@ def _extract_music_query(text: str) -> str | None:
         return None
     # A narrowly scoped correction for the observed ASR rendering of
     # "宋冬野的安和桥". Keep it behind an explicit music request.
-    if re.fullmatch(r"[宋孙]冬野(?:的)?[南安][河和]桥", value) and (
-        value.startswith("孙") or "南河桥" in value or "南和桥" in value
-    ):
-        return "宋冬野 安和桥"
+    canonical = _canonical_music_query(value)
+    if canonical != value:
+        return canonical
     artist_title = re.fullmatch(r"([^的]{2,8})的(.{2,40})", value)
     if artist_title:
         value = f"{artist_title.group(1).strip()} {artist_title.group(2).strip()}"
@@ -528,6 +535,7 @@ class MusicTools:
         self.deadline = 0.0
         self.playing = False
         self.current_song = None
+        self.recent_random_tracks = []
         self.before_playback = before_playback
         self.random_queries = http_config.get("random_queries", ["周杰伦", "陈奕迅", "孙燕姿"])
         preferences = config.get("preferences", {})
@@ -699,6 +707,12 @@ class MusicTools:
     def _random_search_and_play(self):
         tracks = list(self.preferred_tracks)
         random.shuffle(tracks)
+        if len(tracks) > 1:
+            fresh = [track for track in tracks if
+                     _normalize_text(track["artist"] + track["title"])
+                     not in self.recent_random_tracks]
+            if fresh:
+                tracks = fresh
         plans = [(f"{item['artist']} {item['title']}", item) for item in tracks]
         artists = list(self.preferred_artists or self.random_queries)
         random.shuffle(artists)
@@ -723,6 +737,11 @@ class MusicTools:
             self.deadline = self.clock() + 120
             answer = self._random_play(shuffle=track is None)
             if answer.get("playing"):
+                if track is not None:
+                    key = _normalize_text(track["artist"] + track["title"])
+                    self.recent_random_tracks = (
+                        [item for item in self.recent_random_tracks if item != key]
+                        + [key])[-4:]
                 print(f"[MUSIC] RANDOM_PLAY query={query!r}", flush=True)
                 return answer
         self.clear_pending()
@@ -736,6 +755,7 @@ class MusicTools:
         random_mode = is_random_request(utterance or query)
         if random_mode:
             return self._random_search_and_play()
+        query = _canonical_music_query(query)
         if not query.strip():
             return result("你想听哪首歌，或者哪位歌手的歌？", status="needs_input")
         if self.config.get("provider", "qqmusic") == "http":

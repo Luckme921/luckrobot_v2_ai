@@ -130,6 +130,9 @@ def parse_volume_command(
         phrase in q
         for phrase in (
             "调大音量",
+            "加大音量",
+            "加大点音量",
+            "我想加大点音量",
             "调高音量",
             "音量调大",
             "音量调大一点",
@@ -209,10 +212,12 @@ class PulseVolumeController:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=3,
             )
         except (
             OSError,
             subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
         ) as exc:
             raise PulseVolumeError(
                 "pactl command failed: "
