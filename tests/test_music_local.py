@@ -11,6 +11,26 @@ from robot_tools.music import (
 def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
 class LocalMusicTests(unittest.TestCase):
+    def test_stop_music_phrases_take_priority_over_pending_selection(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("one", "关闭音乐", "测试歌手")]
+        music.deadline = music.clock() + 120
+        for utterance in ("关闭音乐", "停止播放。", "关掉音乐", "别放了", "把歌关了"):
+            with self.subTest(utterance=utterance):
+                self.assertEqual(music.local_request(utterance), {
+                    "name": "music_control", "arguments": {"action": "stop_music"},
+                })
+
+    def test_qq_stop_control_clears_playback_state(self):
+        controller = Mock()
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.playing = True
+        music.current_song = {"title": "引爆全场", "artists": ["EVER"]}
+        answer = music.control(music.local_request("关闭音乐")["arguments"]["action"])
+        controller.stop.assert_called_once()
+        self.assertFalse(answer["playing"])
+        self.assertIsNone(answer["music"])
+
     def test_fresh_music_search_requires_explicit_cue(self):
         for text in [
             "放一首", "一首歌", "音乐", "歌曲", "来点小曲", "播放晴天", "我想听稻香",

@@ -658,14 +658,21 @@ class MusicTools:
         return None
 
     def local_request(self, text):
+        value = re.sub(r"[，。！？,.!?]+$", "", text.strip())
+        normalized = _normalize_text(value)
+        controls = {
+            "暂停音乐": "pause_music", "暂停播放": "pause_music", "暂停歌曲": "pause_music",
+            "关闭音乐": "stop_music", "关掉音乐": "stop_music", "音乐关掉": "stop_music",
+            "停止音乐": "stop_music", "停止播放": "stop_music", "结束播放": "stop_music",
+            "停止放歌": "stop_music", "别放了": "stop_music", "不要放了": "stop_music",
+            "把音乐关了": "stop_music", "把歌关了": "stop_music", "关掉歌曲": "stop_music",
+            "继续播放": "resume_music", "继续音乐": "resume_music",
+        }
+        if normalized in controls:
+            return {"name": "music_control", "arguments": {"action": controls[normalized]}}
         selection = self.selection_request(text)
         if selection is not None:
             return {"name": "music_select", "arguments": {"selection": selection}}
-        value = re.sub(r"[，。！？,.!?]+$", "", text.strip())
-        controls = {"暂停音乐":"pause_music", "停止音乐":"stop_music", "结束播放":"stop_music",
-                    "继续播放":"resume_music", "继续音乐":"resume_music"}
-        if value in controls:
-            return {"name":"music_control", "arguments":{"action":controls[value]}}
         if _normalize_text(value) in {
             "换歌", "换一首", "换首", "换一首歌", "换一首歌曲", "换个歌",
             "再来一首", "再来首", "再找一首", "再找首", "再找一首歌",

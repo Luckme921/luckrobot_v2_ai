@@ -166,6 +166,9 @@ QQ 返回了不相关列表时不再读出候选；只有没有明确点歌结�
 模型不能只口头承诺播放：真正播放必须由 music_search 工具成功返回。
 QQ 播放器会暂停所有旧播放页；PulseAudio sink-input 短暂消失时重新枚举再迁移。
 若最终仍未确认播放，停止播放器、清除候选并记录 QQ_PLAY_FAILED 的异常原因。
+“关闭音乐 / 停止播放 / 关掉音乐 / 别放了”等短句优先映射到
+`music_control(action=stop_music)`，即使正在等待选歌也不当歌名搜索。
+播放音乐时仍处于唤醒等待状态，先喊 Lucky，再说停止命令。
 
 QQ 音乐开发者平台的 H5 接入属于 QPlay Auth 登录鉴权：需要先注册应用取得 appId/appKey、
 配置 callback，通过授权得到 openID/openToken，再申请相应 OpenAPI 权限。扫码/H5 授权本身
