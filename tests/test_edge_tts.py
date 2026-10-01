@@ -1,10 +1,22 @@
 import unittest
+from concurrent.futures import Future
 from pathlib import Path
 from unittest.mock import Mock
 from edge.audio.tts.edge_online import EdgeOnlineTts
 from edge.audio.tts.kokoro import TtsError
 
 class EdgeTtsTests(unittest.TestCase):
+    def test_first_segment_uses_already_prepared_fallback_before_audio(self):
+        fallback = Mock()
+        tts = EdgeOnlineTts({}, fallback)
+        tts._online = Mock(side_effect=TimeoutError())
+        future = Future()
+        future.set_result("offline audio")
+        tts.speak_with_prepared_fallback("test", "sink", future)
+        fallback.play_prepared.assert_called_once_with(
+            "offline audio", "sink", before_playback=None, cancellation=None)
+        fallback.prepare.assert_not_called()
+
     def test_failure_before_audio_falls_back(self):
         fallback=Mock(); tts=EdgeOnlineTts({},fallback); gate=Mock()
         tts._online=Mock(side_effect=TimeoutError())

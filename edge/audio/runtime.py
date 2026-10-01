@@ -1775,7 +1775,9 @@ def main() -> None:
                                             tts, speaker, turn_monitor.cancellation,
                                             before_playback=acknowledgements.finish,
                                             max_workers=tts_cfg.get(
-                                                "stream_prefetch_workers", 3))
+                                                "stream_prefetch_workers", 3),
+                                            fallback_grace_seconds=tts_cfg.get(
+                                                "stream_fallback_grace_seconds", 0.35))
 
                                     def on_turn_event(event):
                                         nonlocal turn_display_reply

@@ -43,6 +43,31 @@ class EdgeOnlineTts:
             print(f"[TTS] PREPARE_FALLBACK provider=kokoro error={type(exc).__name__}", flush=True)
             return self.fallback.prepare(text, cancellation=cancellation)
 
+    def prepare_online(self, text, cancellation=None):
+        """Prepare only Edge audio; the ordered player chooses its warm fallback."""
+        return self._prepare_online(text, cancellation)
+
+    def prepare_offline(self, text, cancellation=None):
+        return self.fallback.prepare(text, cancellation=cancellation)
+
+    def speak_with_prepared_fallback(self, text, sink, fallback_future, *,
+                                     before_playback=None, cancellation=None):
+        state = {"submitted": False}
+        try:
+            return self._online(text, sink, before_playback, state, cancellation)
+        except Exception as exc:
+            if cancellation is not None:
+                cancellation.check()
+            if state["submitted"]:
+                raise TtsError("Online speech interrupted after playback began") from exc
+            print(f"[TTS] FALLBACK_PREPARED provider=kokoro error={type(exc).__name__}", flush=True)
+            audio = fallback_future.result()
+            if cancellation is not None:
+                cancellation.check()
+            return self.fallback.play_prepared(
+                audio, sink, before_playback=before_playback,
+                cancellation=cancellation)
+
     def _prepare_online(self, text, cancellation=None):
         text = normalize_for_speech(text)
         if not text:
