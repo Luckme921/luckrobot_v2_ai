@@ -98,6 +98,38 @@ class LocalMusicTests(unittest.TestCase):
         self.assertIsNone(music.local_request("我想听你上次搜到的米小圈那首"))
         self.assertIsNone(music.local_request("我忘了歌名，歌词里有一句下雨"))
 
+    def test_model_suggested_song_is_saved_then_selected_without_new_keyword_search(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="qq-original", title="从头再来《知青家庭》电视剧主题曲",
+                 artists=["刘欢"], backend="qqmusic", query="刘欢 从头再来")]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        reply = "我找到了刘欢的《弯弯的月亮》、刘欢的《好汉歌》、刘欢的《从头再来》。你想听哪首？"
+        self.assertTrue(music.stage_suggested_songs(reply))
+        self.assertEqual([song["title"] for song in music.pending],
+                         ["弯弯的月亮", "好汉歌", "从头再来"])
+        request = music.local_request("那个从头再来好听吗？你播放一下给我听")
+        self.assertEqual(request, {"name": "music_select", "arguments": {
+            "selection": "suggested:2"}})
+        answer = music.select(request["arguments"]["selection"])
+        self.assertTrue(answer["playing"])
+        controller.search_candidates.assert_called_once_with("刘欢 从头再来", limit=3)
+        controller.play.assert_called_once_with("刘欢 从头再来", preferred_mid="qq-original", strict_mid=True)
+
+    def test_pending_annotated_title_is_selected_from_full_sentence(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("target", "从头再来《知青家庭》电视剧主题曲", "刘欢"),
+                         song("other", "千万次的问", "刘欢")]
+        music.deadline = music.clock() + 120
+        request = music.local_request("就是你上次找到的那个刘欢的，从头再来，你放给我听")
+        self.assertEqual(request, {"name": "music_select", "arguments": {
+            "selection": "target"}})
+
+    def test_original_requested_song_rejects_unasked_user_remix(self):
+        remix = dict(id="remix", title="从头再来 (网友改编)",
+                     artists=["刘欢"], backend="qqmusic")
+        self.assertIsNone(explicit_candidate("刘欢 从头再来", [remix]))
+
     def test_pending_context_and_change_song_do_not_search_literal_suibian(self):
         music, _ = self.setup_music([])
         music.pending = [song("one", "I don't wanna see u anymore", "乃万NINEONE")]

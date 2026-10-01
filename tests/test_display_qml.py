@@ -19,11 +19,11 @@ class DisplayQmlTests(unittest.TestCase):
         self.assertIn("id: equalizer", source)
         self.assertIn("正在播放：《", source)
         self.assertIn('visible: root.robotState !== "music"', source)
-        self.assertIn('root.robotState === "music" ? 0.18 : 0.29', source)
+        self.assertIn('root.robotState === "music" ? 0.18 : 0.34', source)
         self.assertIn("id: assistantViewport", source)
         self.assertIn("Flickable", source)
-        self.assertIn("wrapMode: Text.Wrap", source)
-        self.assertIn("assistantViewport.contentY", source)
+        self.assertIn("wrapMode: Text.WrapAnywhere", source)
+        self.assertIn("assistantViewport.contentY = 0", source)
 
     def test_device_launcher_uses_validated_linuxfb_and_dynamic_touch(self):
         source = Path("scripts/run_display_qt.sh").read_text(encoding="utf-8")

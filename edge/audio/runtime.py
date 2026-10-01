@@ -2138,6 +2138,8 @@ def main() -> None:
                                                 continue
 
                                         if agent_reply.text:
+                                            if agent_reply.model not in {"local-music", "local-tool", "local-music-guard"}:
+                                                music_tools.stage_suggested_songs(agent_reply.text)
                                             # Plain Cloud replies are archived by CloudAgentClient
                                             # before it returns. Local tool replies are marked above.
                                             turn_memory_recorded = True

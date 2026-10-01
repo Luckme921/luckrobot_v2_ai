@@ -287,7 +287,7 @@ def explicit_candidate(query, songs, minimum_score=0.62):
         if not title:
             continue
         if any(marker in title and marker not in q for marker in
-               ("伴奏", "纯音乐", "dj", "remix", "翻唱")):
+               ("伴奏", "纯音乐", "dj", "remix", "翻唱", "改编", "原声")):
             continue
         for artist in song.get("artists", []):
             a = _normalize_text(artist)
@@ -625,6 +625,33 @@ class MusicTools:
                      artists=[str(artist)[:80] for artist in song.get("artists", [])[:4]])
                 for index, song in enumerate(self.pending[:10], 1)]
 
+    def stage_suggested_songs(self, reply):
+        """Keep model-mentioned artist/title pairs selectable, but verify on QQ later."""
+        if self.has_pending or "我找到了" not in reply:
+            return False
+        pairs = re.findall(r"([^，、。；\n]{2,28}?)的《([^》]{2,80})》", reply)
+        suggestions = []
+        seen = set()
+        for raw_artist, raw_title in pairs:
+            artist = re.split(r"(?:我找到了|还找到了|以及|比如)", raw_artist)[-1].strip()
+            title = raw_title.strip()
+            if not artist or len(artist) > 16 or not title:
+                continue
+            key = (_normalize_text(artist), _normalize_text(title))
+            if key in seen:
+                continue
+            seen.add(key)
+            suggestions.append(dict(id=f"suggested:{len(suggestions)}", title=title,
+                                    artists=[artist], backend="recommendation",
+                                    query=f"{artist} {title}"))
+        if not suggestions:
+            return False
+        self.pending = suggestions[:self.pending_limit]
+        self.deadline = self.clock() + 120
+        print("[MUSIC] SUGGESTIONS_STAGED " + json.dumps(
+            self.pending_context(), ensure_ascii=False, separators=(',', ':')), flush=True)
+        return True
+
     def playback_finished(self):
         """Consume a natural HTTP-player exit and clear stale playback state."""
         if (
@@ -713,6 +740,15 @@ class MusicTools:
             if len(matches) == 1:
                 return matches[0]["id"]
         spoken = _normalize_text(text)
+        title_matches = []
+        for song in self.pending:
+            raw_title = str(song.get("title", ""))
+            primary_title = raw_title.split("《", 1)[0].strip() or raw_title
+            title = _normalize_text(primary_title)
+            if len(title) >= 3 and title in spoken:
+                title_matches.append(song)
+        if len(title_matches) == 1:
+            return title_matches[0]["id"]
         artist_matches = [song for song in self.pending if any(
             len(_normalize_text(artist)) >= 3 and _normalize_text(artist) in spoken
             for artist in song.get("artists", []))]
@@ -892,6 +928,10 @@ class MusicTools:
             songs = [song for song in songs if
                      explicit_candidate(query, [song], self.fuzzy_auto_play_score)]
             if not songs:
+                fresh = self.controller.search_candidates(query, limit=3)
+                songs = [song for song in fresh if
+                         explicit_candidate(query, [song], self.fuzzy_auto_play_score)]
+            if not songs:
                 return result("没有找到这位歌手的这首歌，请再说一次歌手和歌名。",
                               status="not_found")
 
@@ -950,6 +990,15 @@ class MusicTools:
                 return result("这首推荐曲目暂时搜索失败了，请换一首。",
                               ok=False, status="unavailable")
             chosen = explicit_candidate(song["query"], candidates, self.fuzzy_auto_play_score)
+            if chosen is None and self.config.get("provider", "qqmusic") == "qqmusic":
+                try:
+                    candidates = self.controller.search_candidates(song["query"], limit=3)
+                    chosen = explicit_candidate(song["query"], candidates, self.fuzzy_auto_play_score)
+                except (OSError, RuntimeError) as exc:
+                    print(f"[MUSIC] RECOMMEND_SEARCH_FAILED error={type(exc).__name__}", flush=True)
+                    self.clear_pending()
+                    return result("这首推荐曲目暂时搜索失败了，请换一首。",
+                                  ok=False, status="unavailable")
             if chosen is None:
                 self.clear_pending()
                 return result("QQ 音乐没有找到这位歌手的这首推荐曲目，请换一首。",

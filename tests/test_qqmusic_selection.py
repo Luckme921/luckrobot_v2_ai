@@ -15,6 +15,22 @@ from edge.music.qqmusic import (
 
 
 class QQMusicSessionRecoveryTest(unittest.TestCase):
+    def test_play_scrolls_result_before_javascript_click(self):
+        controller = QQMusicController(profile_path=".")
+        driver, song, row = Mock(), Mock(), Mock()
+        with patch.object(controller, "_require_driver", return_value=driver), \
+             patch.object(controller, "stop"), \
+             patch.object(controller, "_ensure_search_window"), \
+             patch.object(controller, "_find_song_by_mid", return_value=song), \
+             patch.object(controller, "_song_row", return_value=row), \
+             patch.object(controller, "_switch_to_player"), \
+             patch.object(controller, "route_audio"), \
+             patch.object(controller, "current_track", return_value="从头再来 - 刘欢"):
+            track = controller.play("刘欢 从头再来", preferred_mid="song-id", strict_mid=True)
+        self.assertEqual(track, "从头再来 - 刘欢")
+        self.assertIn("scrollIntoView", driver.execute_script.call_args_list[0].args[0])
+        self.assertIn("click()", driver.execute_script.call_args_list[1].args[0])
+
     def test_audio_route_retries_disappeared_firefox_input(self):
         controller = QQMusicController(profile_path=".", speaker_match_any=["XVF3800"])
         controller._firefox_sink_inputs = Mock(side_effect=[["old"], ["new"]])

@@ -19,9 +19,6 @@ from selenium.common.exceptions import (
     TimeoutException,
     WebDriverException,
 )
-from selenium.webdriver.common.action_chains import (
-    ActionChains,
-)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
@@ -1256,11 +1253,13 @@ class QQMusicController:
         )
 
         try:
-            ActionChains(
-                driver
-            ).move_to_element(
-                row
-            ).perform()
+            # A result can be below the visible viewport in kiosk mode.
+            # Pointer movement can then fail before the click is attempted.
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center',inline:'nearest'});"
+                "arguments[0].dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));",
+                row,
+            )
 
             play_button = (
                 row.find_element(

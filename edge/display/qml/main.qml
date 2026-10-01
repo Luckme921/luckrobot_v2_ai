@@ -201,7 +201,7 @@ Window {
     Item {
         id: lowerPanel
         width: root.width * 0.92
-        height: root.height * (root.robotState === "music" ? 0.18 : 0.29)
+        height: root.height * (root.robotState === "music" ? 0.18 : 0.34)
         anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.025 }
 
         Text {
@@ -231,7 +231,7 @@ Window {
                 width: parent.width; horizontalAlignment: Text.AlignHCenter
                 text: root.userText ? "你：" + root.userText : ""; color: "#8ba8bb"
                 font.pixelSize: Math.max(15, root.height * 0.025)
-                wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+                wrapMode: Text.WrapAnywhere; maximumLineCount: 2; elide: Text.ElideRight
             }
             Flickable {
                 id: assistantViewport
@@ -242,11 +242,12 @@ Window {
                     id: assistantBody
                     width: assistantViewport.width
                     text: root.assistantText; color: "#effcff"; font.bold: true
-                    font.pixelSize: Math.max(19, root.height * 0.036)
+                    font.pixelSize: Math.max(18, root.height * 0.032)
                     horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WrapAnywhere
                     onTextChanged: Qt.callLater(function() {
-                        assistantViewport.contentY = Math.max(0, assistantBody.paintedHeight - assistantViewport.height)
+                        assistantViewport.contentY = 0
                     })
                 }
             }
