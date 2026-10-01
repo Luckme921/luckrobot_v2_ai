@@ -4,7 +4,8 @@ from pathlib import Path
 import wave
 from edge.audio.acknowledgement import PHRASES
 WAKE_PHRASES = {"wake_here": "我在呢。", "wake_hello": "你好呀。", "wake_chat": "有什么想聊的吗？"}
-ALL_PHRASES = {**PHRASES, **WAKE_PHRASES}
+GOODBYE_PHRASES = {"bye_short": "拜拜，下次聊。", "bye_hello": "那我先告退了。"}
+ALL_PHRASES = {**PHRASES, **WAKE_PHRASES, **GOODBYE_PHRASES}
 
 def cache_path(voice, text):
     key = hashlib.sha256(("pcm24k-v1|"+voice+"|"+text).encode()).hexdigest()[:24]

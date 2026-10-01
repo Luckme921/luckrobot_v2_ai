@@ -55,7 +55,7 @@ def print(*args, **kwargs):
 import argparse
 import json
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
-from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, cache_path, valid_clip
+from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, GOODBYE_PHRASES, cache_path, valid_clip
 from shared.timing import begin_turn, measure, record, turn_started
 from pathlib import Path
 import subprocess
@@ -283,6 +283,7 @@ def main() -> None:
     music_library = None
     music_prewarm_thread = None
     music_playing = False
+    goodbye_reply_index = 0
 
     if bool(
         music_cfg.get(
@@ -902,6 +903,7 @@ def main() -> None:
                     [],
                 )
             ),
+            include_pre_wake_speech=bool(wake_cfg.get("include_pre_wake_speech", False)),
             chat_mode_triggers=(
                 interaction_cfg[
                     "chat_mode_triggers"
@@ -1023,6 +1025,20 @@ def main() -> None:
         "[MUSIC] PREWARM_BACKGROUND",
         flush=True,
     )
+
+    music_metadata_stop = threading.Event()
+    def watch_qq_track():
+        while not music_metadata_stop.wait(3.0):
+            if not music_tools.playing:
+                continue
+            try:
+                current = music_tools.refresh_current_track()
+                if current is not None:
+                    display_music(current)
+            except Exception as exc:
+                print(f"[MUSIC] TRACK_POLL_FAILED error={type(exc).__name__}", flush=True)
+    if music_controller is not None:
+        threading.Thread(target=watch_qq_track, name="qq-track-display", daemon=True).start()
 
     state = None
 
@@ -1482,6 +1498,18 @@ def main() -> None:
                             ):
                                 music_tools.clear_pending()
                                 acknowledgements.finish()
+                                names = list(GOODBYE_PHRASES)
+                                clip = ack_clips.get(names[goodbye_reply_index % len(names)])
+                                goodbye_reply_index += 1
+                                if clip is not None and speaker != "<unavailable>":
+                                    capture.stop()
+                                    try:
+                                        subprocess.run(["paplay", f"--device={speaker}", str(clip)],
+                                                       check=True, timeout=15)
+                                    except (OSError, subprocess.SubprocessError) as exc:
+                                        print(f"[GOODBYE] REPLY_ERROR {type(exc).__name__}", flush=True)
+                                    finally:
+                                        capture.start()
                                 vad = create_vad(vad_cfg, sample_rate)
                                 zero_audio_samples = 0
                                 print(
@@ -2099,6 +2127,15 @@ def main() -> None:
                                                         text="我没听清，能再说一遍吗？",
                                                         model="local-music-guard",
                                                     )
+                                            elif request.action == "recommend_music":
+                                                tool_request = {"name": "music_search",
+                                                    "arguments": {"query": "推荐", "utterance": command_text}}
+                                            elif request.action == "end_conversation":
+                                                tool_request = None
+                                                agent_reply = AgentReply(text="拜拜，下次聊。", model="local-goodbye")
+                                                agent_client.record_completed_turn(command_text, agent_reply.text)
+                                                interaction_gate.reset()
+                                                music_tools.clear_pending()
                                             elif request.action == "select_music":
                                                 tool_request = {"name": "music_select",
                                                     "arguments": {"selection": request.query}}
@@ -2412,6 +2449,7 @@ def main() -> None:
         )
 
     finally:
+        music_metadata_stop.set()
         direction_monitor.stop()
         music_tools.close()
         acknowledgements.finish()

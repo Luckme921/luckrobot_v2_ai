@@ -144,7 +144,8 @@ TURN_ROUTE_SCHEMA = {
             "需要观察当前或最近现实画面选择 request_vision；"
             "需要最新互联网信息选择 web_search；"
             "明确要求机器人前往地点选择 navigate_to；"
-            "播放歌曲选择 play_music；"
+            "播放一首歌曲选择 play_music；推荐或找几首供选择选择 recommend_music；"
+            "明确结束对话选择 end_conversation；"
             "暂停音乐选择 pause_music；"
             "继续音乐选择 resume_music；"
             "切换下一首选择 next_music；"
@@ -163,6 +164,8 @@ TURN_ROUTE_SCHEMA = {
                         "web_search",
                         "navigate_to",
                         "play_music",
+                        "recommend_music",
+                        "end_conversation",
                         "pause_music",
                         "resume_music",
                         "next_music",

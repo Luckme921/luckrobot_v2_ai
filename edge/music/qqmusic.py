@@ -881,6 +881,7 @@ class QQMusicController:
             handle
         )
 
+    @_driver_locked
     def current_track(
         self,
     ) -> str:

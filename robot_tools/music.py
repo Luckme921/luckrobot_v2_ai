@@ -694,7 +694,24 @@ class MusicTools:
         lines = [line.strip() for line in track.splitlines() if line.strip()]
         if not lines:
             return fallback
+        if len(lines) == 1 and " - " in lines[0]:
+            title, artist = lines[0].rsplit(" - ", 1)
+            return {"title": title.strip(), "artists": [artist.strip()]}
         return {"title": lines[0], "artists": lines[1:3]}
+
+    def refresh_current_track(self):
+        """Return metadata only when QQ has advanced to a different song."""
+        if not self.playing or self.controller is None or self.config.get("provider") != "qqmusic":
+            return None
+        track = self.controller.current_track()
+        if not self.playing:
+            return None
+        song = self._qq_track_metadata(track)
+        if not song or song == self.current_song:
+            return None
+        self.current_song = song
+        print(f"[MUSIC] TRACK_CHANGED title={song['title']!r}", flush=True)
+        return self._display_song(song)
 
     def _selection_matches(self, text):
         """Use pending titles/artists/versions as temporary ASR context."""
@@ -769,6 +786,10 @@ class MusicTools:
     def local_request(self, text):
         value = re.sub(r"[，。！？,.!?]+$", "", text.strip())
         normalized = _normalize_text(value)
+        if any(phrase in normalized for phrase in (
+                "找一点其他", "找一些其他", "找点其他", "再找一点其他",
+                "再找一些", "找几首", "推荐几首", "找点别的")):
+            return None
         controls = {
             "暂停音乐": "pause_music", "暂停播放": "pause_music", "暂停歌曲": "pause_music",
             "关闭音乐": "stop_music", "关掉音乐": "stop_music", "音乐关掉": "stop_music",
@@ -782,6 +803,14 @@ class MusicTools:
         if is_change_music_request(value, has_context=(
                 self.playing or self.current_song is not None or self.has_pending)):
             return {"name": "music_search", "arguments": {"query": "随便", "utterance": text}}
+        # A conversational instruction is not a QQ search term. Route it with
+        # context so the model can decide whether to resume, recommend or play.
+        if any(phrase in normalized for phrase in (
+                "继续播放刚才", "继续放刚才", "之前的歌", "刚才的歌")):
+            if normalized in {"继续播放刚才的歌曲", "继续播放刚才的歌",
+                              "继续放刚才的歌曲", "继续放刚才的歌"}:
+                return {"name": "music_control", "arguments": {"action": "resume_music"}}
+            return None
         selection = self.selection_request(text)
         if selection is not None:
             return {"name": "music_select", "arguments": {"selection": selection}}
@@ -801,6 +830,9 @@ class MusicTools:
             return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
         query = _extract_music_query(value)
         if query:
+            if any(token in _normalize_text(query) for token in (
+                    "其他", "别的", "刚才", "之前", "继续", "再去找", "推荐")):
+                return None
             if _normalize_text(query) in {"歌", "歌曲", "音乐", "一首歌", "一首音乐"}:
                 return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
             return {"name":"music_search", "arguments":{"query":query,"utterance":text}}
@@ -899,7 +931,7 @@ class MusicTools:
         self.clear_pending()
         if not self.config.get("enabled", False):
             return result("音乐功能目前未启用。", ok=False, status="unavailable")
-        if is_recommendation_request(utterance or query):
+        if query == "推荐" or is_recommendation_request(utterance or query):
             return self._recommend()
         random_mode = is_random_request(query) or is_random_request(utterance)
         if random_mode:

@@ -67,6 +67,17 @@ def create_gate() -> InteractionGate:
 class InteractionGateTest(
     unittest.TestCase
 ):
+    def test_pre_wake_speech_is_optional(self):
+        gate = create_gate()
+        gate.on_wake(0.0)
+        result = gate.process("今天天气怎么样，Lucky，告诉我气温", now=1.0)
+        self.assertEqual(result.command, "告诉我气温")
+        gate = create_gate()
+        gate.include_pre_wake_speech = True
+        gate.on_wake(0.0)
+        result = gate.process("今天天气怎么样，Lucky，告诉我气温", now=1.0)
+        self.assertEqual(result.command, "今天天气怎么样，Lucky，告诉我气温")
+
     def test_sleeping_ignores_text(self):
         gate = create_gate()
 

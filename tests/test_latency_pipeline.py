@@ -169,8 +169,9 @@ class RouteValidationTests(unittest.TestCase):
             {"action": "request_vision", "vision_mode": "recent", "count": 3, "seconds": 4},
             {"action": "web_search", "query": "weather", "recency": "oneDay"},
             {"action": "navigate_to", "location": "kitchen"},
-        ] + [{"action": a} for a in ["play_music", "pause_music", "resume_music",
-                                     "next_music", "previous_music", "stop_music"]]
+        ] + [{"action": a} for a in ["play_music", "recommend_music", "end_conversation",
+                                      "pause_music", "resume_music", "next_music",
+                                      "previous_music", "stop_music"]]
         for case in cases:
             with self.subTest(case=case):
                 actual = GLMAgent._validated_json_route(response(json.dumps(case)).choices[0])

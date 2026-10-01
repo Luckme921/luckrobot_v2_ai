@@ -72,6 +72,7 @@ interaction:
     keywords_threshold: 0.2
     num_trailing_blanks: 1
     wake_command_timeout_seconds: 8.0
+    include_pre_wake_speech: false
     transcript_aliases:
     - lucky
     - luck

@@ -239,6 +239,8 @@ class MusicRequestResponse(
 ):
     action: Literal[
         "play_music",
+        "recommend_music",
+        "end_conversation",
         "pause_music",
         "resume_music",
         "next_music",

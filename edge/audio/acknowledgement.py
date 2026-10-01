@@ -6,9 +6,15 @@ from shared.timing import record
 
 PHRASES = {
     "web_search": "我帮你查一下。",
+    "web_search_alt": "让我找一找。",
+    "web_search_more": "我帮你搜索一下。",
     "get_weather": "我帮你查一下天气。",
+    "get_weather_alt": "我看看天气怎么样。",
+    "get_weather_more": "稍等，我查查天气。",
     "request_vision": "我看一下。",
     "play_music": "我帮你找一下音乐。",
+    "play_music_alt": "让我找找这首歌。",
+    "play_music_more": "稍等，我看看有哪些歌。",
     "navigate_to": "我检查一下导航请求。",
 }
 
@@ -24,6 +30,7 @@ class ToolAcknowledgement:
         self._closed = True
         self._generation = 0
         self.played = False
+        self._phrase_index = {}
 
     def begin_turn(self):
         self.finish()
@@ -36,7 +43,14 @@ class ToolAcknowledgement:
     def on_event(self, event):
         if event.get("type") != "tool_start":
             return
-        path = self.clips.get(event.get("action"))
+        action = event.get("action")
+        variants = [key for key in (action, f"{action}_alt", f"{action}_more")
+                    if key in self.clips]
+        if not variants:
+            return
+        index = self._phrase_index.get(action, 0)
+        self._phrase_index[action] = index + 1
+        path = self.clips[variants[index % len(variants)]]
         if path is None or self.sink == "<unavailable>":
             return
         with self._lock:

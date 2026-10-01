@@ -57,11 +57,13 @@ class InteractionGate:
         sleep_phrases: list[str],
         emergency_stop_phrases: list[str],
         post_kws_transcript_aliases: list[str] | None = None,
+        include_pre_wake_speech: bool = False,
         enabled: bool = True,
     ) -> None:
         self.enabled = bool(
             enabled
         )
+        self.include_pre_wake_speech = bool(include_pre_wake_speech)
 
         self.wake_command_timeout_seconds = (
             float(
@@ -279,6 +281,15 @@ class InteractionGate:
             key=len,
             reverse=True,
         )
+
+        if after_kws and not self.include_pre_wake_speech:
+            # The VAD segment may start before KWS fires. Only an actual ASR
+            # wake alias provides a safe boundary within that segment.
+            positions = [(folded.find(alias.casefold()), alias) for alias in aliases]
+            positions = [(position, alias) for position, alias in positions if position > 0]
+            if positions:
+                position, alias = min(positions, key=lambda item: item[0])
+                return self._clean(cleaned[position + len(alias):])
 
         for alias in aliases:
             alias_folded = (

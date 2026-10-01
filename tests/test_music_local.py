@@ -13,6 +13,16 @@ from robot_tools.music import (
 def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
 class LocalMusicTests(unittest.TestCase):
+    def test_qq_track_refresh_reports_auto_advance_once(self):
+        controller = Mock()
+        controller.current_track.return_value = "七里香 - 周杰伦"
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.playing = True
+        music.current_song = {"title": "稻香", "artists": ["周杰伦"]}
+        self.assertEqual(music.refresh_current_track(), {
+            "title": "七里香", "artists": ["周杰伦"]})
+        self.assertIsNone(music.refresh_current_track())
+
     def test_stop_music_phrases_take_priority_over_pending_selection(self):
         music, _ = self.setup_music([])
         music.pending = [song("one", "关闭音乐", "测试歌手")]
@@ -136,18 +146,14 @@ class LocalMusicTests(unittest.TestCase):
         music.deadline = music.clock() + 120
         self.assertEqual(music.pending_context(), [{
             "index": 1, "title": "I don't wanna see u anymore", "artists": ["乃万NINEONE"]}])
-        request = music.local_request("我不想听随便你再找点其他歌")
-        self.assertEqual(request["arguments"]["query"], "随便")
-        music._random_search_and_play = Mock(return_value={"status": "success"})
-        music.search(**request["arguments"])
-        music._random_search_and_play.assert_called_once()
+        self.assertIsNone(music.local_request("我不想听随便你再找点其他歌"))
 
     def test_followup_change_requests_skip_literal_search(self):
         music, _ = self.setup_music([])
         music.pending = [song("old", "龙卷风", "周杰伦")]
         music.deadline = music.clock() + 120
         for phrase in (
-            "再换一首歌", "再找一点其他的", "我不想听，随便换一首",
+            "再换一首歌", "我不想听，随便换一首",
             "我让你再换一首，不是说歌名是叫再换一首，而是让你再去找一首歌",
         ):
             with self.subTest(phrase=phrase):
@@ -156,6 +162,10 @@ class LocalMusicTests(unittest.TestCase):
                 self.assertEqual(request, {"name": "music_search", "arguments": {
                     "query": "随便", "utterance": phrase}})
         self.assertFalse(is_change_music_request("再找一点其他的", has_context=False))
+        self.assertIsNone(music.local_request("你再找一点其他的音乐"))
+        self.assertIsNone(music.local_request("再找一点其他的"))
+        self.assertEqual(music.local_request("继续播放刚才的歌曲"), {
+            "name": "music_control", "arguments": {"action": "resume_music"}})
 
     def test_fresh_music_search_requires_explicit_cue(self):
         for text in [

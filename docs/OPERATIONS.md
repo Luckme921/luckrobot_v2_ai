@@ -1,5 +1,7 @@
 # Jetson 启动、测试与维护
 
+2026-10-01 更新：`interaction.wake.include_pre_wake_speech` 默认为 `false`。KWS 后首段 ASR 若识别到位于句中的唤醒词，默认只处理唤醒词后的内容；设为 `true` 则保留整段。ASR 没有转写出唤醒词时无法可靠确定切分点，现场应核对 `[ASR_TEXT]`、`[COMMAND]`。过渡语和告别语增加了缓存短句，部署后运行 `python scripts/cache_tts_phrases.py` 为晓晓生成新缓存；若缓存缺失，启动时会尝试本地 Kokoro 合成。测试命令为 `.venv/bin/python -B -m unittest discover -s tests -q`，并检查 `git diff --check`。QQ 自动换曲的屏幕显示还需设备现场验收。
+
 在 /home/jetson/luckrobot_latency_test 执行：
 
     bash scripts/run_robot.sh --check

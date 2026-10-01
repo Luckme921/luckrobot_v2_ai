@@ -168,9 +168,10 @@ class GLMAgent:
             "action=request_vision 表示需要当前或最近视觉证据；"
             "action=web_search 表示需要实时互联网信息；"
             "action=navigate_to 表示明确导航请求；"
-            "action=play_music、pause_music、resume_music、"
+            "action=play_music、recommend_music、pause_music、resume_music、"
             "next_music、previous_music、stop_music "
-            "表示音乐控制请求。歌曲先搜索候选，再由用户选择播放。"
+            "表示音乐控制请求。要求一首直接尝试播放，要求几首则推荐供选择。"
+            "action=end_conversation 表示用户明确告别或要求结束会话。"
             "音乐动作必须交给 Edge 执行，"
             "云端不能假装已经播放或控制成功。"
             "如果用户只记得部分歌名、歌词或上一轮候选，先结合上下文"
@@ -633,6 +634,7 @@ class GLMAgent:
 
         music_actions = {
             "play_music",
+            "recommend_music",
             "pause_music",
             "resume_music",
             "next_music",
@@ -656,6 +658,9 @@ class GLMAgent:
                     query=query,
                 ),
             }
+
+        if action == "end_conversation":
+            return {"action": action, "music_request": MusicRequest(action=action)}
 
         raise ValueError(
             "Unsupported route_turn action "
@@ -1060,9 +1065,12 @@ class GLMAgent:
                     "才能选择音乐 action。孤立的短词、人名、物名或"
                     "可能由唤醒词误识别产生的词选择 respond_text，"
                     "不得擅自把它当歌名搜索。"
-                    "用户要求播放歌曲选择 play_music，"
-                    "并在 music_query 中保留歌名、歌手"
+                    "用户要求播放歌曲选择 play_music，music_query 保留歌名、歌手"
                     "或用户原始音乐关键词。"
+                    "用户不知道歌名、想找一首时，选择 play_music，music_query 写随便；"
+                    "用户想找一些或几首歌供挑选时，选择 recommend_music。"
+                    "用户说继续播放刚才的歌，选择 resume_music，不要搜索歌曲。"
+                    "用户在较长话语结尾明确道别、说晚安或结束对话时，选择 end_conversation。"
                     "暂停音乐选择 pause_music；"
                     "继续音乐选择 resume_music；"
                     "下一首选择 next_music；"
@@ -1478,6 +1486,7 @@ class GLMAgent:
                     f" music_query={getattr(route.get('music_request'), 'query', '')!r}"
                     if action in {
                         "play_music", "select_music", "pause_music", "resume_music",
+                        "recommend_music",
                         "next_music", "previous_music", "stop_music",
                     }
                     else ""
@@ -1500,6 +1509,7 @@ class GLMAgent:
 
             if action in {
                 "play_music",
+                "recommend_music",
                 "pause_music",
                 "resume_music",
                 "next_music",
@@ -1513,6 +1523,9 @@ class GLMAgent:
                         "music_request"
                     ]
                 )
+
+            if action == "end_conversation":
+                raise MusicRequestRequired(route["music_request"])
 
             if action == "respond_text":
                 answer_messages = list(
