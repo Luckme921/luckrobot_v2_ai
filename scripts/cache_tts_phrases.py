@@ -7,6 +7,7 @@ import subprocess
 import sys
 import wave
 import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from edge.audio.tts.phrase_cache import ALL_PHRASES, cache_path, valid_clip
 
 def main():
