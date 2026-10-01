@@ -166,6 +166,7 @@ class LocalMusicTests(unittest.TestCase):
         self.assertIsNone(music.local_request("再找一点其他的"))
         self.assertEqual(music.local_request("继续播放刚才的歌曲"), {
             "name": "music_control", "arguments": {"action": "resume_music"}})
+        self.assertIsNone(music.local_request("放首歌吧，我要休息了，晚安喽"))
 
     def test_fresh_music_search_requires_explicit_cue(self):
         for text in [

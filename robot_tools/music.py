@@ -786,6 +786,8 @@ class MusicTools:
     def local_request(self, text):
         value = re.sub(r"[，。！？,.!?]+$", "", text.strip())
         normalized = _normalize_text(value)
+        if re.search(r"(?:晚安(?:喽|啦|了)?|拜拜|再见|结束对话)$", normalized):
+            return None
         if any(phrase in normalized for phrase in (
                 "找一点其他", "找一些其他", "找点其他", "再找一点其他",
                 "再找一些", "找几首", "推荐几首", "找点别的")):
