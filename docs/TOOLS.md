@@ -238,6 +238,10 @@ QPlay Auth 官方文档中的扫码流程适合车机、带屏音箱等设备：
 占位密钥，也不把 H5 登录页误当成音乐搜索或播放 API。
 # QQ 音乐网页认证
 
-QQ 音乐仍由音频进程中的同一个 Selenium Firefox 控制器负责搜索和播放。`prewarm()` 只确认 WebDriver 启动，不代表账号仍在线；搜索页显示“登录”且搜索超时会报告 `auth_required`，并在显示屏右上角提示登录。屏幕触摸“QQ 音乐登录”后，Display API 将请求写入 `private/runtime/qqmusic-auth-request.json`；音频进程在后台打开 QQ 网页登录弹窗，把二维码截图写入私有运行目录，屏幕显示后供手机 QQ 扫码。成功后状态变为 `ready`，二维码文件删除。二维码、浏览器配置及 Cookie 均不得提交。
+QQ 音乐仍由音频进程中的同一个 Selenium Firefox 控制器负责搜索和播放。`prewarm()` 只确认 WebDriver 启动，不代表账号仍在线；搜索页显示“登录”且搜索超时会报告 `auth_required`，并在显示屏左上角提示登录。屏幕触摸“QQ 音乐登录”后，Display API 将请求写入 `private/runtime/qqmusic-auth-request.json`；音频进程在后台打开 QQ 网页登录弹窗，把二维码截图写入私有运行目录，屏幕显示后供手机 QQ 扫码。成功后状态变为 `ready`，二维码文件删除。二维码、浏览器配置及 Cookie 均不得提交。
 
 Display 本机接口：`GET /api/music/auth` 查询状态，`GET /api/music/auth/qr` 仅在等待扫码时返回二维码；`POST /api/music/auth/login` 只接受带 `X-LuckRobot-Display: 1` 的本机显示屏请求。音频进程未启动时无法生成二维码。
+
+2026-10-03：Firefox 直接使用 `private/qqmusic-firefox` 作为配置目录，扫码后的 Cookie 会随浏览器持久保存。此前 `Options.profile` 会复制配置到临时目录，导致重启后登录丢失。点击认证入口时，若网页已经登录，返回 `ready`，不会再生成二维码；只有确实显示“登录”时才打开扫码弹窗。网页超时会报告具体阶段（搜索页、弹窗、QQ iframe 或二维码）。
+
+QQ 搜索页在加载账号时可能先短暂显示“登录”，随后才出现账号头像和歌曲列表。认证检查会等待账号状态稳定，再点击真正的登录入口，避免对已登录账号误开弹窗。

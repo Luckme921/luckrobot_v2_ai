@@ -1,15 +1,44 @@
 import tempfile
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
 from edge.display.server import app
 from edge.music import auth_bridge
+from edge.music.qqmusic import QQMusicController
 
 
 class QQMusicAuthBridgeTests(unittest.TestCase):
+    def test_firefox_uses_persistent_profile_directly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = QQMusicController(profile_path=directory)
+            with patch("edge.music.qqmusic.webdriver.Firefox") as firefox, patch(
+                "edge.music.qqmusic.Service"
+            ):
+                firefox.return_value.current_window_handle = "search"
+                controller.start()
+                options = firefox.call_args.kwargs["options"]
+                self.assertEqual(options.arguments[-2:], ["-profile", str(Path(directory).resolve())])
+                self.assertIsNone(options.profile)
+                controller.close()
+
+    def test_existing_login_does_not_request_new_qr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = QQMusicController(profile_path=directory)
+            driver = Mock()
+            driver.find_elements.return_value = [Mock(is_displayed=lambda: True, text="account")]
+            controller._driver = driver
+            controller._search_handle = "search"
+            driver.window_handles = ["search"]
+            publish = Mock()
+            with patch("edge.music.qqmusic.WebDriverWait") as wait:
+                wait.return_value.until.side_effect = lambda condition: condition(driver)
+                self.assertTrue(controller.authenticate_with_qr(Path(directory) / "qr.png", publish))
+            publish.assert_called_once_with("ready")
+            driver.find_element.assert_not_called()
+
     def test_display_login_requires_local_ui_header_and_writes_request(self):
         with tempfile.TemporaryDirectory() as directory:
             request_path = Path(directory) / "request.json"

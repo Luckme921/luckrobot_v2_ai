@@ -187,9 +187,10 @@ class QQMusicController:
                     "-headless"
                 )
 
-            options.profile = str(
-                self.profile_path
-            )
+            # Options.profile clones the directory into /tmp. Authentication
+            # cookies would then disappear when that WebDriver session ends.
+            options.add_argument("-profile")
+            options.add_argument(str(self.profile_path))
 
             options.page_load_strategy = (
                 "eager"
@@ -1147,26 +1148,45 @@ class QQMusicController:
         return any(node.is_displayed() and node.text.strip() == "登录"
                    for node in driver.find_elements(By.CSS_SELECTOR, "a.top_login__link"))
 
+    @classmethod
+    def _logged_in_page(cls, driver) -> bool:
+        if cls._login_link_visible(driver):
+            return False
+        return any(node.is_displayed() for node in driver.find_elements(
+            By.CSS_SELECTOR, "img.top_login__cover, a[href*='/songDetail/']"))
+
     def authenticate_with_qr(self, qr_path: Path, publish) -> bool:
         """Show the web login QR; use the existing browser/profile only."""
         with self._driver_lock:
             self._auth_in_progress = True
+        stage = "search_page"
         try:
             with self._driver_lock:
                 driver = self._require_driver()
                 self._ensure_search_window()
                 driver.get(self.SEARCH_URL.format(query="music"))
-                WebDriverWait(driver, min(self.timeout_seconds, 10)).until(
-                    lambda d: d.find_elements(By.CSS_SELECTOR, "a.top_login__link"))
-                if not self._login_link_visible(driver):
+                opened_at = time.monotonic()
+                page_state = WebDriverWait(driver, self.timeout_seconds).until(
+                    lambda d: "ready" if self._logged_in_page(d) else
+                    "login" if time.monotonic() - opened_at >= 4
+                    and self._login_link_visible(d) else False)
+                if page_state == "ready":
                     publish("ready")
                     return True
+                stage = "open_login"
                 driver.find_element(By.CSS_SELECTOR, "a.top_login__link").click()
                 wait = WebDriverWait(driver, self.timeout_seconds)
-                wait.until(lambda d: d.find_elements(By.CSS_SELECTOR, "iframe.login-box-bd__ifr_qq"))
+                opened = wait.until(lambda d: "ready" if self._logged_in_page(d) else
+                                    "iframe" if d.find_elements(By.CSS_SELECTOR,
+                                                               "iframe.login-box-bd__ifr_qq") else False)
+                if opened == "ready":
+                    publish("ready")
+                    return True
                 driver.switch_to.frame(driver.find_element(By.CSS_SELECTOR, "iframe.login-box-bd__ifr_qq"))
+                stage = "qq_login_frame"
                 wait.until(lambda d: d.find_elements(By.CSS_SELECTOR, "#ptlogin_iframe"))
                 driver.switch_to.frame(driver.find_element(By.CSS_SELECTOR, "#ptlogin_iframe"))
+                stage = "qr_image"
                 qr = wait.until(lambda d: d.find_element(By.CSS_SELECTOR, "#qrlogin_img"))
                 wait.until(lambda d: qr.is_displayed() and qr.get_attribute("src"))
                 qr_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1184,8 +1204,15 @@ class QQMusicController:
             qr_path.unlink(missing_ok=True)
             publish("error", detail="二维码已过期，请重新点击登录")
             return False
+        except TimeoutException as exc:
+            raise QQMusicError(f"QQ 音乐网页加载超时（{stage}），请重试") from exc
         finally:
             with self._driver_lock:
+                if self._driver is not None:
+                    try:
+                        self._driver.switch_to.default_content()
+                    except WebDriverException:
+                        pass
                 self._auth_in_progress = False
 
     @_driver_locked

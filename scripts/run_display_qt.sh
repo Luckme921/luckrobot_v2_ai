@@ -16,9 +16,14 @@ if [[ -z "${QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS:-}" ]]; then
     if udevadm info --query=property --name "$candidate" 2>/dev/null \
       | grep -q '^ID_INPUT_TOUCHSCREEN=1$'; then
       export QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS="$candidate"
+      echo "[DISPLAY] touchscreen=$candidate" >&2
       break
     fi
   done
+fi
+
+if [[ -z "${QT_QPA_EVDEV_TOUCHSCREEN_PARAMETERS:-}" ]]; then
+  echo "[DISPLAY] touchscreen=missing; check the screen's USB touch cable and restart this service" >&2
 fi
 
 exec qmlscene -platform "$PLATFORM" "$ROOT/edge/display/qml/main.qml"

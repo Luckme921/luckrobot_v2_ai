@@ -24,6 +24,13 @@ Window {
         qqAuthOpen = true
         qqAuthState = "starting"
         var request = new XMLHttpRequest()
+        request.onreadystatechange = function() {
+            if (request.readyState !== XMLHttpRequest.DONE) return
+            if (request.status < 200 || request.status >= 300) {
+                root.qqAuthState = "error"
+                root.qqAuthDetail = "登录请求未到达服务，请检查机器人程序"
+            }
+        }
         request.open("POST", "http://127.0.0.1:8765/api/music/auth/login")
         request.setRequestHeader("X-LuckRobot-Display", "1")
         request.send()
@@ -67,7 +74,7 @@ Window {
         font.pixelSize: Math.max(30, root.height * 0.075)
     }
     Text {
-        anchors { top: parent.top; left: parent.left; margins: 20 }
+        anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 20 }
         text: "状态连接中…"; color: "#ffb5b5"; opacity: root.connected ? 0 : 1
         font.pixelSize: Math.max(16, root.height * 0.025)
         Behavior on opacity { NumberAnimation { duration: 250 } }
@@ -297,9 +304,9 @@ Window {
     Rectangle {
         id: qqLoginButton
         z: 10
-        width: Math.max(145, root.width * 0.16)
+        width: Math.max(230, root.width * 0.18)
         height: Math.max(45, root.height * 0.07)
-        anchors { right: parent.right; top: parent.top; margins: 20 }
+        anchors { left: parent.left; top: parent.top; margins: 20 }
         radius: 12
         color: root.qqAuthState === "required" ? "#9b3f52" : "#173849"
         border.color: root.qqAuthState === "ready" ? "#52ffd2" : "#66e6ff"
@@ -307,7 +314,7 @@ Window {
             anchors.centerIn: parent
             text: root.qqAuthState === "ready" ? "QQ 音乐已登录" : "QQ 音乐登录"
             color: "white"; font.bold: true
-            font.pixelSize: Math.max(17, root.height * 0.034)
+            font.pixelSize: Math.max(17, Math.min(22, root.height * 0.027))
         }
         MouseArea { anchors.fill: parent; onClicked: root.requestQqLogin() }
     }
@@ -337,7 +344,7 @@ Window {
         Text {
             anchors { horizontalCenter: parent.horizontalCenter; top: qqQrImage.bottom; topMargin: 24 }
             text: root.qqAuthState === "qr" ? "请使用手机 QQ 扫码并确认登录" :
-                  root.qqAuthState === "ready" ? "登录成功，可以搜索歌曲了" :
+                  root.qqAuthState === "ready" ? "账号已登录，无需扫码" :
                   root.qqAuthDetail || "正在打开登录二维码…"
             color: "#effcff"; font.pixelSize: Math.max(20, root.height * 0.037)
         }
@@ -351,6 +358,12 @@ Window {
     }
 
     Timer {
+        id: closeAuthPanel
+        interval: 4000
+        onTriggered: { if (root.qqAuthState === "ready") root.qqAuthOpen = false }
+    }
+
+    Timer {
         interval: 2000; repeat: true; running: true; triggeredOnStart: true
         onTriggered: {
             var request = new XMLHttpRequest()
@@ -358,7 +371,11 @@ Window {
                 if (request.readyState !== XMLHttpRequest.DONE || request.status !== 200) return
                 try {
                     var auth = JSON.parse(request.responseText)
-                    if (root.qqAuthState !== auth.state && auth.state === "qr") root.qqQrRevision += 1
+                    if (root.qqAuthState !== auth.state && auth.state === "qr") {
+                        root.qqQrRevision += 1
+                        root.qqAuthOpen = true
+                    }
+                    if (root.qqAuthState !== auth.state && auth.state === "ready") closeAuthPanel.start()
                     root.qqAuthState = auth.state || "unknown"
                     root.qqAuthDetail = auth.detail || ""
                 } catch (error) { }

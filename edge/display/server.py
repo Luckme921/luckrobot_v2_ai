@@ -59,6 +59,7 @@ def music_auth_login(x_luckrobot_display: str | None = Header(default=None)):
     if x_luckrobot_display != "1":
         raise HTTPException(status_code=403)
     current = auth_bridge.status()
+    print(f"[DISPLAY] QQ_AUTH_REQUEST previous={current.get('state', 'unknown')}", flush=True)
     if current.get("state") == "qr" and auth_bridge.QR_IMAGE.is_file():
         return JSONResponse({"state": "qr"}, headers={"Cache-Control": "no-store"})
     if current.get("state") == "starting":

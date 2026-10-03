@@ -115,9 +115,9 @@ sudo bash scripts/install_display_service.sh remove
 写到 SSH 客户端终端。若电脑终端光标因此消失，Linux/macOS/Git Bash 执行
 `printf '\033[?25h'`，PowerShell 执行 `[Console]::CursorVisible = $true`。
 
-当前 QML 是只读界面，不依赖触摸。需要触摸时，`jetson` 必须具有 `/dev/input/event*` 的
-读取权限；可执行 `sudo usermod -aG input jetson` 后重新登录，不能把 input 设备改成全局
-可写。
+当前 QML 的 QQ 音乐登录入口依赖触摸。`luckrobot-display.service` 已通过
+`SupplementaryGroups=video input` 获得输入设备权限；首先确认触摸设备在 USB 和
+`/proc/bus/input/devices` 中出现，再重启服务。不要把 input 设备改成全局可写。
 
 关闭桌面可临时执行 `sudo systemctl isolate multi-user.target`；用
 `sudo systemctl set-default multi-user.target` 设置重启后的默认模式。恢复桌面时执行：
@@ -162,4 +162,10 @@ PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 
 `XDG_RUNTIME_DIR=/run/user/$(id -u)`；systemd 用户服务本身会在启动时创建运行目录。
 # QQ 音乐重新登录（无图形桌面）
 
-启动 `bash scripts/run_robot.sh` 和独占屏幕服务后，触摸屏幕右上角“QQ 音乐登录”，使用手机 QQ 扫码并在手机确认。屏幕出现“登录成功”后再试歌曲搜索。若二维码过期，重新点击登录入口；账号状态和二维码只保存在 `private/runtime/`。`[MUSIC] PREWARM webdriver-ready` 仅表示浏览器启动，不是登录成功。可通过 `curl -s http://127.0.0.1:8765/api/music/auth` 查看认证状态，不要复制或提交二维码、Cookie、Firefox profile。
+启动 `bash scripts/run_robot.sh` 和独占屏幕服务后，触摸屏幕左上角“QQ 音乐登录”，使用手机 QQ 扫码并在手机确认。屏幕出现“登录成功”后再试歌曲搜索。若二维码过期，重新点击登录入口；账号状态和二维码只保存在 `private/runtime/`。`[MUSIC] PREWARM webdriver-ready` 仅表示浏览器启动，不是登录成功。可通过 `curl -s http://127.0.0.1:8765/api/music/auth` 查看认证状态，不要复制或提交二维码、Cookie、Firefox profile。
+
+2026-10-03 屏幕布局更新：QQ 音乐登录入口位于左上角，显示服务未连接提示位于顶部中间。Qt 启动日志会打印 `[DISPLAY] touchscreen=/dev/input/eventN` 或 `touchscreen=missing`。HDMI 只传画面，触摸还需要 USB 数据线；若启动时未识别触摸屏，检查 `lsusb`、`/proc/bus/input/devices` 和 `udevadm info --query=property --name=/dev/input/eventN`，接好线后重启 `luckrobot-display.service` 让启动脚本重新选择触摸设备。服务配置需要 `SupplementaryGroups=video input` 才能读取 framebuffer 和输入设备。
+
+触摸暂不可用时，可在 Jetson SSH 上运行 `curl -X POST -H 'X-LuckRobot-Display: 1' http://127.0.0.1:8765/api/music/auth/login`。生成二维码后，Qt 会自动打开扫码面板；该接口仅监听设备本机的 `127.0.0.1`。
+
+认证入口会先检查网页会话；账号仍在线时状态变为 `ready`，不显示二维码。Firefox 使用项目私有配置目录直接运行，重启机器人后应保持登录。若状态为 `error`，先看 `GET /api/music/auth` 的 `detail` 所列网页阶段，再看 `logs/audio-latency.log` 中的 `QQ_AUTH_ERROR`。触摸未在 `lsusb` 和 `/proc/bus/input/devices` 中枚举时，屏幕点击本身不能触发请求，应先排查屏幕的 USB 触控线；可暂用上面的本机接口触发。
