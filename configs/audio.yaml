@@ -30,7 +30,7 @@ display:
 vad:
   model: ~/luckrobot_ai/models/vad/silero_vad.onnx
   threshold: 0.5
-  min_silence_duration: 0.4
+  min_silence_duration: 0.6
   min_speech_duration: 0.25
   max_speech_duration: 20
   buffer_size_seconds: 30
@@ -170,6 +170,8 @@ tts:
   stream_fallback_grace_seconds: 0.35
   acknowledgement_enabled: true
   acknowledgement_delay_seconds: 0.35
+  dynamic_music_acknowledgement_enabled: true
+  dynamic_music_acknowledgement_wait_seconds: 1.5
   enabled: true
   provider: edge
   edge_voice: zh-CN-XiaoxiaoNeural

@@ -831,7 +831,10 @@ def main() -> None:
 
     acknowledgements = ToolAcknowledgement(
         {k: v for k, v in ack_clips.items() if k in PHRASES} if ack_enabled else {}, "<unavailable>",
-        delay_seconds=float(tts_cfg.get("acknowledgement_delay_seconds", 0.35)))
+        delay_seconds=float(tts_cfg.get("acknowledgement_delay_seconds", 0.35)),
+        dynamic_synth=(getattr(tts, "prepare_online", None)
+                       if tts_cfg.get("dynamic_music_acknowledgement_enabled", True) else None),
+        dynamic_wait_seconds=float(tts_cfg.get("dynamic_music_acknowledgement_wait_seconds", 1.5)))
     music_tools.before_playback = acknowledgements.finish
     if agent_client is not None:
         agent_client.on_event = acknowledgements.on_event
@@ -1268,34 +1271,6 @@ def main() -> None:
                         )
 
                         if (
-                            interaction_gate
-                            .expire_if_needed(
-                                now
-                            )
-                        ):
-                            music_tools.clear_pending()
-                            print(
-                                "[STATE] SLEEPING "
-                                "reason=timeout",
-                                flush=True,
-                            )
-
-                            if agent_client is not None:
-                                print(
-                                    "[AGENT_MEMORY] PRESERVED "
-                                    "reason=interaction_timeout "
-                                    f"messages="
-                                    f"{agent_client.history_messages}",
-                                    flush=True,
-                                )
-
-                            if wake_kws:
-                                wake_stream = (
-                                    wake_kws
-                                    .create_stream()
-                                )
-
-                        if (
                             wake_kws
                             and wake_stream
                             and interaction_gate.state
@@ -1350,6 +1325,18 @@ def main() -> None:
                         vad.accept(
                             samples
                         )
+
+                        if vad.is_speech_detected:
+                            interaction_gate.note_speech_activity(now)
+                        elif not vad.has_segment() and interaction_gate.expire_if_needed(now):
+                            music_tools.clear_pending()
+                            print("[STATE] SLEEPING reason=timeout", flush=True)
+                            if agent_client is not None:
+                                print("[AGENT_MEMORY] PRESERVED "
+                                      f"reason=interaction_timeout messages={agent_client.history_messages}",
+                                      flush=True)
+                            if wake_kws:
+                                wake_stream = wake_kws.create_stream()
 
                         while vad.has_segment():
                             (
@@ -1450,8 +1437,12 @@ def main() -> None:
                                 .process(
                                     text,
                                     now=time.monotonic(),
+                                    defer_timeout=True,
                                 )
                             )
+
+                            if decision.action == "ignore" and decision.reason == "wake_echo_fragment":
+                                print(f"[GATE] IGNORE reason={decision.reason} text={text!r}", flush=True)
 
                             if (
                                 decision.action
@@ -1754,7 +1745,7 @@ def main() -> None:
                                         capture.stop()
 
                                     acknowledgements.sink = speaker
-                                    acknowledgements.begin_turn()
+                                    acknowledgements.begin_turn(decision.command or "")
 
                                     turn_monitor = None
                                     turn_stream_speaker = None
@@ -2132,12 +2123,6 @@ def main() -> None:
                                             elif request.action == "recommend_music":
                                                 tool_request = {"name": "music_search",
                                                     "arguments": {"query": "推荐", "utterance": command_text}}
-                                            elif request.action == "end_conversation":
-                                                tool_request = None
-                                                agent_reply = AgentReply(text="拜拜，下次聊。", model="local-goodbye")
-                                                agent_client.record_completed_turn(command_text, agent_reply.text)
-                                                interaction_gate.reset()
-                                                music_tools.clear_pending()
                                             elif request.action == "select_music":
                                                 tool_request = {"name": "music_select",
                                                     "arguments": {"selection": request.query}}
@@ -2177,7 +2162,8 @@ def main() -> None:
                                                 continue
 
                                         if agent_reply.text:
-                                            if agent_reply.model not in {"local-music", "local-tool", "local-music-guard"}:
+                                            if (not agent_reply.end_conversation and
+                                                    agent_reply.model not in {"local-music", "local-tool", "local-music-guard"}):
                                                 music_tools.stage_suggested_songs(agent_reply.text)
                                             # Plain Cloud replies are archived by CloudAgentClient
                                             # before it returns. Local tool replies are marked above.
@@ -2301,6 +2287,14 @@ def main() -> None:
                                                 "speaker unavailable",
                                                 flush=True,
                                             )
+
+                                        if (agent_reply.end_conversation and
+                                                interaction_gate.state == InteractionGate.ACTIVE):
+                                            interaction_gate.reset()
+                                            music_tools.clear_pending()
+                                            if wake_kws:
+                                                wake_stream = wake_kws.create_stream()
+                                            print("[STATE] SLEEPING reason=model_end_conversation", flush=True)
 
                                     except (
                                         CloudAgentError,

@@ -1,6 +1,8 @@
 # 统一工具接口与音乐 API
 
-2026-10-01 更新：本地仅直接处理明确点歌、单首换歌和播放控制；“找一些其他音乐”“刚才的歌”等交给模型理解上下文。模型 `play_music` 表示找一首，未知歌名时以 `music_query=随便` 使用配置歌单；`recommend_music` 表示推荐几首供选择，使用 `music.preferences.preferred_tracks` 暂存候选，选定后由 QQ 搜索核实播放。当前未接入 QQ 官方推荐榜单。`end_conversation` 是会话路由动作，Edge 清除本轮候选、说告别语并回到唤醒等待。schema 在 `robot_tools/catalog.py`，执行在 `edge/audio/runtime.py`。QQ 播放器自动换曲由后台每三秒读取当前曲目，变化时更新屏幕并打印 `[MUSIC] TRACK_CHANGED`；仍需现场核对网页元数据与实际声音。
+2026-10-01 更新：本地仅直接处理明确点歌、单首换歌和播放控制；“找一些其他音乐”“刚才的歌”等交给模型理解上下文。模型 `play_music` 表示找一首，未知歌名时以 `music_query=随便` 使用配置歌单；`recommend_music` 表示推荐几首供选择，使用 `music.preferences.preferred_tracks` 暂存候选，选定后由 QQ 搜索核实播放。当前未接入 QQ 官方推荐榜单。`end_conversation` 是会话路由动作。schema 在 `robot_tools/catalog.py`，执行在 `edge/audio/runtime.py`。QQ 播放器自动换曲由后台每三秒读取当前曲目，变化时更新屏幕并打印 `[MUSIC] TRACK_CHANGED`；仍需现场核对网页元数据与实际声音。
+
+2026-10-03 更新：`end_conversation` 不再借用音乐请求返回。Cloud Agent 先根据当前语句和对话历史生成自然告别回复，`ChatResponse.end_conversation=true` 随最终正文返回；Edge 播完该正文后清空候选并回到等待 Lucky，且把用户与回复一起写入记忆。完整的短句“结束对话”等仍在本地门控处理，使用缓存告别语。音乐的动态过渡语只在识别到“张学友的歌”这类明确歌手时尝试；不能在线准备音频时回退到固定缓存短句，不影响音乐工具执行。
 
 更新：2026-09-19。
 

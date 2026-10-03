@@ -140,6 +140,10 @@ class SileroVad:
     ) -> bool:
         return not self._vad.empty()
 
+    @property
+    def is_speech_detected(self) -> bool:
+        return bool(self._vad.is_speech_detected())
+
     def pop_segment(
         self,
     ):

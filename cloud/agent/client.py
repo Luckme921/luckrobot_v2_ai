@@ -67,6 +67,12 @@ class MusicRequestRequired(
         )
 
 
+class ConversationEndRequired(RuntimeError):
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+        super().__init__("Conversation should end after spoken reply")
+
+
 class LocalToolRequestRequired(RuntimeError):
     def __init__(self, name, arguments):
         self.name, self.arguments = name, arguments
@@ -660,7 +666,7 @@ class GLMAgent:
             }
 
         if action == "end_conversation":
-            return {"action": action, "music_request": MusicRequest(action=action)}
+            return {"action": action}
 
         raise ValueError(
             "Unsupported route_turn action "
@@ -1070,7 +1076,8 @@ class GLMAgent:
                     "用户不知道歌名、想找一首时，选择 play_music，music_query 写随便；"
                     "用户想找一些或几首歌供挑选时，选择 recommend_music。"
                     "用户说继续播放刚才的歌，选择 resume_music，不要搜索歌曲。"
-                    "用户在较长话语结尾明确道别、说晚安或结束对话时，选择 end_conversation。"
+                    "用户明确要结束交流，或说要睡觉、休息并准备离开时，选择 end_conversation。"
+                    "例如‘现在不晚了，我打算要睡觉了’也要结束会话。"
                     "暂停音乐选择 pause_music；"
                     "继续音乐选择 resume_music；"
                     "下一首选择 next_music；"
@@ -1525,7 +1532,24 @@ class GLMAgent:
                 )
 
             if action == "end_conversation":
-                raise MusicRequestRequired(route["music_request"])
+                answer_messages = list(messages[:-1])
+                answer_messages.append({
+                    "role": "system",
+                    "content": (
+                        "ROUTE_DECISION=end_conversation\n"
+                        "用户想结束当前对话。请根据用户原话和历史，"
+                        "自然、简短地回应并道别；不要再提问或邀请继续聊天。"
+                        "这段回答说完后机器人会回到等待 Lucky 的状态。"
+                    ),
+                })
+                answer_messages.append(messages[-1])
+                content = (await self._answer_text(
+                    model=self.model, messages=answer_messages,
+                    temperature=self.temperature, max_tokens=self.max_tokens,
+                    extra_body=self._extra_body(),
+                )).strip()
+                raise ConversationEndRequired(
+                    self._normalize_reply_text(content or "晚安，做个好梦。"))
 
             if action == "respond_text":
                 answer_messages = list(

@@ -25,6 +25,7 @@ from cloud.agent.client import (
     GLMAgent,
     LocalToolRequestRequired,
     MusicRequestRequired,
+    ConversationEndRequired,
     VisionRequestRequired,
 )
 
@@ -240,7 +241,6 @@ class MusicRequestResponse(
     action: Literal[
         "play_music",
         "recommend_music",
-        "end_conversation",
         "pause_music",
         "resume_music",
         "next_music",
@@ -260,6 +260,7 @@ class ChatResponse(BaseModel):
 
     reply: str = ""
     model: str
+    end_conversation: bool = False
     vision_request: (
         VisionRequestResponse
         | None
@@ -371,6 +372,9 @@ async def _chat(
                 )
             ),
         )
+
+    except ConversationEndRequired as exc:
+        return ChatResponse(reply=exc.reply, model=agent.model, end_conversation=True)
 
     except Exception as exc:
         raise HTTPException(

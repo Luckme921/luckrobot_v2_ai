@@ -3,15 +3,16 @@ import io
 import json
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.error import HTTPError
 
-from cloud.agent.client import GLMAgent, VisionRequestRequired, MusicRequestRequired
+from cloud.agent.client import GLMAgent, VisionRequestRequired, MusicRequestRequired, ConversationEndRequired
 from cloud.api import main as api
 from edge.agent.cloud_client import CloudAgentClient, CloudAgentError
-from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
+from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES, music_artist_from_utterance
 from edge.audio.tts.cancellation import SpeechCancellation, SpeechInterrupted
 from shared.timing import progress, trace_id, announce, measure
 
@@ -104,6 +105,20 @@ class JsonRoutingTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(error):
                     await agent.chat("request")
                 agent.tool_router.execute.assert_not_awaited()
+
+    async def test_end_conversation_generates_answer_before_signalling_sleep(self):
+        agent = agent_with(response('{"action":"end_conversation"}'), response("晚安，做个好梦。"))
+        with self.assertRaises(ConversationEndRequired) as raised:
+            await agent.chat("现在不晚了，我打算要睡觉了")
+        self.assertEqual(raised.exception.reply, "晚安，做个好梦。")
+        self.assertEqual(agent.client.chat.completions.create.await_count, 2)
+
+    async def test_api_returns_reply_with_end_flag(self):
+        fake = NS(model="test", chat=AsyncMock(side_effect=ConversationEndRequired("晚安。")))
+        with patch.object(api, "get_agent", return_value=fake):
+            result = await api._chat(api.ChatRequest(text="我要睡了"))
+        self.assertEqual(result.reply, "晚安。")
+        self.assertTrue(result.end_conversation)
 
     async def test_web_search_event_precedes_execution(self):
         agent = agent_with(response('{"action":"web_search","query":"weather"}'),
@@ -240,6 +255,20 @@ class EdgeEventsTests(unittest.TestCase):
         client._post_json = Mock(return_value={"reply": "legacy"})
         return client
 
+    def test_end_flag_reaches_edge_and_reply_is_archived(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = CloudAgentClient(
+                endpoint="http://localhost/chat",
+                memory_db_path=Path(directory) / "memory.sqlite3",
+                progress_enabled=False,
+            )
+            client._post_chat = Mock(return_value={
+                "reply": "晚安，做个好梦。", "model": "test", "end_conversation": True})
+            result = client.chat("我要睡觉了")
+            self.assertTrue(result.end_conversation)
+            self.assertEqual(result.text, "晚安，做个好梦。")
+            self.assertEqual(client.history_turns, 1)
+
     def test_events_and_final_response(self):
         client = self.client()
         stream = io.BytesIO(b'{"type":"tool_start","action":"web_search"}\n'
@@ -359,6 +388,38 @@ class AckTests(unittest.TestCase):
         self.ack._play(Path("cached.wav"), self.ack._generation)
         self.ack.finish()
         self.assertFalse(self.ack.played)
+
+    def test_vision_clips_rotate_across_turns(self):
+        clips = {name: Path(name + ".wav") for name in
+                 ("request_vision", "request_vision_alt", "request_vision_more")}
+        ack = ToolAcknowledgement(clips, "sink")
+        for expected in clips.values():
+            ack.begin_turn()
+            ack.on_event({"type": "tool_start", "action": "request_vision"})
+            self.assertEqual(self.timer.call_args.kwargs["args"][0], expected)
+            ack.finish()
+
+    def test_artist_template_uses_online_name_between_cached_fragments(self):
+        self.assertEqual(music_artist_from_utterance("有没有张学友的歌，推荐一首给我听"), "张学友")
+        with tempfile.TemporaryDirectory() as directory:
+            clips = {name: Path(directory) / (name + ".wav") for name in
+                     ("play_music", "music_artist_prefix", "music_artist_suffix")}
+            for path in clips.values():
+                with wave.open(str(path), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(24000)
+                    wav.writeframes((300).to_bytes(2, "little", signed=True) * 100)
+            synth = Mock(return_value=NS(sample_rate=24000,
+                                          pcm=(400).to_bytes(2, "little", signed=True) * 100))
+            ack = ToolAcknowledgement(clips, "sink", dynamic_synth=synth)
+            ack.begin_turn("有没有张学友的歌，推荐一首给我听")
+            self.assertTrue(ack._dynamic["ready"].wait(1))
+            ack.on_event({"type": "tool_start", "action": "play_music"})
+            ack._play(clips["play_music"], ack._generation, ack._dynamic)
+            self.assertEqual(self.popen.call_args.args[0][0], "pacat")
+            self.assertTrue(self.popen.return_value.stdin.write.called)
+            ack.finish()
 
 
 

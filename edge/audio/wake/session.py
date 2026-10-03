@@ -170,6 +170,14 @@ class InteractionGate:
 
         return False
 
+    def note_speech_activity(self, now: float) -> None:
+        """Keep the wake/follow-up window open until VAD finishes the utterance."""
+        if self.enabled and self.state != self.SLEEPING:
+            timeout = (self.wake_command_timeout_seconds
+                       if self.state == self.AWAKE_WAIT_COMMAND
+                       else self._active_timeout())
+            self.deadline = max(self.deadline, now + timeout)
+
     def _is_chat_command(
         self,
         text: str,
@@ -342,6 +350,8 @@ class InteractionGate:
         self,
         text: str,
         now: float | None = None,
+        *,
+        defer_timeout: bool = False,
     ) -> GateDecision:
         if now is None:
             now = time.monotonic()
@@ -394,9 +404,8 @@ class InteractionGate:
                 reason="gate_disabled",
             )
 
-        self.expire_if_needed(
-            now
-        )
+        if not defer_timeout:
+            self.expire_if_needed(now)
 
         if self.state == self.SLEEPING:
             return GateDecision(
@@ -424,7 +433,10 @@ class InteractionGate:
             # The VAD/ASR segment contained only
             # the wake word. Keep waiting.
             greeting = re.sub(r"[\s，。！？,.!?]+", "", command).casefold()
-            if not command or greeting in {"你好", "你好呀", "你好啊", "嗨", "hello", "hi", "在吗", "你在吗"}:
+            wake_aliases = {alias.casefold() for alias in (
+                self.transcript_aliases + self.post_kws_transcript_aliases)}
+            if (not command or greeting in wake_aliases or
+                    greeting in {"你好", "你好呀", "你好啊", "嗨", "hello", "hi", "在吗", "你在吗"}):
                 return GateDecision(
                     action="awake",
                     command=None,
@@ -434,10 +446,16 @@ class InteractionGate:
                     reason="wake_greeting" if command else "wake_echo_only",
                 )
 
-            if len(re.sub(r"[\s\W_]+", "", command, flags=re.UNICODE)) < 3:
+            compact_command = re.sub(r"[\s\W_]+", "", command, flags=re.UNICODE)
+            repeated_echo = (len(compact_command) in {4, 6}
+                             and compact_command[:len(compact_command)//2]
+                             == compact_command[len(compact_command)//2:]
+                             and compact_command[:len(compact_command)//2]
+                             in {"拉铁", "拉克", "拉可", "拉去", "拉圾", "拉客", "垃圾", "拉uck"})
+            if len(compact_command) < 3 or repeated_echo:
                 return GateDecision(
                     action="ignore", command=None, wake_detected=wake_echo_detected,
-                    state=self.state, mode=self.mode, reason="short_after_wake",
+                    state=self.state, mode=self.mode, reason="wake_echo_fragment",
                 )
 
             self._activate(

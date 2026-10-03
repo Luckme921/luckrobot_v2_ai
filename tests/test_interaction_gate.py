@@ -67,6 +67,22 @@ def create_gate() -> InteractionGate:
 class InteractionGateTest(
     unittest.TestCase
 ):
+    def test_speech_activity_defers_timeout_until_segment_is_processed(self):
+        gate = create_gate()
+        gate.on_wake(0.0)
+        gate.note_speech_activity(7.9)
+        self.assertFalse(gate.expire_if_needed(9.0))
+        result = gate.process("帮我看看天气", now=18.0, defer_timeout=True)
+        self.assertEqual(result.action, "command")
+        self.assertEqual(gate.state, gate.ACTIVE)
+
+    def test_repeated_wake_echo_does_not_start_model_turn(self):
+        gate = create_gate()
+        gate.on_wake(0.0)
+        result = gate.process("拉铁拉铁", now=1.0)
+        self.assertEqual(result.action, "ignore")
+        self.assertEqual(gate.state, gate.AWAKE_WAIT_COMMAND)
+
     def test_pre_wake_speech_is_optional(self):
         gate = create_gate()
         gate.on_wake(0.0)

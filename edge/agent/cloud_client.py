@@ -50,6 +50,7 @@ class AgentReply:
     music_request: (
         MusicRequest | None
     ) = None
+    end_conversation: bool = False
 
 
 class CloudAgentClient:
@@ -779,6 +780,10 @@ class CloudAgentClient:
                 "an empty reply"
             )
 
+        end_conversation = data.get("end_conversation", False)
+        if type(end_conversation) is not bool:
+            raise CloudAgentError("Invalid conversation end flag")
+
         # Only successful exchanges are
         # written to durable memory.
         self.memory.add_turn(
@@ -789,5 +794,6 @@ class CloudAgentClient:
         return AgentReply(
             text=reply,
             model=model,
+            end_conversation=end_conversation,
             vision_request=None,
         )
