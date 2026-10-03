@@ -60,7 +60,7 @@ Windows 阅读下载的日志可用 Get-Content logs/status.log -Wait。DOA 读�
 
     tail -f logs/conversation.log
 
-`log_sleeping_asr=true` 会在等待 Lucky 时对 VAD 语段运行本地 SenseVoice，以便查看 KWS 未命中时“Lucky”被转写成了什么；这些文本只写日志，不能唤醒、进入记忆或执行命令。它会增加待机 CPU 使用，也会在本地日志记录环境讲话；排查结束可设为 false。日志、录音和 private 数据不得提交 Git。增加 KWS 声学变体时修改 `configs/keywords_lucky.txt`，增加唤醒后 ASR 文本清理别名时修改 `transcript_aliases`，两者用途不同。
+`log_sleeping_asr=true` 会在等待 Lucky 时对 VAD 语段运行本地 SenseVoice，以便查看 KWS 未命中时“Lucky”被转写成了什么；这些文本只写日志，不能唤醒、进入记忆或执行命令。它会增加待机 CPU 使用，也会在本地日志记录环境讲话；排查结束可设为 false。日志、录音和 private 数据不得提交 Git。增加 KWS 声学变体时修改 `configs/keywords_lucky.txt`，增加唤醒后 ASR 文本清理别名时修改 `transcript_aliases`，两者用途不同。当前词表随运行项目加载，含两音节 `lucky`、三音节 `luckylu`、四音节 `luckylucky`；VAD 断句静音阈值为 0.4 秒。部署后分别口述三种发音并核对 `[KWS]` 与后续 `[ASR_TEXT]`，确认单独唤醒不送模型、带指令唤醒仅处理后面的指令。声学识别率仍需现场实测。
 
 
 ## Lucky 伪全双工试用（2026-09-21）

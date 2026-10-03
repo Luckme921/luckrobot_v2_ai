@@ -30,7 +30,7 @@ display:
 vad:
   model: ~/luckrobot_ai/models/vad/silero_vad.onnx
   threshold: 0.5
-  min_silence_duration: 0.6
+  min_silence_duration: 0.4
   min_speech_duration: 0.25
   max_speech_duration: 20
   buffer_size_seconds: 30
@@ -63,7 +63,7 @@ interaction:
     encoder: encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx
     decoder: decoder-epoch-13-avg-2-chunk-16-left-64.onnx
     joiner: joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx
-    keywords_file: ~/luckrobot_ai/configs/keywords_lucky.txt
+    keywords_file: configs/keywords_lucky.txt
     provider: cpu
     num_threads: 1
     feature_dim: 80
@@ -74,6 +74,8 @@ interaction:
     wake_command_timeout_seconds: 8.0
     include_pre_wake_speech: false
     transcript_aliases:
+    - luckylucky
+    - luckylu
     - lucky
     - luck
     - luckake

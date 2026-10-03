@@ -36,6 +36,8 @@ class WakeKeywordSpotter:
 
             if configured.is_absolute():
                 path = configured
+            elif key == "keywords_file":
+                path = Path(__file__).resolve().parents[3] / configured
             else:
                 path = (
                     model_dir

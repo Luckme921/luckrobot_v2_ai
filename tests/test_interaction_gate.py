@@ -11,6 +11,8 @@ def create_gate() -> InteractionGate:
         normal_timeout_seconds=12.0,
         chat_timeout_seconds=20.0,
         transcript_aliases=[
+            "luckylucky",
+            "luckylu",
             "lucky",
             "luck",
             "拉可",
@@ -67,6 +69,16 @@ def create_gate() -> InteractionGate:
 class InteractionGateTest(
     unittest.TestCase
 ):
+    def test_longer_wake_echoes_wait_or_forward_only_following_command(self):
+        for wake in ("Lucky", "LuckyLu", "LuckyLucky"):
+            with self.subTest(wake=wake):
+                gate = create_gate()
+                gate.on_wake(0.0)
+                self.assertEqual(gate.process(wake, now=1.0).action, "awake")
+                decision = gate.process(f"{wake}，帮我查天气", now=2.0)
+                self.assertEqual(decision.action, "command")
+                self.assertEqual(decision.command, "帮我查天气")
+
     def test_speech_activity_defers_timeout_until_segment_is_processed(self):
         gate = create_gate()
         gate.on_wake(0.0)
