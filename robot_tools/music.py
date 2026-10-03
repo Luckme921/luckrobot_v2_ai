@@ -12,6 +12,9 @@ from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+from edge.music.qqmusic import QQMusicAuthRequired
+from edge.music import auth_bridge
+
 VERSION_MARKERS = (
     "live", "现场", "dj", "remix", "翻唱", "cover", "伴奏", "纯音乐",
     "吉他版", "女版", "男版", "原版", "版本", "版",
@@ -983,7 +986,12 @@ class MusicTools:
             songs = [dict(id=s.mid, title=s.title, artists=list(s.artists), backend="qqmusic",
                           query=query) for s in matches]
             if not songs:
-                songs = self.controller.search_candidates(query, limit=3)
+                try:
+                    songs = self.controller.search_candidates(query, limit=3)
+                except QQMusicAuthRequired:
+                    auth_bridge.publish("required", detail="QQ 音乐登录已失效，请在屏幕上扫码登录")
+                    return result("QQ 音乐需要重新登录，请点击屏幕右上角的登录入口扫码。",
+                                  ok=False, status="auth_required")
         if not songs:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
 
@@ -993,7 +1001,12 @@ class MusicTools:
             songs = [song for song in songs if
                      explicit_candidate(query, [song], self.fuzzy_auto_play_score)]
             if not songs:
-                fresh = self.controller.search_candidates(query, limit=3)
+                try:
+                    fresh = self.controller.search_candidates(query, limit=3)
+                except QQMusicAuthRequired:
+                    auth_bridge.publish("required", detail="QQ 音乐登录已失效，请在屏幕上扫码登录")
+                    return result("QQ 音乐需要重新登录，请点击屏幕右上角的登录入口扫码。",
+                                  ok=False, status="auth_required")
                 songs = [song for song in fresh if
                          explicit_candidate(query, [song], self.fuzzy_auto_play_score)]
             if not songs:

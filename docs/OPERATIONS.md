@@ -160,3 +160,6 @@ pactl list short sinks
 USB source/sink。项目按 USB 设备名称显式解析输入和输出，不依赖 ALSA card 编号或
 PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 会话中可显式加
 `XDG_RUNTIME_DIR=/run/user/$(id -u)`；systemd 用户服务本身会在启动时创建运行目录。
+# QQ 音乐重新登录（无图形桌面）
+
+启动 `bash scripts/run_robot.sh` 和独占屏幕服务后，触摸屏幕右上角“QQ 音乐登录”，使用手机 QQ 扫码并在手机确认。屏幕出现“登录成功”后再试歌曲搜索。若二维码过期，重新点击登录入口；账号状态和二维码只保存在 `private/runtime/`。`[MUSIC] PREWARM webdriver-ready` 仅表示浏览器启动，不是登录成功。可通过 `curl -s http://127.0.0.1:8765/api/music/auth` 查看认证状态，不要复制或提交二维码、Cookie、Firefox profile。

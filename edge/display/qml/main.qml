@@ -15,6 +15,19 @@ Window {
     property var musicInfo: null
     property bool blinking: false
     property bool connected: true
+    property string qqAuthState: "unknown"
+    property string qqAuthDetail: ""
+    property bool qqAuthOpen: false
+    property int qqQrRevision: 0
+
+    function requestQqLogin() {
+        qqAuthOpen = true
+        qqAuthState = "starting"
+        var request = new XMLHttpRequest()
+        request.open("POST", "http://127.0.0.1:8765/api/music/auth/login")
+        request.setRequestHeader("X-LuckRobot-Display", "1")
+        request.send()
+    }
 
     function accent() {
         if (robotState === "listening") return "#52ffd2"
@@ -277,6 +290,80 @@ Window {
                 } catch (error) { root.connected = false }
             }
             request.open("GET", "http://127.0.0.1:8765/api/state")
+            request.send()
+        }
+    }
+
+    Rectangle {
+        id: qqLoginButton
+        z: 10
+        width: Math.max(145, root.width * 0.16)
+        height: Math.max(45, root.height * 0.07)
+        anchors { right: parent.right; top: parent.top; margins: 20 }
+        radius: 12
+        color: root.qqAuthState === "required" ? "#9b3f52" : "#173849"
+        border.color: root.qqAuthState === "ready" ? "#52ffd2" : "#66e6ff"
+        Text {
+            anchors.centerIn: parent
+            text: root.qqAuthState === "ready" ? "QQ 音乐已登录" : "QQ 音乐登录"
+            color: "white"; font.bold: true
+            font.pixelSize: Math.max(17, root.height * 0.034)
+        }
+        MouseArea { anchors.fill: parent; onClicked: root.requestQqLogin() }
+    }
+
+    Rectangle {
+        id: qqLoginPanel
+        z: 20
+        visible: root.qqAuthOpen
+        anchors.fill: parent
+        color: "#ee06111d"
+        Text {
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.10 }
+            text: "QQ 音乐登录"
+            color: "white"; font.bold: true; font.pixelSize: Math.max(28, root.height * 0.06)
+        }
+        Image {
+            id: qqQrImage
+            visible: root.qqAuthState === "qr"
+            anchors.centerIn: parent
+            width: Math.min(root.width * 0.32, root.height * 0.48)
+            height: width
+            fillMode: Image.PreserveAspectFit
+            smooth: false
+            cache: false
+            source: visible ? "http://127.0.0.1:8765/api/music/auth/qr?v=" + root.qqQrRevision : ""
+        }
+        Text {
+            anchors { horizontalCenter: parent.horizontalCenter; top: qqQrImage.bottom; topMargin: 24 }
+            text: root.qqAuthState === "qr" ? "请使用手机 QQ 扫码并确认登录" :
+                  root.qqAuthState === "ready" ? "登录成功，可以搜索歌曲了" :
+                  root.qqAuthDetail || "正在打开登录二维码…"
+            color: "#effcff"; font.pixelSize: Math.max(20, root.height * 0.037)
+        }
+        Rectangle {
+            width: 150; height: 52; radius: 12
+            anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: root.height * 0.08 }
+            color: "#24465c"
+            Text { anchors.centerIn: parent; text: "关闭"; color: "white"; font.pixelSize: 24 }
+            MouseArea { anchors.fill: parent; onClicked: root.qqAuthOpen = false }
+        }
+    }
+
+    Timer {
+        interval: 2000; repeat: true; running: true; triggeredOnStart: true
+        onTriggered: {
+            var request = new XMLHttpRequest()
+            request.onreadystatechange = function() {
+                if (request.readyState !== XMLHttpRequest.DONE || request.status !== 200) return
+                try {
+                    var auth = JSON.parse(request.responseText)
+                    if (root.qqAuthState !== auth.state && auth.state === "qr") root.qqQrRevision += 1
+                    root.qqAuthState = auth.state || "unknown"
+                    root.qqAuthDetail = auth.detail || ""
+                } catch (error) { }
+            }
+            request.open("GET", "http://127.0.0.1:8765/api/music/auth")
             request.send()
         }
     }

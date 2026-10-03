@@ -100,6 +100,7 @@ from edge.music.qqmusic import (
     QQMusicController,
     QQMusicError,
 )
+from edge.music import auth_bridge
 from edge.vision.camera import (
     CameraError,
     GStreamerCameraRing,
@@ -592,6 +593,35 @@ def main() -> None:
     music_tools = MusicTools(music_cfg, music_controller, music_library,
                              player=DirectAudioPlayer(device_volume.sink_name))
     local_tools = build_edge_tools(device_volume, music_tools)
+
+    auth_bridge.QR_IMAGE.unlink(missing_ok=True)
+    auth_bridge.publish("unknown")
+    auth_request_id = auth_bridge.read_json(auth_bridge.REQUEST).get("id", "")
+    auth_thread = None
+
+    def run_music_login():
+        auth_bridge.publish("starting")
+        try:
+            if not isinstance(music_controller, QQMusicController):
+                raise QQMusicError("当前未使用 QQ 音乐网页播放器")
+            music_controller.authenticate_with_qr(auth_bridge.QR_IMAGE, auth_bridge.publish)
+        except Exception as exc:
+            auth_bridge.QR_IMAGE.unlink(missing_ok=True)
+            auth_bridge.publish("error", detail=str(exc)[:160])
+            print(f"[MUSIC] QQ_AUTH_ERROR type={type(exc).__name__}", flush=True)
+
+    def poll_music_login():
+        nonlocal auth_request_id, auth_thread
+        request = auth_bridge.read_json(auth_bridge.REQUEST)
+        request_id = request.get("id", "")
+        if not request_id or request_id == auth_request_id:
+            return
+        auth_request_id = request_id
+        if auth_thread is not None and auth_thread.is_alive():
+            return
+        auth_thread = threading.Thread(target=run_music_login, daemon=True,
+                                       name="qqmusic-login")
+        auth_thread.start()
 
     vision_camera = None
 
@@ -1188,6 +1218,7 @@ def main() -> None:
                     for pcm in capture.chunks(
                         vad.window_size
                     ):
+                        poll_music_login()
                         if (
                             music_playing
                             and music_tools.playback_finished()
