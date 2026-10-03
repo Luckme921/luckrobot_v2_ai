@@ -148,6 +148,17 @@ class LocalMusicTests(unittest.TestCase):
             "index": 1, "title": "I don't wanna see u anymore", "artists": ["乃万NINEONE"]}])
         self.assertIsNone(music.local_request("我不想听随便你再找点其他歌"))
 
+    def test_spoken_list_can_be_interrupted_and_selected_by_ordinal(self):
+        music, _ = self.setup_music([])
+        music.pending = [song("first", "完美先生和差不多小姐", "花粥"),
+                         song("second", "原地", "祁圣翰")]
+        music.deadline = music.clock() + 120
+        for utterance in ("我要听第一首", "我想听你上一次找到的第一首花周畅的那首"):
+            with self.subTest(utterance=utterance):
+                self.assertEqual(music.local_request(utterance), {
+                    "name": "music_select", "arguments": {"selection": "第一首"}})
+        self.assertIsNone(music.selection_request("我不想听第一首"))
+
     def test_followup_change_requests_skip_literal_search(self):
         music, _ = self.setup_music([])
         music.pending = [song("old", "龙卷风", "周杰伦")]

@@ -42,6 +42,22 @@ def agent_with(*responses):
 
 
 class JsonRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pending_ordinal_never_becomes_false_playback_prose(self):
+        agent = agent_with(response('{"action":"respond_text"}'))
+        with self.assertRaises(MusicRequestRequired) as raised:
+            await agent.chat("我想听你上一次找到的第一首花周畅的那首",
+                             music_candidates=[{"index": 1, "title": "完美先生和差不多小姐",
+                                                "artists": ["花粥"]}])
+        self.assertEqual(raised.exception.request.action, "select_music")
+        self.assertEqual(raised.exception.request.query, "第一首")
+        self.assertEqual(agent.client.chat.completions.create.await_count, 1)
+
+    async def test_negative_pending_ordinal_can_remain_text(self):
+        agent = agent_with(response('{"action":"respond_text"}'), response("好，我们换一首。"))
+        answer = await agent.chat("我不想听第一首",
+                                  music_candidates=[{"index": 1, "title": "晴天", "artists": ["周杰伦"]}])
+        self.assertEqual(answer, "好，我们换一首。")
+
     async def test_final_answer_can_publish_text_deltas(self):
         agent = agent_with(response('{"action":"respond_text"}'))
         agent.stream_text_enabled = True

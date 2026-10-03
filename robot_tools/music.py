@@ -748,6 +748,15 @@ class MusicTools:
         if not self.has_pending:
             return None
         if is_pending_random_choice(text): return "随便"
+        # A user may interrupt a spoken list with "第一首" or refer back to
+        # "上一次找到的第一首". Resolve that against the retained candidates.
+        ordinal = (re.search(r"第([一二三四五六七八九十1-9])[首个]", _normalize_text(text))
+                   if not re.search(r"不要|别|不想|不是|为什么|怎么", text) else None)
+        if ordinal:
+            value = ordinal.group(1)
+            index = int(value) - 1 if value.isdigit() else "一二三四五六七八九十".index(value)
+            if index < len(self.pending):
+                return f"第{value}首"
         spoken_number = re.search(r"(?:^|听)(0?\d{1,2}[一二三四五六七八九十\d]?)", _normalize_text(text))
         if spoken_number:
             number = spoken_number.group(1).translate(str.maketrans("一二三四五六七八九", "123456789"))

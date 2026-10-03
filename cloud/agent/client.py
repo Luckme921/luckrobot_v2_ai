@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1486,6 +1487,23 @@ class GLMAgent:
             action = route[
                 "action"
             ]
+
+            # An ordinal referring to the offered list is an action, even if
+            # the semantic router mistakenly chooses a prose response.
+            if (action == "respond_text" and music_candidates
+                    and re.search(r"(?:想听|要听|播放|放|选|就)(?!不)", text)
+                    and not re.search(r"(?:不要|别|不想|不是|为什么|怎么)", text)):
+                ordinal = re.search(r"第([一二三四五六七八九十1-9])[首个]", text)
+                index = (int(ordinal.group(1)) if ordinal and ordinal.group(1).isdigit()
+                         else "一二三四五六七八九十".index(ordinal.group(1)) + 1
+                         if ordinal else 0)
+                if ordinal and any(
+                    str(item.get("index", "")) == str(index)
+                    for item in music_candidates if isinstance(item, dict)
+                ):
+                    action = "select_music"
+                    route = {"action": action, "music_request": MusicRequest(
+                        action, f"第{ordinal.group(1)}首")}
 
             print(
                 "[ROUTE] "

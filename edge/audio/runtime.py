@@ -2263,7 +2263,8 @@ def main() -> None:
                                                 )
 
                                             except SpeechInterrupted:
-                                                music_tools.clear_pending()
+                                                # Keep the just-announced music list: the
+                                                # wake interruption may be the user's choice.
                                                 interaction_gate.on_wake(time.monotonic())
                                                 wake_stream = wake_kws.create_stream()
                                                 wake_reply_sent = True
@@ -2316,7 +2317,8 @@ def main() -> None:
                                                 command_text,
                                                 "【回复生成或播报时被用户用 Lucky 打断；模型输出已丢弃】",
                                             )
-                                        music_tools.clear_pending()
+                                        # A new Lucky command may select from the list that
+                                        # was being spoken when this turn was interrupted.
                                         interaction_gate.on_wake(time.monotonic())
                                         wake_stream = wake_kws.create_stream()
                                         wake_reply_sent = True
