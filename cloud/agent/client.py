@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI, BadRequestError
 from shared.timing import measure, announce, progress, trace_id
 from robot_tools.catalog import LOCAL_SCHEMAS, WEATHER_SCHEMA
+from robot_tools.music import _extract_music_query, has_explicit_music_intent
 from robot_tools.registry import validate
 
 from cloud.agent.tool_router import (
@@ -1504,6 +1505,22 @@ class GLMAgent:
                     action = "select_music"
                     route = {"action": action, "music_request": MusicRequest(
                         action, f"第{ordinal.group(1)}首")}
+
+            # A prose answer is never evidence that playback happened. If the
+            # router missed an explicit request, execute a concrete search or
+            # ask for a title instead of streaming a fictitious success.
+            if (action == "respond_text" and has_explicit_music_intent(text)
+                    and not re.search(r"不要|别|不想|不是|为什么|怎么", text)):
+                query = _extract_music_query(text)
+                if query and not any(word in query for word in
+                                     ("刚才", "之前", "上次", "那首", "一次", "一遍")):
+                    action = "play_music"
+                    route = {"action": action, "music_request": MusicRequest(
+                        action, query[:120])}
+                else:
+                    print("[ROUTE] action=respond_text reason=unresolved_music_reference",
+                          flush=True)
+                    return "我还没有开始播放。请告诉我具体歌名，或从当前列表中选一首。"
 
             print(
                 "[ROUTE] "

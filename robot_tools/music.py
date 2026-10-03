@@ -283,7 +283,10 @@ def explicit_candidate(query, songs, minimum_score=0.62):
         return value
 
     for song in songs:
-        title = _normalize_text(song.get("title", ""))
+        # QQ appends drama/album descriptions after 《. A match inside that
+        # annotation does not establish that the actual track has the title.
+        primary_title = str(song.get("title", "")).split("《", 1)[0].strip()
+        title = _normalize_text(primary_title)
         if not title:
             continue
         if any(marker in title and marker not in q for marker in
@@ -302,7 +305,7 @@ def explicit_candidate(query, songs, minimum_score=0.62):
                 continue
             title_score = max(
                 SequenceMatcher(None, remaining, title).ratio(),
-                SequenceMatcher(None, base(remaining), base(title)).ratio(),
+                SequenceMatcher(None, base(remaining), base(primary_title)).ratio(),
             )
             if base(remaining) and (
                     base(remaining) in base(title) or base(title) in base(remaining)):
@@ -579,6 +582,8 @@ class MusicTools:
         self.deadline = 0.0
         self.playing = False
         self.current_song = None
+        # A verified user selection is a replay reference, not a pending list.
+        self.last_selected_song = None
         self.recent_random_tracks = []
         self.before_playback = before_playback
         self.random_queries = http_config.get("random_queries", ["周杰伦", "陈奕迅", "孙燕姿"])
@@ -811,6 +816,23 @@ class MusicTools:
         }
         if normalized in controls:
             return {"name": "music_control", "arguments": {"action": controls[normalized]}}
+        artist_mentioned = bool(self.last_selected_song and any(
+            _normalize_text(artist) in normalized
+            for artist in self.last_selected_song.get("artists", [])))
+        replay_reference = (re.fullmatch(
+            r"(?:你)?(?:再|重新)?(?:播放|放|听)(?:一遍|一次|一下)?(?:刚才|之前)?(?:的|那)?(?:一首|那首|首)?(?:歌|歌曲)?(?:吧)?",
+            normalized) or (
+            any(word in normalized for word in ("刚才", "之前", "上次", "那首"))
+            and any(word in normalized for word in ("播放", "放", "想听", "要听"))
+            and not any(word in normalized for word in ("记得", "为什么", "怎么", "吗"))
+            and (artist_mentioned or re.search(
+                r"(?:刚才|之前|上次)(?:的)?(?:那首|一首|首|让你放的)", normalized))
+        ))
+        if self.last_selected_song and replay_reference:
+            song = self.last_selected_song
+            title = song["title"].split("《", 1)[0].strip() or song["title"]
+            query = " ".join([*song.get("artists", [])[:1], title]).strip()
+            return {"name": "music_search", "arguments": {"query": query, "utterance": text}}
         if is_change_music_request(value, has_context=(
                 self.playing or self.current_song is not None or self.has_pending)):
             return {"name": "music_search", "arguments": {"query": "随便", "utterance": text}}
@@ -1024,6 +1046,7 @@ class MusicTools:
             return result("我还不能确定你想听哪一首，可以说歌手、歌名或版本。",
                           ok=False, status="needs_selection")
         song = matches[0]
+        self.last_selected_song = self._display_song(song)
         if song["backend"] == "recommendation":
             try:
                 candidates = self._provider_search(song["query"])
@@ -1097,6 +1120,23 @@ class MusicTools:
                 self.clear_pending()
                 return result("找到了歌曲，但 QQ 音乐没有完成播放；我已停止播放器。请稍后再试。",
                               ok=False, status="unavailable", executed=True)
+            actual_song = self._qq_track_metadata(actual_track)
+            expected_title = _base_song_title(str(song["title"]).split("《", 1)[0])
+            actual_title = _base_song_title(actual_song["title"]) if actual_song else ""
+            if (actual_title and expected_title
+                    and expected_title not in actual_title
+                    and actual_title not in expected_title):
+                print(f"[MUSIC] TRACK_MISMATCH selected={song['title']!r} actual={actual_track!r}",
+                      flush=True)
+                try:
+                    self.controller.stop()
+                except (OSError, RuntimeError):
+                    pass
+                self.playing = False
+                self.current_song = None
+                self.clear_pending()
+                return result("QQ 音乐播放了另一首歌，我已停止播放；请稍后重试。",
+                              ok=False, status="mismatch", executed=True)
         self.playing = True
         self.current_song = (self._qq_track_metadata(actual_track, self._display_song(song))
                              if song["backend"] == "qqmusic" else self._display_song(song))

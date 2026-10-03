@@ -388,7 +388,33 @@ class LocalMusicTests(unittest.TestCase):
         self.assertEqual(reply["status"], "unavailable")
         self.assertIn("QQ 音乐没有完成播放", reply["message"])
         self.assertFalse(music.playing)
+
+    def test_replay_uses_last_selected_title_not_deictic_search_words(self):
+        music, _ = self.setup_music([])
+        music.last_selected_song = {"title": "完美先生和差不多小姐《电视剧片尾曲》",
+                                    "artists": ["花粥"]}
+        for phrase in ("你再播放一次吧", "播放刚才那首歌", "你播放刚才的花粥的那一首歌"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(music.local_request(phrase), {"name": "music_search",
+                    "arguments": {"query": "花粥 完美先生和差不多小姐", "utterance": phrase}})
+        self.assertIsNone(music.local_request("你还记得刚才那首歌吗"))
+
+    def test_qq_wrong_track_is_stopped_and_never_reported_as_playing(self):
+        controller = Mock()
+        controller.play.return_value = "夜问 - 花粥"
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.pending = [dict(id="wanted", title="完美先生和差不多小姐《电视剧片尾曲》",
+                              artists=["花粥"], backend="qqmusic", query="花粥 完美先生和差不多小姐")]
+        music.deadline = music.clock() + 120
+        answer = music.select("第一首")
+        self.assertEqual(answer["status"], "mismatch")
+        self.assertFalse(answer["playing"])
         controller.stop.assert_called_once()
+
+    def test_drama_annotation_does_not_make_another_song_an_explicit_match(self):
+        wrong = dict(id="wrong", title="夜问《完美先生和差不多小姐》电视剧片头曲",
+                     artists=["花粥"])
+        self.assertIsNone(explicit_candidate("花粥 王美先生和差不多小姐", [wrong]))
 
     def test_singer_only_choice_with_multiple_versions_stays_local(self):
         music, _ = self.setup_music([])

@@ -42,6 +42,20 @@ def agent_with(*responses):
 
 
 class JsonRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_router_cannot_replace_concrete_play_request_with_prose(self):
+        agent = agent_with(response('{"action":"respond_text"}'))
+        with self.assertRaises(MusicRequestRequired) as raised:
+            await agent.chat("播放花粥的完美先生和差不多小姐")
+        self.assertEqual(raised.exception.request.action, "play_music")
+        self.assertEqual(raised.exception.request.query, "花粥 完美先生和差不多小姐")
+        self.assertEqual(agent.client.chat.completions.create.await_count, 1)
+
+    async def test_unresolved_replay_does_not_claim_playback(self):
+        agent = agent_with(response('{"action":"respond_text"}'))
+        answer = await agent.chat("播放刚才那首歌")
+        self.assertIn("还没有开始播放", answer)
+        self.assertEqual(agent.client.chat.completions.create.await_count, 1)
+
     async def test_pending_ordinal_never_becomes_false_playback_prose(self):
         agent = agent_with(response('{"action":"respond_text"}'))
         with self.assertRaises(MusicRequestRequired) as raised:
