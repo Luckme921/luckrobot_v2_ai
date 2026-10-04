@@ -89,6 +89,45 @@ class QQMusicAuthBridgeTests(unittest.TestCase):
             self.assertEqual(info["nickname"], "网页昵称")
             driver.get.assert_any_call("https://y.qq.com/n/ryqq/profile")
 
+    def test_browser_login_reuses_existing_modal_and_cancels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = QQMusicController(profile_path=directory)
+            driver = Mock()
+            login_link = Mock(text="登录")
+            login_link.is_displayed.return_value = True
+            modal = Mock()
+            modal.is_displayed.return_value = True
+            driver.find_elements.side_effect = lambda by, selector: (
+                [login_link] if selector == "a.top_login__link" else
+                [modal] if selector == "iframe.login-box-bd__ifr_qq" else [])
+            driver.window_handles = ["search"]
+            driver.current_url = "https://y.qq.com/n/ryqq/search"
+            driver.get_screenshot_as_png.return_value = b"PNG"
+            controller._driver = driver
+            controller._search_handle = "search"
+            get_cancel = Mock(side_effect=[{"id": "old"}, {"id": "old"}, {"id": "new"}])
+            publish = Mock()
+            with patch("edge.music.qqmusic.WebDriverWait") as wait, patch(
+                "edge.music.qqmusic.time.sleep"
+            ):
+                wait.return_value.until.side_effect = lambda condition: "login"
+                result = controller.authenticate_with_browser(
+                    Path(directory) / "browser.png", publish,
+                    lambda: {"id": "old"}, get_cancel)
+            self.assertFalse(result)
+            publish.assert_any_call("browser", qr_available=False, qr_revision=0)
+            publish.assert_any_call("required")
+            driver.find_element.assert_not_called()
+            self.assertFalse((Path(directory) / "browser.png").exists())
+
+    def test_browser_click_maps_normalized_viewport_coordinates(self):
+        driver = Mock()
+        target = Mock(tag_name="button")
+        driver.execute_script.side_effect = [[1280, 634], [target, 0, 0]]
+        QQMusicController._click_browser_at(driver, 0.5, 0.25)
+        self.assertEqual(driver.execute_script.call_args_list[1].args[-2:], (640, 158))
+        target.click.assert_called_once()
+
     def test_display_login_requires_local_ui_header_and_writes_request(self):
         with tempfile.TemporaryDirectory() as directory:
             request_path = Path(directory) / "request.json"
@@ -140,6 +179,38 @@ class QQMusicAuthBridgeTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(auth_bridge.read_json(request_path)["action"], "logout")
                 self.assertEqual(client.get("/api/music/auth/avatar").status_code, 404)
+
+    def test_browser_preview_click_and_cancel_are_session_scoped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            browser_path = Path(directory) / "browser.png"
+            click_path = Path(directory) / "click.json"
+            cancel_path = Path(directory) / "cancel.json"
+            status_path = Path(directory) / "status.json"
+            browser_path.write_bytes(b"PNG")
+            with patch.object(auth_bridge, "BROWSER_IMAGE", browser_path), patch.object(
+                auth_bridge, "BROWSER_CLICK", click_path
+            ), patch.object(auth_bridge, "BROWSER_CANCEL", cancel_path), patch.object(
+                auth_bridge, "STATUS", status_path
+            ):
+                client = TestClient(app)
+                self.assertEqual(client.get("/api/music/auth/browser").status_code, 404)
+                auth_bridge.publish("browser")
+                self.assertEqual(client.get("/api/music/auth/browser").content, b"PNG")
+                url = "/api/music/auth/browser/click"
+                self.assertEqual(client.post(url, json={"x": 0.5, "y": 0.5}).status_code, 403)
+                headers = {"X-LuckRobot-Display": "1"}
+                self.assertEqual(client.post(url, json={"x": -0.1, "y": 0.5},
+                                             headers=headers).status_code, 422)
+                self.assertEqual(client.post(url, json={"x": 0.5, "y": 0.25},
+                                             headers=headers).status_code, 200)
+                self.assertEqual(auth_bridge.read_json(click_path)["y"], 0.25)
+                self.assertEqual(client.post("/api/music/auth/browser/cancel",
+                                             headers=headers).status_code, 200)
+                self.assertIn("id", auth_bridge.read_json(cancel_path))
+                auth_bridge.publish("required")
+                self.assertEqual(client.get("/api/music/auth/browser").status_code, 404)
+                self.assertEqual(client.post(url, json={"x": 0.5, "y": 0.5},
+                                             headers=headers).status_code, 409)
 
 
 if __name__ == "__main__":

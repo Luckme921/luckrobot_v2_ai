@@ -595,6 +595,7 @@ def main() -> None:
     local_tools = build_edge_tools(device_volume, music_tools)
 
     auth_bridge.QR_IMAGE.unlink(missing_ok=True)
+    auth_bridge.BROWSER_IMAGE.unlink(missing_ok=True)
     auth_bridge.AVATAR_IMAGE.unlink(missing_ok=True)
     auth_bridge.publish("unknown")
     auth_request_id = auth_bridge.read_json(auth_bridge.REQUEST).get("id", "")
@@ -613,14 +614,18 @@ def main() -> None:
                 auth_bridge.publish("required")
             else:
                 if action == "login":
-                    if not music_controller.authenticate_with_qr(
-                            auth_bridge.QR_IMAGE, auth_bridge.publish):
+                    if not music_controller.authenticate_with_browser(
+                            auth_bridge.BROWSER_IMAGE, auth_bridge.publish,
+                            lambda: auth_bridge.read_json(auth_bridge.BROWSER_CLICK),
+                            lambda: auth_bridge.read_json(auth_bridge.BROWSER_CANCEL),
+                            auth_bridge.QR_IMAGE):
                         return
                 account = music_controller.account_info(auth_bridge.AVATAR_IMAGE)
                 auth_bridge.publish(account["state"], nickname=account["nickname"],
                                     avatar=account["avatar"])
         except Exception as exc:
             auth_bridge.QR_IMAGE.unlink(missing_ok=True)
+            auth_bridge.BROWSER_IMAGE.unlink(missing_ok=True)
             auth_bridge.publish("error", detail=str(exc)[:160])
             print(f"[MUSIC] QQ_AUTH_ERROR type={type(exc).__name__}", flush=True)
 

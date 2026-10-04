@@ -238,12 +238,14 @@ QPlay Auth 官方文档中的扫码流程适合车机、带屏音箱等设备：
 占位密钥，也不把 H5 登录页误当成音乐搜索或播放 API。
 # QQ 音乐网页认证
 
-QQ 音乐仍由音频进程中的同一个 Selenium Firefox 控制器负责搜索和播放。`prewarm()` 只确认 WebDriver 启动，不代表账号仍在线；搜索页显示“登录”且搜索超时会报告 `auth_required`，并在显示屏左上角提示登录。屏幕触摸“QQ 音乐登录”后，Display API 将请求写入 `private/runtime/qqmusic-auth-request.json`；音频进程在后台打开 QQ 网页登录弹窗，把二维码截图写入私有运行目录，屏幕显示后供手机 QQ 扫码。成功后状态变为 `ready`，二维码文件删除。二维码、浏览器配置及 Cookie 均不得提交。
+QQ 音乐仍由音频进程中的同一个 Selenium Firefox 控制器负责搜索和播放。`prewarm()` 只确认 WebDriver 启动，不代表账号仍在线；搜索页显示“登录”且搜索超时会报告 `auth_required`，并在显示屏左上角提示登录。屏幕触摸“QQ 音乐登录”后，Display API 将请求写入 `private/runtime/qqmusic-auth-request.json`；音频进程在后台打开 QQ 登录网页。无桌面 Qt 屏幕显示整个 Firefox 网页画面，触摸坐标经本机 Display API 转给 Selenium 点击真实网页元素，手机 QQ 扫网页中的二维码。成功后状态变为 `ready`，网页预览文件删除。浏览器截图、配置及 Cookie 均不得提交。
 
-Display 本机接口：`GET /api/music/auth` 查询状态，`GET /api/music/auth/qr` 仅在等待扫码时返回二维码；`POST /api/music/auth/login` 只接受带 `X-LuckRobot-Display: 1` 的本机显示屏请求。音频进程未启动时无法生成二维码。
+Display 本机接口：`GET /api/music/auth` 查询状态；`GET /api/music/auth/browser` 在网页登录期间提供实时网页截图，`GET /api/music/auth/qr` 提供左侧放大的 QQ 二维码；`POST /api/music/auth/browser/click` 转发归一化触摸坐标，`POST /api/music/auth/browser/cancel` 关闭登录会话；`POST /api/music/auth/login` 只接受带 `X-LuckRobot-Display: 1` 的本机显示屏请求。音频进程未启动时无法生成网页预览。
 
-2026-10-03：Firefox 直接使用 `private/qqmusic-firefox` 作为配置目录，扫码后的 Cookie 会随浏览器持久保存。此前 `Options.profile` 会复制配置到临时目录，导致重启后登录丢失。点击认证入口时，若网页已经登录，返回 `ready`，不会再生成二维码；只有确实显示“登录”时才打开扫码弹窗。网页超时会报告具体阶段（搜索页、弹窗、QQ iframe 或二维码）。
+2026-10-03：Firefox 直接使用 `private/qqmusic-firefox` 作为配置目录，扫码后的 Cookie 会随浏览器持久保存。此前 `Options.profile` 会复制配置到临时目录，导致重启后登录丢失。点击认证入口时，若网页已经登录，返回 `ready`，不会再生成登录界面；只有确实显示“登录”时才打开网页登录弹窗。网页超时会报告具体阶段。
 
 2026-10-04：认证状态增加网页账号昵称与本地头像截图（仅在 QQ 网页实际显示已登录头像时标记 `ready`）。顶部头像没有昵称属性，必要时从 QQ 账号主页 `.profile__name` 读取。屏幕左上角可打开账号面板，查看昵称/头像、退出登录或切换用户。`POST /api/music/auth/logout` 由音频进程关闭专用 Firefox，再删除 `private/qqmusic-firefox` 的 Cookie 数据库；切换用户随后重新打开二维码。`GET /api/music/auth/avatar` 只提供 `private/runtime/` 中的头像截图，不传递 Cookie 或浏览器配置。认证请求仍只在 Jetson 本机 Display API、且带 `X-LuckRobot-Display: 1` 时接受。启动时后台检查实际登录状态；`unknown`/`checking` 不代表已登录。
+
+网页登录预览在 QML 中交替使用两张 Image，下一帧加载完成才换到前台，避免逐帧白屏。QQ 网页的原始二维码另截成私有 PNG，通过兼容的 `/api/music/auth/qr` 在屏幕左侧以 `smooth: false` 放大显示；不能对浏览器二维码使用 CSS transform 平滑放大，现场测试会破坏扫码识别。网页截图与二维码都仅在 `browser` 会话期间提供，结束后清除。
 
 QQ 搜索页在加载账号时可能先短暂显示“登录”，随后才出现账号头像和歌曲列表。认证检查会等待账号状态稳定，再点击真正的登录入口，避免对已登录账号误开弹窗。

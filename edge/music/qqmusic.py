@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import wraps
 
 import json
+import os
 from difflib import SequenceMatcher
 from pathlib import Path
 import re
@@ -12,6 +13,7 @@ import time
 from urllib.parse import quote
 
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (
     InvalidSessionIdException,
     NoSuchElementException,
@@ -19,7 +21,6 @@ from selenium.common.exceptions import (
     TimeoutException,
     WebDriverException,
 )
-from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
@@ -1204,6 +1205,134 @@ class QQMusicController:
             self.close()
             for name in ("cookies.sqlite", "cookies.sqlite-wal", "cookies.sqlite-shm"):
                 (self.profile_path / name).unlink(missing_ok=True)
+
+    @staticmethod
+    def _click_browser_at(driver, x: float, y: float) -> None:
+        """Click the visible element, descending into QQ's login iframes."""
+        driver.switch_to.default_content()
+        width, height = driver.execute_script("return [window.innerWidth, window.innerHeight]")
+        px = max(1, min(int(width) - 1, round(x * width)))
+        py = max(1, min(int(height) - 1, round(y * height)))
+        try:
+            for _ in range(4):
+                target, left, top = driver.execute_script("""
+                    const x = arguments[0], y = arguments[1];
+                    const target = document.elementFromPoint(x, y);
+                    if (!target) return [null, 0, 0];
+                    const rect = target.getBoundingClientRect();
+                    return [target, rect.left, rect.top];
+                """, px, py)
+                if target is None:
+                    return
+                if target.tag_name.lower() != "iframe":
+                    target.click()
+                    return
+                driver.switch_to.frame(target)
+                px -= round(left)
+                py -= round(top)
+        finally:
+            driver.switch_to.default_content()
+
+    @staticmethod
+    def _login_qr_png(driver) -> bytes | None:
+        """Capture QQ's QR at its native pixels for a sharp Qt enlargement."""
+        driver.switch_to.default_content()
+        try:
+            outer = driver.find_elements(By.CSS_SELECTOR, "iframe.login-box-bd__ifr_qq")
+            if not outer or not outer[0].is_displayed():
+                return None
+            driver.switch_to.frame(outer[0])
+            inner = driver.find_elements(By.CSS_SELECTOR, "#ptlogin_iframe")
+            if not inner:
+                return None
+            driver.switch_to.frame(inner[0])
+            qr = driver.find_elements(By.CSS_SELECTOR, "#qrlogin_img")
+            return qr[0].screenshot_as_png if qr and qr[0].is_displayed() else None
+        except WebDriverException:
+            return None
+        finally:
+            driver.switch_to.default_content()
+
+    def authenticate_with_browser(self, browser_path: Path, publish,
+                                  get_click, get_cancel,
+                                  qr_path: Path | None = None) -> bool:
+        """Mirror the real QQ login page for the Qt touchscreen."""
+        with self._driver_lock:
+            self._auth_in_progress = True
+        last_click = str(get_click().get("id", ""))
+        last_cancel = str(get_cancel().get("id", ""))
+        stage = "search_page"
+        try:
+            with self._driver_lock:
+                driver = self._require_driver()
+                self._ensure_search_window()
+                driver.set_window_size(1280, 720)
+                driver.get(self.SEARCH_URL.format(query="music"))
+                opened_at = time.monotonic()
+                state = WebDriverWait(driver, self.timeout_seconds).until(
+                    lambda d: "ready" if self._logged_in_page(d) else
+                    "login" if time.monotonic() - opened_at >= 4
+                    and self._login_link_visible(d) else False)
+                if state == "ready":
+                    publish("ready")
+                    return True
+                stage = "open_login"
+                modal_open = any(node.is_displayed() for node in driver.find_elements(
+                    By.CSS_SELECTOR, "iframe.login-box-bd__ifr_qq"))
+                if not modal_open:
+                    driver.find_element(By.CSS_SELECTOR, "a.top_login__link").click()
+
+            deadline = time.monotonic() + 240
+            published = False
+            qr_revision = 0
+            previous_qr = None
+            while time.monotonic() < deadline:
+                if str(get_cancel().get("id", "")) != last_cancel:
+                    publish("required")
+                    return False
+                click = get_click()
+                with self._driver_lock:
+                    if self._logged_in_page(driver):
+                        publish("ready")
+                        return True
+                    if str(click.get("id", "")) not in {"", last_click}:
+                        last_click = str(click["id"])
+                        try:
+                            self._click_browser_at(driver, float(click["x"]), float(click["y"]))
+                        except (WebDriverException, ValueError, TypeError) as exc:
+                            print(f"[MUSIC] QQ_BROWSER_CLICK_ERROR type={type(exc).__name__}", flush=True)
+                    if not driver.current_url.startswith("https://y.qq.com/"):
+                        driver.get(self.SEARCH_URL.format(query="music"))
+                    browser_path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = browser_path.with_name("." + browser_path.name + ".tmp")
+                    temporary.write_bytes(driver.get_screenshot_as_png())
+                    os.replace(temporary, browser_path)
+                    qr_png = self._login_qr_png(driver) if qr_path is not None else None
+                    qr_changed = qr_png != previous_qr
+                    if qr_changed and qr_path is not None:
+                        if qr_png:
+                            qr_path.parent.mkdir(parents=True, exist_ok=True)
+                            temporary_qr = qr_path.with_name("." + qr_path.name + ".tmp")
+                            temporary_qr.write_bytes(qr_png)
+                            os.replace(temporary_qr, qr_path)
+                        else:
+                            qr_path.unlink(missing_ok=True)
+                        previous_qr = qr_png
+                        qr_revision += 1
+                    if not published or qr_changed:
+                        publish("browser", qr_available=bool(qr_png), qr_revision=qr_revision)
+                        published = True
+                time.sleep(0.75)
+            publish("error", detail="登录网页已超时，请重新打开 QQ 音乐登录")
+            return False
+        except TimeoutException as exc:
+            raise QQMusicError(f"QQ 音乐网页加载超时（{stage}），请重试") from exc
+        finally:
+            browser_path.unlink(missing_ok=True)
+            if qr_path is not None:
+                qr_path.unlink(missing_ok=True)
+            with self._driver_lock:
+                self._auth_in_progress = False
 
     def authenticate_with_qr(self, qr_path: Path, publish) -> bool:
         """Show the web login QR; use the existing browser/profile only."""

@@ -162,7 +162,7 @@ PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 
 `XDG_RUNTIME_DIR=/run/user/$(id -u)`；systemd 用户服务本身会在启动时创建运行目录。
 # QQ 音乐重新登录（无图形桌面）
 
-启动 `bash scripts/run_robot.sh` 和独占屏幕服务后，触摸屏幕左上角“QQ 音乐登录”，使用手机 QQ 扫码并在手机确认。屏幕出现“登录成功”后再试歌曲搜索。若二维码过期，重新点击登录入口；账号状态和二维码只保存在 `private/runtime/`。`[MUSIC] PREWARM webdriver-ready` 仅表示浏览器启动，不是登录成功。可通过 `curl -s http://127.0.0.1:8765/api/music/auth` 查看认证状态，不要复制或提交二维码、Cookie、Firefox profile。
+启动 `bash scripts/run_robot.sh` 和独占屏幕服务后，触摸屏幕左上角“QQ 音乐登录”。屏幕显示完整 QQ 登录网页画面；在网页中选择登录方式，用手机 QQ 扫网页二维码并确认。网页预览约每秒刷新，触摸会转给后台 Firefox。登录成功后再试歌曲搜索。若网页二维码过期，关闭并重新打开登录入口；账号状态和网页截图只保存在 `private/runtime/`。`[MUSIC] PREWARM webdriver-ready` 仅表示浏览器启动，不是登录成功。可通过 `curl -s http://127.0.0.1:8765/api/music/auth` 查看认证状态，不要复制或提交网页登录截图、Cookie、Firefox profile。
 
 2026-10-03 屏幕布局更新：QQ 音乐登录入口位于左上角，显示服务未连接提示位于顶部中间。Qt 启动日志会打印 `[DISPLAY] touchscreen=/dev/input/eventN` 或 `touchscreen=missing`。HDMI 只传画面，触摸还需要 USB 数据线；若启动时未识别触摸屏，检查 `lsusb`、`/proc/bus/input/devices` 和 `udevadm info --query=property --name=/dev/input/eventN`，接好线后重启 `luckrobot-display.service` 让启动脚本重新选择触摸设备。服务配置需要 `SupplementaryGroups=video input` 才能读取 framebuffer 和输入设备。
 
@@ -171,3 +171,7 @@ PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 
 认证入口会先检查网页会话；账号仍在线时状态变为 `ready`，不显示二维码。Firefox 使用项目私有配置目录直接运行，重启机器人后应保持登录。若状态为 `error`，先看 `GET /api/music/auth` 的 `detail` 所列网页阶段，再看 `logs/audio-latency.log` 中的 `QQ_AUTH_ERROR`。触摸未在 `lsusb` 和 `/proc/bus/input/devices` 中枚举时，屏幕点击本身不能触发请求，应先排查屏幕的 USB 触控线；可暂用上面的本机接口触发。
 
 2026-10-04：机器人主进程启动后异步检查 QQ 音乐登录状态；`GET /api/music/auth` 返回 `state`、网页昵称 `nickname` 和本地头像可用标记 `avatar`。屏幕左上角已登录入口可查看账号、退出登录或切换用户；退出会停止专用 Firefox 播放器并清除该项目 profile 的 Cookie，切换会继续生成新二维码。触摸硬件未枚举时可从 Jetson 本机执行 `curl -X POST -H 'X-LuckRobot-Display: 1' http://127.0.0.1:8765/api/music/auth/logout`；随后再次调用 `/api/music/auth/login`。不要在检查运行状态时清空 `private/`，其中包含登录会话与备份。若只启动 `luckrobot-display.service`，`8000` 的 Cloud/Audio 主进程不会自动启动，应另外执行 `bash scripts/run_robot.sh` 并检查 `private/runtime/robot.lock` 和 `logs/robot-supervisor*.log`。
+
+网页登录预览沿用当前无桌面 `linuxfb` 屏幕：Qt 显示音频进程中 Firefox 的整页截图，屏幕触摸经本机接口映射到 Selenium 网页点击，并非启动另一套独立浏览器。因此不用切到图形桌面，登录后 Cookie 仍保存在同一个专用 profile。登录界面按“关闭”会取消本轮网页操作；超时后可重新打开。QQ 网页的触摸缩放与扫码效果仍需在 Jetson 屏幕现场验收。
+
+扫码界面若能看到网页但二维码较小，屏幕左侧应额外显示一张放大的清晰二维码；网页画面采用前后两帧交替加载，刷新时不应整屏闪白。手机扫码和左侧放大图的现场验收仍需人工完成。保留无桌面模式是当前默认；若以后需要网页键盘输入或任意浏览，需另设图形桌面登录模式，并处理正在使用的 Firefox profile 锁，不能同时以两个进程打开同一配置目录。

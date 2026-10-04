@@ -1,5 +1,6 @@
 """Local display server and QQ Music login request bridge."""
 import json
+import math
 import os
 from pathlib import Path
 
@@ -48,7 +49,7 @@ def music_auth():
 
 @app.get("/api/music/auth/qr")
 def music_auth_qr():
-    if auth_bridge.status().get("state") != "qr" or not auth_bridge.QR_IMAGE.is_file():
+    if auth_bridge.status().get("state") not in {"qr", "browser"} or not auth_bridge.QR_IMAGE.is_file():
         raise HTTPException(status_code=404)
     return FileResponse(auth_bridge.QR_IMAGE, media_type="image/png",
                         headers={"Cache-Control": "no-store"})
@@ -62,12 +63,49 @@ def music_auth_avatar():
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/music/auth/browser")
+def music_auth_browser():
+    if auth_bridge.status().get("state") != "browser" or not auth_bridge.BROWSER_IMAGE.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(auth_bridge.BROWSER_IMAGE, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/music/auth/browser/click")
+def music_auth_browser_click(payload: dict,
+                             x_luckrobot_display: str | None = Header(default=None)):
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    if auth_bridge.status().get("state") != "browser":
+        raise HTTPException(status_code=409)
+    try:
+        x, y = float(payload["x"]), float(payload["y"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=422)
+    if not (math.isfinite(x) and math.isfinite(y) and 0 <= x <= 1 and 0 <= y <= 1):
+        raise HTTPException(status_code=422)
+    auth_bridge.request_browser_click(x, y)
+    return {"ok": True}
+
+
+@app.post("/api/music/auth/browser/cancel")
+def music_auth_browser_cancel(x_luckrobot_display: str | None = Header(default=None)):
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    if auth_bridge.status().get("state") != "browser":
+        raise HTTPException(status_code=409)
+    auth_bridge.request_browser_cancel()
+    return {"ok": True}
+
+
 @app.post("/api/music/auth/login")
 def music_auth_login(x_luckrobot_display: str | None = Header(default=None)):
     if x_luckrobot_display != "1":
         raise HTTPException(status_code=403)
     current = auth_bridge.status()
     print(f"[DISPLAY] QQ_AUTH_REQUEST previous={current.get('state', 'unknown')}", flush=True)
+    if current.get("state") == "browser" and auth_bridge.BROWSER_IMAGE.is_file():
+        return JSONResponse({"state": "browser"}, headers={"Cache-Control": "no-store"})
     if current.get("state") == "qr" and auth_bridge.QR_IMAGE.is_file():
         return JSONResponse({"state": "qr"}, headers={"Cache-Control": "no-store"})
     if current.get("state") == "starting":

@@ -22,6 +22,10 @@ Window {
     property bool qqAuthOpen: false
     property int qqQrRevision: 0
     property int qqAvatarRevision: 0
+    property int qqBrowserRevision: 0
+    property int qqBrowserSlot: 0
+    property bool qqQrAvailable: false
+    property int qqQrToken: 0
     property bool qqSwitchPending: false
 
     function requestQqLogin() {
@@ -55,6 +59,24 @@ Window {
         request.open("POST", "http://127.0.0.1:8765/api/music/auth/logout")
         request.setRequestHeader("X-LuckRobot-Display", "1")
         request.send()
+    }
+
+    function clickQqBrowser(x, y) {
+        var request = new XMLHttpRequest()
+        request.open("POST", "http://127.0.0.1:8765/api/music/auth/browser/click")
+        request.setRequestHeader("X-LuckRobot-Display", "1")
+        request.setRequestHeader("Content-Type", "application/json")
+        request.send(JSON.stringify({x: x, y: y}))
+    }
+
+    function closeQqPanel() {
+        if (root.qqAuthState === "browser") {
+            var request = new XMLHttpRequest()
+            request.open("POST", "http://127.0.0.1:8765/api/music/auth/browser/cancel")
+            request.setRequestHeader("X-LuckRobot-Display", "1")
+            request.send()
+        }
+        root.qqAuthOpen = false
     }
 
     function accent() {
@@ -357,7 +379,7 @@ Window {
         color: "#ee06111d"
         Text {
             anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.10 }
-            text: root.qqAuthState === "ready" ? "QQ 音乐账号" : "QQ 音乐登录"
+            text: root.qqAuthState === "ready" ? "QQ 音乐账号" : "QQ 音乐网页登录"
             color: "white"; font.bold: true; font.pixelSize: Math.max(28, root.height * 0.06)
         }
         Image {
@@ -369,18 +391,64 @@ Window {
             cache: false
             source: visible ? "http://127.0.0.1:8765/api/music/auth/avatar?v=" + root.qqAvatarRevision : ""
         }
-        Image {
-            id: qqQrImage
-            visible: root.qqAuthState === "qr"
-            anchors.centerIn: parent
-            width: Math.min(root.width * 0.32, root.height * 0.48)
-            height: width
-            fillMode: Image.PreserveAspectFit
-            smooth: false
-            cache: false
-            source: visible ? "http://127.0.0.1:8765/api/music/auth/qr?v=" + root.qqQrRevision : ""
+        Item {
+            id: qqBrowserPane
+            visible: root.qqAuthState === "browser"
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.16 }
+            width: root.width * 0.96
+            height: root.height * 0.68
+            Image {
+                id: qqBrowserImageA
+                anchors.fill: parent
+                visible: root.qqBrowserSlot === 0
+                fillMode: Image.PreserveAspectFit
+                smooth: false; cache: false; asynchronous: true
+                onStatusChanged: {
+                    if (status === Image.Ready && root.qqAuthState === "browser") root.qqBrowserSlot = 0
+                }
+            }
+            Image {
+                id: qqBrowserImageB
+                anchors.fill: parent
+                visible: root.qqBrowserSlot === 1
+                fillMode: Image.PreserveAspectFit
+                smooth: false; cache: false; asynchronous: true
+                onStatusChanged: {
+                    if (status === Image.Ready && root.qqAuthState === "browser") root.qqBrowserSlot = 1
+                }
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    var active = root.qqBrowserSlot === 0 ? qqBrowserImageA : qqBrowserImageB
+                    if (active.paintedWidth <= 0 || active.paintedHeight <= 0) return
+                    var left = (parent.width - active.paintedWidth) / 2
+                    var top = (parent.height - active.paintedHeight) / 2
+                    var x = (mouse.x - left) / active.paintedWidth
+                    var y = (mouse.y - top) / active.paintedHeight
+                    if (x >= 0 && x <= 1 && y >= 0 && y <= 1) root.clickQqBrowser(x, y)
+                }
+            }
+        }
+        Rectangle {
+            visible: root.qqAuthState === "browser" && root.qqQrAvailable
+            anchors { left: parent.left; leftMargin: root.width * 0.02; verticalCenter: parent.verticalCenter }
+            width: Math.min(240, root.width * 0.21)
+            height: width + 42
+            radius: 10; color: "white"; border.color: "#41ca9a"; border.width: 2
+            Image {
+                anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 12 }
+                width: parent.width - 24; height: width
+                fillMode: Image.PreserveAspectFit; smooth: false; cache: false
+                source: parent.visible ? "http://127.0.0.1:8765/api/music/auth/qr?v=" + root.qqQrToken : ""
+            }
+            Text {
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 8 }
+                text: "手机 QQ 扫码"; color: "#15232e"; font.pixelSize: 19
+            }
         }
         Text {
+            visible: root.qqAuthState !== "browser"
             anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.67 }
             width: parent.width * 0.82; horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
@@ -403,7 +471,7 @@ Window {
                         onClicked: {
                             if (modelData === "退出登录") root.requestQqLogout(false)
                             else if (modelData === "切换用户") root.requestQqLogout(true)
-                            else root.qqAuthOpen = false
+                            else root.closeQqPanel()
                         }
                     }
                 }
@@ -418,6 +486,17 @@ Window {
     }
 
     Timer {
+        interval: 1300; repeat: true; running: root.qqAuthState === "browser"; triggeredOnStart: true
+        onTriggered: {
+            var target = root.qqBrowserSlot === 0 ? qqBrowserImageB : qqBrowserImageA
+            if (target.status === Image.Loading) return
+            root.qqBrowserRevision += 1
+            var url = "http://127.0.0.1:8765/api/music/auth/browser?v=" + root.qqBrowserRevision
+            target.source = url
+        }
+    }
+
+    Timer {
         interval: 2000; repeat: true; running: true; triggeredOnStart: true
         onTriggered: {
             var request = new XMLHttpRequest()
@@ -425,9 +504,12 @@ Window {
                 if (request.readyState !== XMLHttpRequest.DONE || request.status !== 200) return
                 try {
                     var auth = JSON.parse(request.responseText)
-                    if (root.qqAuthState !== auth.state && auth.state === "qr") {
+                    if (root.qqAuthState !== auth.state && (auth.state === "qr" || auth.state === "browser")) {
                         root.qqQrRevision += 1
                         root.qqAuthOpen = true
+                        qqBrowserImageA.source = ""
+                        qqBrowserImageB.source = ""
+                        root.qqBrowserSlot = 0
                     }
                     if (root.qqAuthState !== auth.state && auth.state === "ready") closeAuthPanel.start()
                     if (root.qqAuthState !== auth.state && auth.state === "ready") root.qqAvatarRevision += 1
@@ -435,6 +517,8 @@ Window {
                     root.qqAuthDetail = auth.detail || ""
                     root.qqNickname = auth.nickname || ""
                     root.qqHasAvatar = !!auth.avatar
+                    root.qqQrAvailable = !!auth.qr_available
+                    root.qqQrToken = auth.qr_revision || 0
                     if (root.qqSwitchPending && root.qqAuthState === "required") {
                         root.qqSwitchPending = false
                         root.requestQqLogin()

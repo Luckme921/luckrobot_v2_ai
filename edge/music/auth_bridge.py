@@ -13,6 +13,9 @@ REQUEST = RUNTIME / "qqmusic-auth-request.json"
 STATUS = RUNTIME / "qqmusic-auth-status.json"
 QR_IMAGE = RUNTIME / "qqmusic-auth-qr.png"
 AVATAR_IMAGE = RUNTIME / "qqmusic-auth-avatar.png"
+BROWSER_IMAGE = RUNTIME / "qqmusic-auth-browser.png"
+BROWSER_CLICK = RUNTIME / "qqmusic-auth-browser-click.json"
+BROWSER_CANCEL = RUNTIME / "qqmusic-auth-browser-cancel.json"
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -43,9 +46,25 @@ def request_login() -> dict:
     return request_action("login")
 
 
-def publish(state: str, *, detail: str = "", nickname: str = "", avatar: bool = False) -> None:
+def request_browser_click(x: float, y: float) -> dict:
+    if not (0 <= x <= 1 and 0 <= y <= 1):
+        raise ValueError("browser click is outside the preview")
+    value = {"id": uuid.uuid4().hex, "x": x, "y": y, "time": time.time()}
+    _write_json(BROWSER_CLICK, value)
+    return value
+
+
+def request_browser_cancel() -> dict:
+    value = {"id": uuid.uuid4().hex, "time": time.time()}
+    _write_json(BROWSER_CANCEL, value)
+    return value
+
+
+def publish(state: str, *, detail: str = "", nickname: str = "", avatar: bool = False,
+            qr_available: bool = False, qr_revision: int = 0) -> None:
     _write_json(STATUS, {"state": state, "detail": detail, "nickname": nickname,
-                         "avatar": bool(avatar), "time": time.time()})
+                         "avatar": bool(avatar), "qr_available": bool(qr_available),
+                         "qr_revision": qr_revision, "time": time.time()})
 
 
 def status() -> dict:
