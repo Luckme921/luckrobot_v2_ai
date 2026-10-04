@@ -169,3 +169,5 @@ PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 
 触摸暂不可用时，可在 Jetson SSH 上运行 `curl -X POST -H 'X-LuckRobot-Display: 1' http://127.0.0.1:8765/api/music/auth/login`。生成二维码后，Qt 会自动打开扫码面板；该接口仅监听设备本机的 `127.0.0.1`。
 
 认证入口会先检查网页会话；账号仍在线时状态变为 `ready`，不显示二维码。Firefox 使用项目私有配置目录直接运行，重启机器人后应保持登录。若状态为 `error`，先看 `GET /api/music/auth` 的 `detail` 所列网页阶段，再看 `logs/audio-latency.log` 中的 `QQ_AUTH_ERROR`。触摸未在 `lsusb` 和 `/proc/bus/input/devices` 中枚举时，屏幕点击本身不能触发请求，应先排查屏幕的 USB 触控线；可暂用上面的本机接口触发。
+
+2026-10-04：机器人主进程启动后异步检查 QQ 音乐登录状态；`GET /api/music/auth` 返回 `state`、网页昵称 `nickname` 和本地头像可用标记 `avatar`。屏幕左上角已登录入口可查看账号、退出登录或切换用户；退出会停止专用 Firefox 播放器并清除该项目 profile 的 Cookie，切换会继续生成新二维码。触摸硬件未枚举时可从 Jetson 本机执行 `curl -X POST -H 'X-LuckRobot-Display: 1' http://127.0.0.1:8765/api/music/auth/logout`；随后再次调用 `/api/music/auth/login`。不要在检查运行状态时清空 `private/`，其中包含登录会话与备份。若只启动 `luckrobot-display.service`，`8000` 的 Cloud/Audio 主进程不会自动启动，应另外执行 `bash scripts/run_robot.sh` 并检查 `private/runtime/robot.lock` 和 `logs/robot-supervisor*.log`。

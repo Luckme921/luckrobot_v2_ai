@@ -17,8 +17,12 @@ Window {
     property bool connected: true
     property string qqAuthState: "unknown"
     property string qqAuthDetail: ""
+    property string qqNickname: ""
+    property bool qqHasAvatar: false
     property bool qqAuthOpen: false
     property int qqQrRevision: 0
+    property int qqAvatarRevision: 0
+    property bool qqSwitchPending: false
 
     function requestQqLogin() {
         qqAuthOpen = true
@@ -32,6 +36,23 @@ Window {
             }
         }
         request.open("POST", "http://127.0.0.1:8765/api/music/auth/login")
+        request.setRequestHeader("X-LuckRobot-Display", "1")
+        request.send()
+    }
+
+    function requestQqLogout(switchUser) {
+        qqSwitchPending = switchUser
+        qqAuthState = "logging_out"
+        var request = new XMLHttpRequest()
+        request.onreadystatechange = function() {
+            if (request.readyState !== XMLHttpRequest.DONE) return
+            if (request.status < 200 || request.status >= 300) {
+                root.qqSwitchPending = false
+                root.qqAuthState = "error"
+                root.qqAuthDetail = "退出登录请求失败"
+            }
+        }
+        request.open("POST", "http://127.0.0.1:8765/api/music/auth/logout")
         request.setRequestHeader("X-LuckRobot-Display", "1")
         request.send()
     }
@@ -312,11 +333,20 @@ Window {
         border.color: root.qqAuthState === "ready" ? "#52ffd2" : "#66e6ff"
         Text {
             anchors.centerIn: parent
-            text: root.qqAuthState === "ready" ? "QQ 音乐已登录" : "QQ 音乐登录"
+            text: root.qqAuthState === "ready" ?
+                  "QQ 音乐 · " + (root.qqNickname || "已登录") : "QQ 音乐登录"
             color: "white"; font.bold: true
             font.pixelSize: Math.max(17, Math.min(22, root.height * 0.027))
+            width: parent.width - 24; horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
         }
-        MouseArea { anchors.fill: parent; onClicked: root.requestQqLogin() }
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {
+                if (root.qqAuthState === "ready") root.qqAuthOpen = true
+                else root.requestQqLogin()
+            }
+        }
     }
 
     Rectangle {
@@ -327,8 +357,17 @@ Window {
         color: "#ee06111d"
         Text {
             anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.10 }
-            text: "QQ 音乐登录"
+            text: root.qqAuthState === "ready" ? "QQ 音乐账号" : "QQ 音乐登录"
             color: "white"; font.bold: true; font.pixelSize: Math.max(28, root.height * 0.06)
+        }
+        Image {
+            id: qqAvatarImage
+            visible: root.qqAuthState === "ready" && root.qqHasAvatar
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.23 }
+            width: Math.min(100, root.height * 0.14); height: width
+            fillMode: Image.PreserveAspectFit
+            cache: false
+            source: visible ? "http://127.0.0.1:8765/api/music/auth/avatar?v=" + root.qqAvatarRevision : ""
         }
         Image {
             id: qqQrImage
@@ -342,18 +381,33 @@ Window {
             source: visible ? "http://127.0.0.1:8765/api/music/auth/qr?v=" + root.qqQrRevision : ""
         }
         Text {
-            anchors { horizontalCenter: parent.horizontalCenter; top: qqQrImage.bottom; topMargin: 24 }
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.67 }
+            width: parent.width * 0.82; horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
             text: root.qqAuthState === "qr" ? "请使用手机 QQ 扫码并确认登录" :
-                  root.qqAuthState === "ready" ? "账号已登录，无需扫码" :
+                  root.qqAuthState === "ready" ? "已登录：" + (root.qqNickname || "QQ 用户") :
+                  root.qqAuthState === "required" ? "尚未登录 QQ 音乐" :
                   root.qqAuthDetail || "正在打开登录二维码…"
             color: "#effcff"; font.pixelSize: Math.max(20, root.height * 0.037)
         }
-        Rectangle {
-            width: 150; height: 52; radius: 12
+        Row {
             anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: root.height * 0.08 }
-            color: "#24465c"
-            Text { anchors.centerIn: parent; text: "关闭"; color: "white"; font.pixelSize: 24 }
-            MouseArea { anchors.fill: parent; onClicked: root.qqAuthOpen = false }
+            spacing: 16
+            Repeater {
+                model: root.qqAuthState === "ready" ? ["退出登录", "切换用户", "关闭"] : ["关闭"]
+                Rectangle {
+                    width: 154; height: 52; radius: 12; color: "#24465c"
+                    Text { anchors.centerIn: parent; text: modelData; color: "white"; font.pixelSize: 21 }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (modelData === "退出登录") root.requestQqLogout(false)
+                            else if (modelData === "切换用户") root.requestQqLogout(true)
+                            else root.qqAuthOpen = false
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -376,8 +430,15 @@ Window {
                         root.qqAuthOpen = true
                     }
                     if (root.qqAuthState !== auth.state && auth.state === "ready") closeAuthPanel.start()
+                    if (root.qqAuthState !== auth.state && auth.state === "ready") root.qqAvatarRevision += 1
                     root.qqAuthState = auth.state || "unknown"
                     root.qqAuthDetail = auth.detail || ""
+                    root.qqNickname = auth.nickname || ""
+                    root.qqHasAvatar = !!auth.avatar
+                    if (root.qqSwitchPending && root.qqAuthState === "required") {
+                        root.qqSwitchPending = false
+                        root.requestQqLogin()
+                    }
                 } catch (error) { }
             }
             request.open("GET", "http://127.0.0.1:8765/api/music/auth")

@@ -1153,7 +1153,57 @@ class QQMusicController:
         if cls._login_link_visible(driver):
             return False
         return any(node.is_displayed() for node in driver.find_elements(
-            By.CSS_SELECTOR, "img.top_login__cover, a[href*='/songDetail/']"))
+            By.CSS_SELECTOR, "img.top_login__cover"))
+
+    def account_info(self, avatar_path: Path | None = None) -> dict:
+        """Read the account shown by QQ's own page, without exposing cookies."""
+        with self._driver_lock:
+            driver = self._require_driver()
+            self._ensure_search_window()
+            driver.get(self.SEARCH_URL.format(query="music"))
+            opened_at = time.monotonic()
+            state = WebDriverWait(driver, self.timeout_seconds).until(
+                lambda d: "ready" if self._logged_in_page(d) else
+                "required" if time.monotonic() - opened_at >= 4
+                and self._login_link_visible(d) else False)
+            if state != "ready":
+                return {"state": "required", "nickname": "", "avatar": False}
+            avatar = driver.find_element(By.CSS_SELECTOR, "img.top_login__cover")
+            nickname = driver.execute_script("""
+                const image = arguments[0];
+                const link = image.closest('a');
+                const candidates = [image.alt, image.title,
+                    link && link.title, link && link.getAttribute('aria-label'),
+                    link && link.querySelector('.top_login__nick')?.textContent];
+                return candidates.map(v => (v || '').trim()).find(Boolean) || '';
+            """, avatar)
+            saved_avatar = False
+            if avatar_path is not None:
+                try:
+                    avatar_path.parent.mkdir(parents=True, exist_ok=True)
+                    avatar.screenshot(str(avatar_path))
+                    saved_avatar = avatar_path.is_file()
+                except (WebDriverException, OSError):
+                    avatar_path.unlink(missing_ok=True)
+            if not nickname:
+                try:
+                    driver.get("https://y.qq.com/n/ryqq/profile")
+                    name_node = WebDriverWait(driver, self.timeout_seconds).until(
+                        lambda d: next((node for node in d.find_elements(
+                            By.CSS_SELECTOR, ".profile__name")
+                            if node.text.strip()), False))
+                    nickname = name_node.text.strip()
+                except (TimeoutException, WebDriverException):
+                    pass
+            return {"state": "ready", "nickname": str(nickname or "")[:80],
+                    "avatar": saved_avatar}
+
+    def logout_account(self) -> None:
+        """Discard only cookies from this project's dedicated Firefox profile."""
+        with self._driver_lock:
+            self.close()
+            for name in ("cookies.sqlite", "cookies.sqlite-wal", "cookies.sqlite-shm"):
+                (self.profile_path / name).unlink(missing_ok=True)
 
     def authenticate_with_qr(self, qr_path: Path, publish) -> bool:
         """Show the web login QR; use the existing browser/profile only."""

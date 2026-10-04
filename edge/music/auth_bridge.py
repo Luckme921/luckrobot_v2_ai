@@ -12,6 +12,7 @@ RUNTIME = ROOT / "private/runtime"
 REQUEST = RUNTIME / "qqmusic-auth-request.json"
 STATUS = RUNTIME / "qqmusic-auth-status.json"
 QR_IMAGE = RUNTIME / "qqmusic-auth-qr.png"
+AVATAR_IMAGE = RUNTIME / "qqmusic-auth-avatar.png"
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -29,15 +30,22 @@ def read_json(path: Path) -> dict:
         return {}
 
 
-def request_login() -> dict:
-    value = {"id": uuid.uuid4().hex, "time": time.time()}
+def request_action(action: str) -> dict:
+    if action not in {"login", "logout", "check"}:
+        raise ValueError("unsupported QQ Music authentication action")
+    value = {"id": uuid.uuid4().hex, "time": time.time(), "action": action}
     _write_json(REQUEST, value)
-    publish("starting")
+    publish("starting" if action != "logout" else "logging_out")
     return value
 
 
-def publish(state: str, *, detail: str = "") -> None:
-    _write_json(STATUS, {"state": state, "detail": detail, "time": time.time()})
+def request_login() -> dict:
+    return request_action("login")
+
+
+def publish(state: str, *, detail: str = "", nickname: str = "", avatar: bool = False) -> None:
+    _write_json(STATUS, {"state": state, "detail": detail, "nickname": nickname,
+                         "avatar": bool(avatar), "time": time.time()})
 
 
 def status() -> dict:

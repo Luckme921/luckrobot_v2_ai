@@ -54,6 +54,14 @@ def music_auth_qr():
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/music/auth/avatar")
+def music_auth_avatar():
+    if auth_bridge.status().get("state") != "ready" or not auth_bridge.AVATAR_IMAGE.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(auth_bridge.AVATAR_IMAGE, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/music/auth/login")
 def music_auth_login(x_luckrobot_display: str | None = Header(default=None)):
     if x_luckrobot_display != "1":
@@ -65,5 +73,24 @@ def music_auth_login(x_luckrobot_display: str | None = Header(default=None)):
     if current.get("state") == "starting":
         return JSONResponse({"state": "starting"}, headers={"Cache-Control": "no-store"})
     request = auth_bridge.request_login()
+    return JSONResponse({"state": "requested", "id": request["id"]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/music/auth/logout")
+def music_auth_logout(x_luckrobot_display: str | None = Header(default=None)):
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    request = auth_bridge.request_action("logout")
+    print("[DISPLAY] QQ_AUTH_LOGOUT_REQUEST", flush=True)
+    return JSONResponse({"state": "requested", "id": request["id"]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/music/auth/check")
+def music_auth_check(x_luckrobot_display: str | None = Header(default=None)):
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    request = auth_bridge.request_action("check")
     return JSONResponse({"state": "requested", "id": request["id"]},
                         headers={"Cache-Control": "no-store"})

@@ -595,16 +595,30 @@ def main() -> None:
     local_tools = build_edge_tools(device_volume, music_tools)
 
     auth_bridge.QR_IMAGE.unlink(missing_ok=True)
+    auth_bridge.AVATAR_IMAGE.unlink(missing_ok=True)
     auth_bridge.publish("unknown")
     auth_request_id = auth_bridge.read_json(auth_bridge.REQUEST).get("id", "")
     auth_thread = None
 
-    def run_music_login():
-        auth_bridge.publish("starting")
+    def run_music_auth(action: str):
+        auth_bridge.publish("logging_out" if action == "logout" else "checking"
+                            if action == "check" else "starting")
         try:
             if not isinstance(music_controller, QQMusicController):
                 raise QQMusicError("当前未使用 QQ 音乐网页播放器")
-            music_controller.authenticate_with_qr(auth_bridge.QR_IMAGE, auth_bridge.publish)
+            if action == "logout":
+                music_controller.logout_account()
+                auth_bridge.QR_IMAGE.unlink(missing_ok=True)
+                auth_bridge.AVATAR_IMAGE.unlink(missing_ok=True)
+                auth_bridge.publish("required")
+            else:
+                if action == "login":
+                    if not music_controller.authenticate_with_qr(
+                            auth_bridge.QR_IMAGE, auth_bridge.publish):
+                        return
+                account = music_controller.account_info(auth_bridge.AVATAR_IMAGE)
+                auth_bridge.publish(account["state"], nickname=account["nickname"],
+                                    avatar=account["avatar"])
         except Exception as exc:
             auth_bridge.QR_IMAGE.unlink(missing_ok=True)
             auth_bridge.publish("error", detail=str(exc)[:160])
@@ -616,11 +630,19 @@ def main() -> None:
         request_id = request.get("id", "")
         if not request_id or request_id == auth_request_id:
             return
-        auth_request_id = request_id
         if auth_thread is not None and auth_thread.is_alive():
             return
-        auth_thread = threading.Thread(target=run_music_login, daemon=True,
-                                       name="qqmusic-login")
+        auth_request_id = request_id
+        action = request.get("action", "login")
+        if action not in {"login", "logout", "check"}:
+            return
+        auth_thread = threading.Thread(target=run_music_auth, args=(action,), daemon=True,
+                                       name="qqmusic-auth")
+        auth_thread.start()
+
+    if isinstance(music_controller, QQMusicController):
+        auth_thread = threading.Thread(target=run_music_auth, args=("check",),
+                                       daemon=True, name="qqmusic-auth-check")
         auth_thread.start()
 
     vision_camera = None

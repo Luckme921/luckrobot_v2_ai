@@ -244,4 +244,6 @@ Display 本机接口：`GET /api/music/auth` 查询状态，`GET /api/music/auth
 
 2026-10-03：Firefox 直接使用 `private/qqmusic-firefox` 作为配置目录，扫码后的 Cookie 会随浏览器持久保存。此前 `Options.profile` 会复制配置到临时目录，导致重启后登录丢失。点击认证入口时，若网页已经登录，返回 `ready`，不会再生成二维码；只有确实显示“登录”时才打开扫码弹窗。网页超时会报告具体阶段（搜索页、弹窗、QQ iframe 或二维码）。
 
+2026-10-04：认证状态增加网页账号昵称与本地头像截图（仅在 QQ 网页实际显示已登录头像时标记 `ready`）。顶部头像没有昵称属性，必要时从 QQ 账号主页 `.profile__name` 读取。屏幕左上角可打开账号面板，查看昵称/头像、退出登录或切换用户。`POST /api/music/auth/logout` 由音频进程关闭专用 Firefox，再删除 `private/qqmusic-firefox` 的 Cookie 数据库；切换用户随后重新打开二维码。`GET /api/music/auth/avatar` 只提供 `private/runtime/` 中的头像截图，不传递 Cookie 或浏览器配置。认证请求仍只在 Jetson 本机 Display API、且带 `X-LuckRobot-Display: 1` 时接受。启动时后台检查实际登录状态；`unknown`/`checking` 不代表已登录。
+
 QQ 搜索页在加载账号时可能先短暂显示“登录”，随后才出现账号头像和歌曲列表。认证检查会等待账号状态稳定，再点击真正的登录入口，避免对已登录账号误开弹窗。
