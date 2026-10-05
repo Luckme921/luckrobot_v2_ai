@@ -950,7 +950,8 @@ class QQMusicController:
         self._switch_to_player()
         try:
             data = self._require_driver().execute_script("""
-                const root = document.querySelector('.lyric__list, .js_lyric_box');
+                const root = document.querySelector(
+                    '.song_info__lyric_inner, .lyric__list, .js_lyric_box');
                 if (!root) return {debug: Array.from(document.querySelectorAll('[class*="lyric"]'))
                     .slice(0, 24).map(node => String(node.tagName) + '.' + String(node.className).slice(0, 90))};
                 const items = root.querySelectorAll('li').length ?
