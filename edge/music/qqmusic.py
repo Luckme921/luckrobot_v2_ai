@@ -951,7 +951,8 @@ class QQMusicController:
         try:
             data = self._require_driver().execute_script("""
                 const root = document.querySelector('.lyric__list, .js_lyric_box');
-                if (!root) return null;
+                if (!root) return {debug: Array.from(document.querySelectorAll('[class*="lyric"]'))
+                    .slice(0, 24).map(node => String(node.tagName) + '.' + String(node.className).slice(0, 90))};
                 const items = root.querySelectorAll('li').length ?
                     root.querySelectorAll('li') : root.querySelectorAll('p');
                 const lines = [];
@@ -964,9 +965,17 @@ class QQMusicController:
                         item.getAttribute('aria-current') === 'true') active = lines.length;
                     lines.push(value);
                 }
-                return active < 0 ? null : {lines: lines, lyric_index: active};
+                return active < 0 ? {debug: Array.from(root.querySelectorAll('[class*="lyric"], li, p'))
+                    .slice(0, 24).map(node => String(node.tagName) + '.' + String(node.className).slice(0, 90))} :
+                    {lines: lines, lyric_index: active};
             """)
         except WebDriverException:
+            return None
+        if isinstance(data, dict) and isinstance(data.get("debug"), list):
+            now = time.monotonic()
+            if now - getattr(self, "_last_lyric_diagnostic_at", 0) > 30:
+                self._last_lyric_diagnostic_at = now
+                print(f"[MUSIC] LYRIC_DOM classes={data['debug'][:24]!r}", flush=True)
             return None
         if (not isinstance(data, dict) or not isinstance(data.get("lines"), list)
                 or not isinstance(data.get("lyric_index"), int)):

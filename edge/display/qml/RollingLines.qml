@@ -36,7 +36,7 @@ Flickable {
                 opacity: Math.abs(index - roller.activeIndex) <= 1 ? 1 : 0.3
                 font.bold: index === roller.activeIndex
                 font.pixelSize: index === roller.activeIndex ? roller.mainFontSize :
-                    Math.max(17, Math.round(roller.mainFontSize * 0.72))
+                    Math.max(20, Math.round(roller.mainFontSize * 0.86))
             }
         }
         Item { width: parent.width; height: roller.rowHeight }
