@@ -16,6 +16,9 @@ Window {
     property int assistantLineIndex: 0
     property var musicInfo: null
     property string musicSignature: ""
+    property var musicLyrics: []
+    property string musicLyricSignature: ""
+    property int musicLyricIndex: 0
     property bool blinking: false
     property bool connected: true
     property string qqAuthState: "unknown"
@@ -184,7 +187,7 @@ Window {
         visible: root.robotState === "music"
         anchors { top: parent.top; topMargin: root.height * 0.055; horizontalCenter: parent.horizontalCenter }
         width: root.width * 0.88
-        height: root.height * (root.musicInfo && root.musicInfo.lyrics ? 0.60 : 0.68)
+        height: root.height * (root.musicLyrics.length ? 0.60 : 0.68)
 
         Item {
             id: record
@@ -303,7 +306,7 @@ Window {
         id: lowerPanel
         width: root.width * 0.92
         height: root.height * (root.robotState === "music" ?
-            (root.musicInfo && root.musicInfo.lyrics ? 0.26 : 0.18) : 0.34)
+            (root.musicLyrics.length ? 0.26 : 0.18) : 0.34)
         anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.025 }
 
         Text {
@@ -345,11 +348,11 @@ Window {
         }
         RollingLines {
             id: lyricViewport
-            visible: root.robotState === "music" && !!(root.musicInfo && root.musicInfo.lyrics)
+            visible: root.robotState === "music" && root.musicLyrics.length > 0
             anchors { top: nowPlayingText.bottom; topMargin: root.height * 0.008;
                 left: parent.left; right: parent.right; bottom: parent.bottom }
-            lines: root.musicInfo && root.musicInfo.lyrics ? root.musicInfo.lyrics : []
-            activeIndex: root.musicInfo && root.musicInfo.lyric_index ? root.musicInfo.lyric_index : 0
+            lines: root.musicLyrics
+            activeIndex: root.musicLyricIndex
             mainFontSize: Math.max(20, root.height * 0.037)
             mainColor: "#f7f1ff"
             sideColor: "#9c86b7"
@@ -380,6 +383,13 @@ Window {
                     }
                     root.assistantLineIndex = value.assistant_line_index || 0
                     var nextMusic = value.music || null
+                    var nextLyrics = nextMusic && nextMusic.lyrics ? nextMusic.lyrics : []
+                    var nextLyricSignature = JSON.stringify(nextLyrics)
+                    if (root.musicLyricSignature !== nextLyricSignature) {
+                        root.musicLyricSignature = nextLyricSignature
+                        root.musicLyrics = nextLyrics
+                    }
+                    root.musicLyricIndex = nextMusic && nextMusic.lyric_index ? nextMusic.lyric_index : 0
                     var nextMusicSignature = JSON.stringify(nextMusic)
                     if (root.musicSignature !== nextMusicSignature) {
                         root.musicSignature = nextMusicSignature
