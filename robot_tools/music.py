@@ -107,7 +107,7 @@ def has_explicit_music_intent(text: str) -> bool:
                         ("不要", "别播放", "别放", "怎么", "为什么", "如何", "如果")):
         return False
     if any(marker in value for marker in (
-        "放一首", "放首", "放点", "播放", "一首歌", "一首音乐", "一首歌曲",
+        "放一首", "放首", "放点", "放那首", "放这首", "播放", "一首歌", "一首音乐", "一首歌曲",
         "歌曲", "音乐", "小曲", "我想要听", "想要听", "我想听", "我要听", "想听", "听一首", "听首",
         "点一首", "点首", "来一首", "来首", "换歌", "换一首", "换首",
         "再来一首", "再找一首", "下一首",
@@ -115,7 +115,24 @@ def has_explicit_music_intent(text: str) -> bool:
         return True
     if re.search(r"(?:搜|搜索|找|换).{0,18}(?:歌曲|音乐|歌)", value):
         return True
+    # A named artist/title search may omit the word "歌". The model has
+    # already selected play_music; this guard only rejects wake-word noise.
+    if re.search(r"(?:搜|搜索|找)(?:一下)?(?:那个|那首)?[^，。！？]{2,24}的[^，。！？]{2,20}$", value):
+        return True
     return bool(re.search(r"[^的]{2,12}的(?:歌曲|音乐|歌)(?:吧)?$", value))
+
+
+def _qq_candidate_matches_query(query: str, song: dict) -> bool:
+    """Reject QQ's broad suggestions before offering a title-only search."""
+    wanted = _normalize_text(query)
+    title = _normalize_text(_base_song_title(song.get("title", "")))
+    if not wanted or not title:
+        return False
+    if wanted == title or (len(wanted) >= 3 and wanted in title):
+        return True
+    if any(wanted == _normalize_text(artist) for artist in song.get("artists", [])):
+        return True
+    return len(wanted) >= 4 and SequenceMatcher(None, wanted, title).ratio() >= 0.8
 
 
 def _match_score(query: str, song: dict) -> float:
@@ -1027,16 +1044,25 @@ class MusicTools:
                 return result("QQ音乐控制器尚未就绪。", ok=False, status="unavailable")
             matches = self.library.search(query, limit=3) if self.library else []
             songs = [dict(id=s.mid, title=s.title, artists=list(s.artists), backend="qqmusic",
-                          query=query) for s in matches]
+                          query=query) for s in matches
+                     if " " in query or _qq_candidate_matches_query(
+                         query, {"title": s.title, "artists": s.artists})]
             if not songs:
                 try:
-                    songs = self.controller.search_candidates(query, limit=3)
+                    songs = self.controller.search_candidates(
+                        query, limit=12 if " " not in query else 3)
                 except QQMusicAuthRequired:
                     auth_bridge.publish("required", detail="QQ 音乐登录已失效，请在屏幕上扫码登录")
                     return result("QQ 音乐需要重新登录，请点击屏幕右上角的登录入口扫码。",
                                   ok=False, status="auth_required")
         if not songs:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
+
+        if self.config.get("provider", "qqmusic") == "qqmusic" and " " not in query:
+            songs = [song for song in songs if _qq_candidate_matches_query(query, song)]
+            if not songs:
+                return result("QQ 音乐没有找到这首歌，搜索结果只有不相关的歌曲。",
+                              status="not_found")
 
         if self.config.get("provider", "qqmusic") == "qqmusic" and " " in query:
             # A singer/title request must not surface unrelated QQ search

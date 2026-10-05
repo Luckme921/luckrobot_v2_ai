@@ -183,7 +183,8 @@ class LocalMusicTests(unittest.TestCase):
         for text in [
             "放一首", "一首歌", "音乐", "歌曲", "来点小曲", "播放晴天", "我想听稻香",
             "搜一下邓紫棋的歌吧", "换歌", "再找一首歌曲", "邓紫棋的歌",
-            "我想要听孙冬野南河桥",
+            "我想要听孙冬野南河桥", "你放那首什么跳楼机吧",
+            "你搜一下那个DJ阿哲的跳楼机",
         ]:
             with self.subTest(text=text):
                 self.assertTrue(has_explicit_music_intent(text))
@@ -393,6 +394,44 @@ class LocalMusicTests(unittest.TestCase):
         reply = music.search("陌生歌手 安和桥")
         self.assertEqual(reply["status"], "not_found")
         controller.play.assert_not_called()
+
+    def test_qq_title_search_does_not_offer_unrelated_suggestions(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="wrong", title="九张机", artists=["叶炫清"],
+                 backend="qqmusic", query="跳楼机"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        answer = music.search("跳楼机", utterance="播放跳楼机")
+        self.assertEqual(answer["status"], "not_found")
+        self.assertFalse(music.has_pending)
+        controller.play.assert_not_called()
+
+    def test_qq_fuzzy_library_miss_falls_through_to_web_search(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="correct", title="跳楼机", artists=["歌手"],
+                 backend="qqmusic", query="跳楼机"),
+        ]
+        library = Mock()
+        library.search.return_value = [Mock(mid="wrong", title="九张机",
+                                            artists=["叶炫清"])]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"},
+                           controller=controller, library=library)
+        answer = music.search("跳楼机", utterance="播放跳楼机")
+        self.assertEqual(answer["candidates"][0]["id"], "correct")
+        controller.search_candidates.assert_called_once_with("跳楼机", limit=12)
+
+    def test_qq_title_search_keeps_matching_live_version(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="live", title="跳楼机 (Live)", artists=["歌手"],
+                 backend="qqmusic", query="跳楼机"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        answer = music.search("跳楼机", utterance="播放跳楼机")
+        self.assertEqual(answer["status"], "needs_selection")
+        self.assertEqual(answer["candidates"][0]["id"], "live")
 
     def test_qq_playback_failure_stops_player_and_reports_it(self):
         controller = Mock()

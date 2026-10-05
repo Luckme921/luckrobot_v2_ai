@@ -88,7 +88,7 @@ Window {
     function accent() {
         if (robotState === "listening") return "#52ffd2"
         if (robotState === "interrupted") return "#ff9a7a"
-        if (robotState === "music") return "#b98cff"
+        if (robotState === "music") return "#31d687"
         return "#66e6ff"
     }
     function symbol() {
@@ -116,9 +116,9 @@ Window {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: root.robotState === "music" ? "#27133d" : "#102b3b" }
-            GradientStop { position: 0.48; color: "#07111d" }
-            GradientStop { position: 1.0; color: "#02050a" }
+            GradientStop { position: 0.0; color: root.robotState === "music" ? "#0d3828" : "#102b3b" }
+            GradientStop { position: 0.48; color: root.robotState === "music" ? "#08241c" : "#07111d" }
+            GradientStop { position: 1.0; color: root.robotState === "music" ? "#03120f" : "#02050a" }
         }
     }
 
@@ -200,7 +200,7 @@ Window {
             }
             Rectangle {
                 anchors.fill: parent; radius: width / 2
-                color: "#11131a"; border.color: "#b98cff"; border.width: Math.max(3, width * 0.012)
+                color: "#0c1d19"; border.color: "#31d687"; border.width: Math.max(3, width * 0.012)
             }
             Repeater {
                 model: 4
@@ -208,7 +208,7 @@ Window {
                     width: record.width * (0.86 - index * 0.14)
                     height: width; radius: width / 2
                     anchors.centerIn: parent; color: "transparent"
-                    border.color: index % 2 ? "#433451" : "#2c2732"
+                    border.color: index % 2 ? "#255a43" : "#183d30"
                     border.width: Math.max(1, record.width * 0.006)
                 }
             }
@@ -217,11 +217,11 @@ Window {
                 anchors.centerIn: parent
                 visible: !musicCoverCanvas.coverReady
                 gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#66e6ff" }
-                    GradientStop { position: 1.0; color: "#b98cff" }
+                    GradientStop { position: 0.0; color: "#76efae" }
+                    GradientStop { position: 1.0; color: "#20bb77" }
                 }
                 Text {
-                    anchors.centerIn: parent; text: "♫"; color: "#07111d"; font.bold: true
+                    anchors.centerIn: parent; text: "♫"; color: "#083020"; font.bold: true
                     font.pixelSize: Math.max(24, parent.width * 0.38)
                 }
             }
@@ -256,7 +256,7 @@ Window {
             }
             Rectangle {
                 width: parent.width * 0.06; height: width; radius: width / 2
-                anchors.centerIn: parent; color: "#07111d"
+                anchors.centerIn: parent; color: "#08241c"
             }
         }
 
@@ -274,7 +274,7 @@ Window {
                     Rectangle {
                         width: parent.width; height: parent.height * 0.28
                         anchors.bottom: parent.bottom; radius: width / 2
-                        color: index % 2 ? "#66e6ff" : "#b98cff"
+                        color: index % 2 ? "#78efac" : "#31d687"
                         SequentialAnimation on height {
                             running: musicPanel.visible; loops: Animation.Infinite
                             NumberAnimation { to: equalizer.height * (0.35 + (index % 5) * 0.12); duration: 240 + index * 19; easing.type: Easing.InOutQuad }
@@ -289,14 +289,14 @@ Window {
             id: musicTitleText
             anchors { top: equalizer.bottom; topMargin: root.height * 0.018; horizontalCenter: parent.horizontalCenter }
             width: parent.width * 0.92; horizontalAlignment: Text.AlignHCenter
-            text: root.musicTitle(); color: "#f7f1ff"; font.bold: true
+            text: root.musicTitle(); color: "#f4fff8"; font.bold: true
             font.pixelSize: Math.max(24, root.height * 0.052)
             elide: Text.ElideRight
         }
         Text {
             anchors { top: musicTitleText.bottom; topMargin: root.height * 0.008; horizontalCenter: parent.horizontalCenter }
             width: parent.width * 0.88; horizontalAlignment: Text.AlignHCenter
-            text: root.musicArtists(); color: "#b9d6e5"
+            text: root.musicArtists(); color: "#a8dcc0"
             font.pixelSize: Math.max(17, root.height * 0.030)
             elide: Text.ElideRight
         }
@@ -322,7 +322,7 @@ Window {
             anchors { top: parent.top }
             width: parent.width; horizontalAlignment: Text.AlignHCenter
             text: "正在播放：《" + root.musicTitle() + "》" + (root.musicArtists() ? " · " + root.musicArtists() : "")
-            color: "#effcff"; font.bold: true
+            color: "#d8f7e6"; font.bold: true
             font.pixelSize: Math.max(18, root.height * 0.034); elide: Text.ElideRight
         }
 
@@ -354,8 +354,8 @@ Window {
             lines: root.musicLyrics
             activeIndex: root.musicLyricIndex
             mainFontSize: Math.max(20, root.height * 0.037)
-            mainColor: "#f7f1ff"
-            sideColor: "#9c86b7"
+            mainColor: "#f4fff8"
+            sideColor: "#8ac5a5"
         }
     }
 
