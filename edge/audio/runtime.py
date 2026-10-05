@@ -1089,7 +1089,7 @@ def main() -> None:
 
     music_metadata_stop = threading.Event()
     def watch_qq_track():
-        while not music_metadata_stop.wait(3.0):
+        while not music_metadata_stop.wait(1.5):
             if not music_tools.playing or not isinstance(music_controller, QQMusicController):
                 continue
             try:
@@ -1098,6 +1098,12 @@ def main() -> None:
                 if cover_revision and music_tools.current_song is not None:
                     if music_tools.current_song.get("cover_revision") != cover_revision:
                         music_tools.current_song["cover_revision"] = cover_revision
+                        current = dict(music_tools.current_song)
+                lyrics = music_controller.current_lyrics_snapshot()
+                if lyrics and music_tools.current_song is not None:
+                    if any(music_tools.current_song.get(key) != value
+                           for key, value in lyrics.items()):
+                        music_tools.current_song.update(lyrics)
                         current = dict(music_tools.current_song)
                 if current is not None:
                     display_music(current)
@@ -1600,7 +1606,8 @@ def main() -> None:
                                 conversation_log.write("USER", decision.command)
                                 display_dialogue(
                                     user_text=decision.command,
-                                    assistant_text="")
+                                    assistant_text="",
+                                    assistant_progress_chars=0)
                                 print(
                                     "[COMMAND] "
                                     f"{decision.command}",
@@ -1829,6 +1836,8 @@ def main() -> None:
                                         turn_stream_speaker = StreamingReplySpeaker(
                                             tts, speaker, turn_monitor.cancellation,
                                             before_playback=acknowledgements.finish,
+                                            on_text_progress=lambda chars: display_dialogue(
+                                                assistant_progress_chars=chars),
                                             max_workers=tts_cfg.get(
                                                 "stream_prefetch_workers", 3),
                                             fallback_grace_seconds=tts_cfg.get(
@@ -2256,6 +2265,9 @@ def main() -> None:
                                             and turn_stream_speaker.received_text
                                         ):
                                             streamed_reply = turn_stream_speaker.finish()
+                                            if streamed_reply:
+                                                display_dialogue(
+                                                    assistant_progress_chars=len(agent_reply.text))
                                             playback_happened = (
                                                 playback_happened or streamed_reply)
 
@@ -2291,6 +2303,8 @@ def main() -> None:
                                                         )
 
                                                 playback_happened = True
+                                                display_dialogue(
+                                                    assistant_progress_chars=len(agent_reply.text))
 
                                                 rtf = (
                                                     tts_result

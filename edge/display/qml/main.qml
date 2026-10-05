@@ -12,7 +12,10 @@ Window {
     property string stateLabel: "等待 Lucky"
     property string userText: ""
     property string assistantText: ""
+    property var assistantLines: []
+    property int assistantLineIndex: 0
     property var musicInfo: null
+    property string musicSignature: ""
     property bool blinking: false
     property bool connected: true
     property string qqAuthState: "unknown"
@@ -181,7 +184,7 @@ Window {
         visible: root.robotState === "music"
         anchors { top: parent.top; topMargin: root.height * 0.055; horizontalCenter: parent.horizontalCenter }
         width: root.width * 0.88
-        height: root.height * 0.68
+        height: root.height * (root.musicInfo && root.musicInfo.lyrics ? 0.60 : 0.68)
 
         Item {
             id: record
@@ -299,7 +302,8 @@ Window {
     Item {
         id: lowerPanel
         width: root.width * 0.92
-        height: root.height * (root.robotState === "music" ? 0.18 : 0.34)
+        height: root.height * (root.robotState === "music" ?
+            (root.musicInfo && root.musicInfo.lyrics ? 0.26 : 0.18) : 0.34)
         anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.025 }
 
         Text {
@@ -331,24 +335,24 @@ Window {
                 font.pixelSize: Math.max(15, root.height * 0.025)
                 wrapMode: Text.WrapAnywhere; maximumLineCount: 2; elide: Text.ElideRight
             }
-            Flickable {
+            RollingLines {
                 id: assistantViewport
                 anchors { top: userLine.bottom; topMargin: root.height * 0.008; left: parent.left; right: parent.right; bottom: parent.bottom }
-                contentWidth: width; contentHeight: Math.max(height, assistantBody.paintedHeight)
-                clip: true; boundsBehavior: Flickable.StopAtBounds
-                Text {
-                    id: assistantBody
-                    width: assistantViewport.width
-                    text: root.assistantText; color: "#effcff"; font.bold: true
-                    font.pixelSize: Math.max(18, root.height * 0.032)
-                    horizontalAlignment: Text.AlignHCenter
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WrapAnywhere
-                    onTextChanged: Qt.callLater(function() {
-                        assistantViewport.contentY = 0
-                    })
-                }
+                lines: root.assistantLines
+                activeIndex: root.assistantLineIndex
+                mainFontSize: Math.max(20, root.height * 0.037)
             }
+        }
+        RollingLines {
+            id: lyricViewport
+            visible: root.robotState === "music" && !!(root.musicInfo && root.musicInfo.lyrics)
+            anchors { top: nowPlayingText.bottom; topMargin: root.height * 0.008;
+                left: parent.left; right: parent.right; bottom: parent.bottom }
+            lines: root.musicInfo && root.musicInfo.lyrics ? root.musicInfo.lyrics : []
+            activeIndex: root.musicInfo && root.musicInfo.lyric_index ? root.musicInfo.lyric_index : 0
+            mainFontSize: Math.max(20, root.height * 0.037)
+            mainColor: "#f7f1ff"
+            sideColor: "#9c86b7"
         }
     }
 
@@ -369,8 +373,18 @@ Window {
                     root.robotState = value.state || "sleeping"
                     root.stateLabel = value.label || root.robotState
                     root.userText = value.user_text || ""
-                    root.assistantText = value.assistant_text || ""
-                    root.musicInfo = value.music || null
+                    var nextAssistantText = value.assistant_text || ""
+                    if (root.assistantText !== nextAssistantText) {
+                        root.assistantText = nextAssistantText
+                        root.assistantLines = value.assistant_lines || []
+                    }
+                    root.assistantLineIndex = value.assistant_line_index || 0
+                    var nextMusic = value.music || null
+                    var nextMusicSignature = JSON.stringify(nextMusic)
+                    if (root.musicSignature !== nextMusicSignature) {
+                        root.musicSignature = nextMusicSignature
+                        root.musicInfo = nextMusic
+                    }
                     root.connected = true
                 } catch (error) { root.connected = false }
             }

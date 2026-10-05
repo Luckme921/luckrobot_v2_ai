@@ -17,6 +17,16 @@ from edge.music.qqmusic import (
 
 
 class QQMusicSessionRecoveryTest(unittest.TestCase):
+    def test_current_lyrics_reads_only_highlighted_player_line(self):
+        controller = QQMusicController(profile_path=".")
+        driver = Mock()
+        driver.execute_script.return_value = {
+            "lines": ["上一句", "当前句", "下一句"], "lyric_index": 1}
+        with patch.object(controller, "_switch_to_player"), \
+             patch.object(controller, "_require_driver", return_value=driver):
+            self.assertEqual(controller.current_lyrics_snapshot(), {
+                "lyrics": ["上一句", "当前句", "下一句"], "lyric_index": 1})
+
     def test_track_snapshot_caches_album_cover_and_updates_on_next_song(self):
         controller = QQMusicController(profile_path=".")
         driver, image = Mock(), Mock()

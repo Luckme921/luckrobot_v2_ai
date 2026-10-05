@@ -31,6 +31,15 @@ class _PreparedTts:
 
 
 class StreamingReplySpeakerTests(unittest.TestCase):
+    def test_playback_reports_active_text_offsets(self):
+        progress = []
+        speaker = StreamingReplySpeaker(
+            _PreparedTts(), "sink", SpeechCancellation(),
+            on_text_progress=progress.append)
+        speaker.on_event({"type": "text_delta", "text": "你好，明天见。"})
+        self.assertTrue(speaker.finish())
+        self.assertEqual(progress, [0, len("你好，"), len("你好，"), len("你好，明天见。")])
+
     def test_ready_online_segment_cancels_unused_offline_backup(self):
         tts = _PreparedTts()
         speaker = StreamingReplySpeaker(tts, "sink", SpeechCancellation())

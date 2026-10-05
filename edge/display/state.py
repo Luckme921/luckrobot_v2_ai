@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import threading
 
+from edge.display.rolling_text import display_rows, row_index
+
 MUSIC_COVER_IMAGE = Path(__file__).resolve().parents[2] / "private/runtime/music-cover.png"
 
 
@@ -15,6 +17,9 @@ DEFAULT_STATE = {
     "label": "等待 Lucky",
     "user_text": "",
     "assistant_text": "",
+    "assistant_lines": [],
+    "assistant_line_index": 0,
+    "assistant_progress_chars": 0,
     "music": None,
 }
 
@@ -29,7 +34,8 @@ class DisplayPublisher:
         self._state = dict(DEFAULT_STATE)
 
     def publish(self, *, state=None, label=None, user_text=None,
-                assistant_text=None, music_marker=False, music=None):
+                assistant_text=None, assistant_progress_chars=None,
+                music_marker=False, music=None):
         if not self.enabled:
             return
         with self._lock:
@@ -41,6 +47,13 @@ class DisplayPublisher:
                 self._state["user_text"] = user_text
             if assistant_text is not None:
                 self._state["assistant_text"] = assistant_text
+            if assistant_progress_chars is not None:
+                self._state["assistant_progress_chars"] = max(0, int(assistant_progress_chars))
+            if assistant_text is not None or assistant_progress_chars is not None:
+                rows = display_rows(self._state["assistant_text"])
+                self._state["assistant_lines"] = [row[0] for row in rows]
+                self._state["assistant_line_index"] = row_index(
+                    rows, self._state["assistant_progress_chars"])
             if music_marker:
                 self._state["music"] = music
             self._state["updated_at"] = datetime.now(timezone.utc).isoformat()

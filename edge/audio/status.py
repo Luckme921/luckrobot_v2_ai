@@ -21,8 +21,10 @@ def display_state(value, label):
     _display.publish(state=value, label=label)
 
 
-def display_dialogue(*, user_text=None, assistant_text=None):
-    _display.publish(user_text=user_text, assistant_text=assistant_text)
+def display_dialogue(*, user_text=None, assistant_text=None,
+                     assistant_progress_chars=None):
+    _display.publish(user_text=user_text, assistant_text=assistant_text,
+                     assistant_progress_chars=assistant_progress_chars)
 
 
 def display_music(music):

@@ -4,9 +4,24 @@ import tempfile
 import unittest
 
 from edge.display.state import DisplayPublisher
+from edge.display.rolling_text import display_rows, row_index
 
 
 class DisplayPublisherTests(unittest.TestCase):
+    def test_rolling_rows_preserve_decimal_and_follow_spoken_offset(self):
+        rows = display_rows("气温是23.5度，出门带伞。")
+        self.assertEqual([row[0] for row in rows], ["气温是23.5度，", "出门带伞。"])
+        self.assertEqual(row_index(rows, 0), 0)
+        self.assertEqual(row_index(rows, len("气温是23.5度，")), 1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display.json"
+            publisher = DisplayPublisher({"state_path": str(path)})
+            publisher.publish(assistant_text="气温是23.5度，出门带伞。",
+                              assistant_progress_chars=len("气温是23.5度，"))
+            state = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(state["assistant_lines"], ["气温是23.5度，", "出门带伞。"])
+            self.assertEqual(state["assistant_line_index"], 1)
+
     def test_publishes_structured_unicode_state_atomically(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "display.json"

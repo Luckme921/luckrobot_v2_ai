@@ -48,11 +48,12 @@ def _pop_spoken_chunk(buffer):
 
 class StreamingReplySpeaker:
     def __init__(self, tts, sink, cancellation, before_playback=None, max_workers=3,
-                 fallback_grace_seconds=0.35):
+                 fallback_grace_seconds=0.35, on_text_progress=None):
         self.tts = tts
         self.sink = sink
         self.cancellation = cancellation
         self.before_playback = before_playback
+        self.on_text_progress = on_text_progress
         self.max_workers = max(1, int(max_workers))
         self.fallback_grace_seconds = max(0.0, float(fallback_grace_seconds))
         self._hedged = all(hasattr(tts, name) for name in (
@@ -65,6 +66,7 @@ class StreamingReplySpeaker:
         self._first = True
         self._finished = False
         self._sequence = 0
+        self._submitted_chars = 0
         self._last_model_chunk_at = None
         self._last_playback_end = None
         self._speculative_tokens = []
@@ -136,6 +138,8 @@ class StreamingReplySpeaker:
         now = time.monotonic()
         self._sequence += 1
         sequence = self._sequence
+        start_offset = self._submitted_chars
+        self._submitted_chars += len(chunk)
         model_gap = None if self._last_model_chunk_at is None else now - self._last_model_chunk_at
         self._last_model_chunk_at = now
         print(
@@ -149,11 +153,11 @@ class StreamingReplySpeaker:
                 self.tts.prepare_offline, chunk, offline_token)
             online = (None if sequence == 1 else self._executor.submit(
                 self._prepare, sequence, chunk, online_token))
-            self._queue.put((sequence, now, chunk, online, offline,
+            self._queue.put((sequence, now, chunk, start_offset, online, offline,
                              online_token, offline_token))
         else:
             future = self._executor.submit(self._prepare, sequence, chunk)
-            self._queue.put((sequence, now, chunk, future, None, None, None))
+            self._queue.put((sequence, now, chunk, start_offset, future, None, None, None))
 
     def _prepare(self, sequence, chunk, cancellation=None):
         cancellation = cancellation or self.cancellation
@@ -177,15 +181,21 @@ class StreamingReplySpeaker:
                 item = self._queue.get()
                 if item is None:
                     return
-                sequence, received_at, chunk, future, offline, online_token, offline_token = item
+                sequence, received_at, chunk, start_offset, future, offline, online_token, offline_token = item
                 self.cancellation.check()
-                hook = self.before_playback if self._first else None
+                def hook():
+                    if self._first and self.before_playback is not None:
+                        self.before_playback()
+                    if self.on_text_progress is not None:
+                        self.on_text_progress(start_offset)
                 if self._hedged and sequence == 1:
                     self.tts.speak_with_prepared_fallback(
                         chunk, self.sink, offline, before_playback=hook,
                         cancellation=self.cancellation)
                     offline_token.cancel()
                     self._last_playback_end = time.monotonic()
+                    if self.on_text_progress is not None:
+                        self.on_text_progress(start_offset + len(chunk))
                     self._first = False
                     self._played = True
                     print(f"[STREAM_TTS] chunk={sequence} play_end mode=online_stream", flush=True)
@@ -204,6 +214,8 @@ class StreamingReplySpeaker:
                     audio, self.sink, before_playback=hook,
                     cancellation=self.cancellation)
                 self._last_playback_end = time.monotonic()
+                if self.on_text_progress is not None:
+                    self.on_text_progress(start_offset + len(chunk))
                 self._first = False
                 self._played = True
                 print(f"[STREAM_TTS] chunk={sequence} play_end", flush=True)

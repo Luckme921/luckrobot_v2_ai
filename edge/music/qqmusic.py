@@ -944,6 +944,39 @@ class QQMusicController:
         except (NoSuchElementException, WebDriverException, OSError):
             return track, ""
 
+    @_driver_locked
+    def current_lyrics_snapshot(self) -> dict | None:
+        """Read the QQ player-highlighted lyric without requesting another API."""
+        self._switch_to_player()
+        try:
+            data = self._require_driver().execute_script("""
+                const root = document.querySelector('.lyric__list, .js_lyric_box');
+                if (!root) return null;
+                const items = root.querySelectorAll('li').length ?
+                    root.querySelectorAll('li') : root.querySelectorAll('p');
+                const lines = [];
+                let active = -1;
+                for (const item of Array.from(items).slice(0, 200)) {
+                    const value = (item.innerText || '').trim();
+                    if (!value || value.length > 180) continue;
+                    const classes = String(item.className || '');
+                    if (/(^|[\\s_-])(on|current|active|playing)([\\s_-]|$)/i.test(classes) ||
+                        item.getAttribute('aria-current') === 'true') active = lines.length;
+                    lines.push(value);
+                }
+                return active < 0 ? null : {lines: lines, lyric_index: active};
+            """)
+        except WebDriverException:
+            return None
+        if (not isinstance(data, dict) or not isinstance(data.get("lines"), list)
+                or not isinstance(data.get("lyric_index"), int)):
+            return None
+        lines = [str(line)[:180] for line in data["lines"][:200]]
+        index = data["lyric_index"]
+        if not lines or not 0 <= index < len(lines):
+            return None
+        return {"lyrics": lines, "lyric_index": index}
+
     def _play_button(self):
         self._switch_to_player()
 
