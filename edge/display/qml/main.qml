@@ -382,14 +382,29 @@ Window {
             text: root.qqAuthState === "ready" ? "QQ 音乐账号" : "QQ 音乐网页登录"
             color: "white"; font.bold: true; font.pixelSize: Math.max(28, root.height * 0.06)
         }
-        Image {
+        Canvas {
             id: qqAvatarImage
             visible: root.qqAuthState === "ready" && root.qqHasAvatar
             anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.23 }
-            width: Math.min(100, root.height * 0.14); height: width
-            fillMode: Image.PreserveAspectFit
-            cache: false
-            source: visible ? "http://127.0.0.1:8765/api/music/auth/avatar?v=" + root.qqAvatarRevision : ""
+            width: Math.min(210, root.height * 0.25); height: width
+            property string avatarUrl: visible ? "http://127.0.0.1:8765/api/music/auth/avatar?v=" + root.qqAvatarRevision : ""
+            onAvatarUrlChanged: {
+                if (avatarUrl) loadImage(avatarUrl)
+                requestPaint()
+            }
+            onImageLoaded: requestPaint()
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                if (!avatarUrl || !isImageLoaded(avatarUrl)) return
+                ctx.save()
+                ctx.beginPath()
+                ctx.arc(width / 2, height / 2, width / 2, 0, Math.PI * 2)
+                ctx.closePath()
+                ctx.clip()
+                ctx.drawImage(avatarUrl, 0, 0, width, height)
+                ctx.restore()
+            }
         }
         Item {
             id: qqBrowserPane
