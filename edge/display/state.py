@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import threading
 
+MUSIC_COVER_IMAGE = Path(__file__).resolve().parents[2] / "private/runtime/music-cover.png"
+
 
 DEFAULT_STATE = {
     "state": "sleeping",

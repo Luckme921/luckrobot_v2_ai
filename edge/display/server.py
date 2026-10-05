@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi import Header, HTTPException
 
-from edge.display.state import DEFAULT_STATE
+from edge.display.state import DEFAULT_STATE, MUSIC_COVER_IMAGE
 from edge.music import auth_bridge
 
 
@@ -45,6 +45,19 @@ def health():
 @app.get("/api/music/auth")
 def music_auth():
     return JSONResponse(auth_bridge.status(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/music/cover")
+def music_cover(v: str = ""):
+    try:
+        music = json.loads(STATE_PATH.read_text(encoding="utf-8")).get("music")
+    except (OSError, ValueError, TypeError):
+        music = None
+    if (not isinstance(music, dict) or not v or
+            music.get("cover_revision") != v or not MUSIC_COVER_IMAGE.is_file()):
+        raise HTTPException(status_code=404)
+    return FileResponse(MUSIC_COVER_IMAGE, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/music/auth/qr")

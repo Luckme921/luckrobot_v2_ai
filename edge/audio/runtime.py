@@ -22,6 +22,7 @@ from edge.audio.status import (
     display_state,
     status,
 )
+from edge.display.state import MUSIC_COVER_IMAGE
 from edge.audio.conversation_log import ConversationLog
 from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
 from edge.audio.tts.cancellation import SpeechInterrupted
@@ -1089,10 +1090,15 @@ def main() -> None:
     music_metadata_stop = threading.Event()
     def watch_qq_track():
         while not music_metadata_stop.wait(3.0):
-            if not music_tools.playing:
+            if not music_tools.playing or not isinstance(music_controller, QQMusicController):
                 continue
             try:
-                current = music_tools.refresh_current_track()
+                track, cover_revision = music_controller.current_track_snapshot(MUSIC_COVER_IMAGE)
+                current = music_tools.refresh_current_track(track)
+                if cover_revision and music_tools.current_song is not None:
+                    if music_tools.current_song.get("cover_revision") != cover_revision:
+                        music_tools.current_song["cover_revision"] = cover_revision
+                        current = dict(music_tools.current_song)
                 if current is not None:
                     display_music(current)
             except Exception as exc:

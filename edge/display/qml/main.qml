@@ -102,6 +102,11 @@ Window {
         return musicInfo && musicInfo.artists ? musicInfo.artists.join(" · ") : ""
     }
 
+    function musicCover() {
+        return musicInfo && musicInfo.cover_revision ?
+            "http://127.0.0.1:8765/api/music/cover?v=" + musicInfo.cover_revision : ""
+    }
+
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
@@ -204,6 +209,7 @@ Window {
             Rectangle {
                 width: parent.width * 0.34; height: width; radius: width / 2
                 anchors.centerIn: parent
+                visible: !musicCoverCanvas.coverReady
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: "#66e6ff" }
                     GradientStop { position: 1.0; color: "#b98cff" }
@@ -211,6 +217,35 @@ Window {
                 Text {
                     anchors.centerIn: parent; text: "♫"; color: "#07111d"; font.bold: true
                     font.pixelSize: Math.max(24, parent.width * 0.38)
+                }
+            }
+            Canvas {
+                id: musicCoverCanvas
+                visible: !!root.musicCover()
+                width: record.width * 0.82; height: width
+                anchors.centerIn: parent
+                property string coverUrl: root.musicCover()
+                property bool coverReady: false
+                onCoverUrlChanged: {
+                    coverReady = false
+                    if (coverUrl) loadImage(coverUrl)
+                    requestPaint()
+                }
+                onImageLoaded: {
+                    coverReady = isImageLoaded(coverUrl)
+                    requestPaint()
+                }
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    if (!coverUrl || !isImageLoaded(coverUrl)) return
+                    ctx.save()
+                    ctx.beginPath()
+                    ctx.arc(width / 2, height / 2, width / 2, 0, Math.PI * 2)
+                    ctx.closePath()
+                    ctx.clip()
+                    ctx.drawImage(coverUrl, 0, 0, width, height)
+                    ctx.restore()
                 }
             }
             Rectangle {

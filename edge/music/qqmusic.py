@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import wraps
 
+import hashlib
 import json
 import os
 from difflib import SequenceMatcher
@@ -916,6 +917,32 @@ class QQMusicController:
             ) from exc
 
         return element.text.strip()
+
+    @_driver_locked
+    def current_track_snapshot(self, cover_path: Path) -> tuple[str, str]:
+        """Read the playing track and cache QQ's displayed album image."""
+        track = self.current_track()
+        driver = self._require_driver()
+        try:
+            image = driver.find_element(By.CSS_SELECTOR, ".song_info__pic")
+            source = image.get_attribute("src") or ""
+            if not source or not image.is_displayed():
+                return track, ""
+            if source == getattr(self, "_cover_source", "") and cover_path.is_file():
+                return track, self._cover_revision
+            png = image.screenshot_as_png
+            if not png.startswith(b"\x89PNG\r\n\x1a\n") or len(png) > 2_000_000:
+                return track, ""
+            revision = hashlib.sha256(png).hexdigest()[:16]
+            cover_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = cover_path.with_suffix(".tmp")
+            temporary.write_bytes(png)
+            os.replace(temporary, cover_path)
+            self._cover_source = source
+            self._cover_revision = revision
+            return track, revision
+        except (NoSuchElementException, WebDriverException, OSError):
+            return track, ""
 
     def _play_button(self):
         self._switch_to_player()

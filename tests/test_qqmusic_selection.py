@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 import threading
 import subprocess
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 from selenium.common.exceptions import InvalidSessionIdException
 from urllib3.exceptions import MaxRetryError
@@ -15,6 +17,29 @@ from edge.music.qqmusic import (
 
 
 class QQMusicSessionRecoveryTest(unittest.TestCase):
+    def test_track_snapshot_caches_album_cover_and_updates_on_next_song(self):
+        controller = QQMusicController(profile_path=".")
+        driver, image = Mock(), Mock()
+        image.is_displayed.return_value = True
+        image.get_attribute.side_effect = ["https://y.qq.com/one.png",
+                                           "https://y.qq.com/one.png",
+                                           "https://y.qq.com/two.png"]
+        image.screenshot_as_png = b"\x89PNG\r\n\x1a\n" + b"one"
+        driver.find_element.return_value = image
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(controller, "current_track", return_value="Song - Artist"), \
+             patch.object(controller, "_require_driver", return_value=driver):
+            path = Path(directory) / "cover.png"
+            track, first = controller.current_track_snapshot(path)
+            self.assertEqual(track, "Song - Artist")
+            self.assertEqual(path.read_bytes(), image.screenshot_as_png)
+            self.assertEqual(controller.current_track_snapshot(path), (track, first))
+            self.assertEqual(image.screenshot_as_png, path.read_bytes())
+            image.screenshot_as_png = b"\x89PNG\r\n\x1a\n" + b"two"
+            _, second = controller.current_track_snapshot(path)
+            self.assertNotEqual(first, second)
+            self.assertEqual(path.read_bytes(), image.screenshot_as_png)
+
     def test_play_scrolls_result_before_javascript_click(self):
         controller = QQMusicController(profile_path=".")
         driver, song, row = Mock(), Mock(), Mock()

@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -11,6 +12,22 @@ from edge.music.qqmusic import QQMusicController
 
 
 class QQMusicAuthBridgeTests(unittest.TestCase):
+    def test_music_cover_is_served_only_for_current_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "display.json"
+            cover = Path(directory) / "cover.png"
+            cover.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+            state.write_text(json.dumps({"music": {"cover_revision": "abc123"}}),
+                             encoding="utf-8")
+            with patch("edge.display.server.STATE_PATH", state), \
+                 patch("edge.display.server.MUSIC_COVER_IMAGE", cover):
+                client = TestClient(app)
+                self.assertEqual(client.get("/api/music/cover?v=abc123").content,
+                                 cover.read_bytes())
+                self.assertEqual(client.get("/api/music/cover?v=old").status_code, 404)
+                state.write_text(json.dumps({"music": None}), encoding="utf-8")
+                self.assertEqual(client.get("/api/music/cover?v=abc123").status_code, 404)
+
     def test_firefox_uses_persistent_profile_directly(self):
         with tempfile.TemporaryDirectory() as directory:
             controller = QQMusicController(profile_path=directory)

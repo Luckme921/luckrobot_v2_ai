@@ -707,15 +707,18 @@ class MusicTools:
             return {"title": title.strip(), "artists": [artist.strip()]}
         return {"title": lines[0], "artists": lines[1:3]}
 
-    def refresh_current_track(self):
+    def refresh_current_track(self, track=None):
         """Return metadata only when QQ has advanced to a different song."""
         if not self.playing or self.controller is None or self.config.get("provider") != "qqmusic":
             return None
-        track = self.controller.current_track()
+        if track is None:
+            track = self.controller.current_track()
         if not self.playing:
             return None
         song = self._qq_track_metadata(track)
-        if not song or song == self.current_song:
+        if not song or (self.current_song and
+                        song["title"] == self.current_song.get("title") and
+                        song["artists"] == self.current_song.get("artists")):
             return None
         self.current_song = song
         print(f"[MUSIC] TRACK_CHANGED title={song['title']!r}", flush=True)
