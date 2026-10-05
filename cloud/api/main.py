@@ -416,7 +416,13 @@ async def chat_events(request):
             reply = await _scoped_chat(request, queue.put_nowait)
             await queue.put({"type": "result", "data": reply.model_dump()})
         except Exception as exc:
-            await queue.put({"type": "error", "error": type(exc).__name__})
+            detail = str(exc.detail) if isinstance(exc, HTTPException) else ""
+            reason = ("quota_exhausted" if "1113" in detail or "余额不足" in detail
+                      else "rate_limited" if "RateLimitError" in detail
+                      else "unavailable")
+            print(f"[AGENT_ERROR] type={type(exc).__name__} reason={reason}", flush=True)
+            await queue.put({"type": "error", "error": type(exc).__name__,
+                             "reason": reason})
         finally:
             await queue.put(None)
 

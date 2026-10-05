@@ -1,5 +1,7 @@
 # Jetson 启动、测试与维护
 
+2026-10-05 模型错误诊断：`[REMOTE_TIMING] model_route_json status=error` 后若显示/播报“大模型账户余额不足或没有可用资源包”，说明 GLM 上游返回了额度错误，需检查对应账户，不是麦克风、QQ 歌单或本地路由故障。Cloud 事件仅传 `quota_exhausted` 等有限原因，不传上游完整报错。若音频端仍停在“正在识别”，查看 `[ASR_TEXT]` 和 `[GATE] IGNORE`；空识别或被忽略的唤醒残片现在会把画面恢复为“我在听”或“等待下一句话”。
+
 2026-10-05：音频进程启动后检查 QQ 音乐登录状态；若已登录，或屏幕扫码登录成功，`music.library_refresh_on_login: true` 会启动一次后台个人歌单同步。查看 `logs/audio-latency.log` 中的 `[MUSIC] PERSONAL_REFRESH_LOGIN_START` / `PERSONAL_REFRESH_LOGIN_OK playlists=... songs=...`；失败看 `PERSONAL_REFRESH_LOGIN_ERROR`。同步结果保存在 `private/qqmusic-library.json`，自动补充点歌路由的歌手/歌名词表，不写回 `configs/music_preferences.yaml`。首次同步可能占用共享 QQ 浏览器，结束后再测试语音点歌；退出登录会清除个人缓存。
 
 2026-10-03 现场验证：更新后运行 `.venv/bin/python scripts/cache_tts_phrases.py` 生成新增的视觉过渡语及音乐歌手模板片段，再启动机器人。说“有没有张学友的歌，推荐一首给我听”，观察 `[ACK] SELECT` 和 `[ACK] PLAY mode=contextual`；如果显示 `mode=cached` 或 `DYNAMIC_FALLBACK`，说明本轮使用固定晓晓短句。说“现在不晚了，我打算要睡觉了”，确认日志有 `[ROUTE] action=end_conversation`、完整 `[AGENT_REPLY]`、播报后 `[STATE] SLEEPING reason=model_end_conversation`。说话跨越原来 8 秒唤醒等待或 12 秒追问等待时，应在 VAD 完成后才处理片段；`[GATE] IGNORE reason=wake_echo_fragment` 用于检查误识别唤醒残片。缓存和日志在 `private/`、`logs/`，不要提交。

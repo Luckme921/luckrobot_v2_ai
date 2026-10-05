@@ -1508,6 +1508,10 @@ def main() -> None:
                             )
 
                             if not text:
+                                if not sleeping_segment:
+                                    display_state("listening", "我在听" if
+                                                  interaction_gate.state == InteractionGate.AWAKE_WAIT_COMMAND
+                                                  else "等待下一句话")
                                 continue
 
                             conversation_log.write(
@@ -1546,6 +1550,10 @@ def main() -> None:
 
                             if decision.action == "ignore" and decision.reason == "wake_echo_fragment":
                                 print(f"[GATE] IGNORE reason={decision.reason} text={text!r}", flush=True)
+                            if decision.action == "ignore":
+                                display_state("listening", "我在听" if
+                                              interaction_gate.state == InteractionGate.AWAKE_WAIT_COMMAND
+                                              else "等待下一句话")
 
                             if (
                                 decision.action
@@ -2418,6 +2426,29 @@ def main() -> None:
                                             f"{exc}",
                                             flush=True,
                                         )
+                                        failure_reply = (
+                                            "大模型账户余额不足或没有可用资源包，请检查后再试。"
+                                            if "余额不足" in str(exc)
+                                            else "刚才处理请求失败了，请稍后再试。"
+                                        )
+                                        status("模型服务暂时不可用")
+                                        conversation_log.write("ASSISTANT", failure_reply,
+                                                               model="local-error")
+                                        display_dialogue(assistant_text=failure_reply)
+                                        if tts is not None and speaker != "<unavailable>":
+                                            try:
+                                                print("[STATE] SPEAKING", flush=True)
+                                                tts.speak(failure_reply, speaker,
+                                                          before_playback=acknowledgements.finish,
+                                                          cancellation=(turn_monitor.cancellation
+                                                                        if turn_monitor else None))
+                                                playback_happened = True
+                                            except SpeechInterrupted:
+                                                interaction_gate.on_wake(time.monotonic())
+                                                wake_stream = wake_kws.create_stream() if wake_kws else None
+                                                wake_reply_sent = True
+                                            except Exception as tts_exc:
+                                                print(f"[TTS] ERROR fallback={type(tts_exc).__name__}", flush=True)
 
                                     except SpeechInterrupted:
                                         if (

@@ -14,6 +14,16 @@ Jetson 使用 Qt Quick/QML 渲染器。当前设备验证通过的路径为 Qt `
 `interrupted` 和 `music`。界面显示最近一轮用户文字、流式模型回复、眼睛、眨眼、
 嘴型和状态符号动画。
 
+状态含义：`sleeping` 显示“等待 Lucky”，KWS 仍在听唤醒词；`listening` 显示
+“我在听”或“等待下一句话”，麦克风/VAD 正在等待用户说完；`transcribing` 显示
+“正在识别”，表示 VAD 已截出一段语音，SenseVoice 正把该段音频转文字，**不表示
+仍在持续收音**；`thinking` 显示“想一想”或“正在找音乐”，正在路由/调用模型或工具；
+`speaking` 显示“正在回答”，TTS 正在播报；`interrupted` 表示 Lucky 打断了回复；
+`music` 显示播放器曲目/歌词，唤醒词仍可用。空 ASR 或被忽略的唤醒残片会恢复
+`listening`，避免画面长期停在“正在识别”。模型服务错误会显示并尽可能播报错误提示，
+然后回到 `listening`；音频设备断开另有日志状态 `AUDIO_DEGRADED`，目前没有独立
+的 QML 画面。
+
 音乐播放状态显示程序化绘制的旋转唱片、装饰性均衡器动画、真实曲名和歌手。该均衡器
 目前按 QML 动画参数运动，不读取 PCM 或 FFT，因此只表示“正在播放”，不代表真实频谱。
 音乐工具通过 `display_state.json` 的 `music.title` 与 `music.artists` 传递元数据；停止

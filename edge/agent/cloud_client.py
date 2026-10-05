@@ -201,7 +201,10 @@ class CloudAgentClient:
                             raise CloudAgentError("Invalid final response")
                         return event["data"]
                     if event.get("type") == "error":
-                        raise CloudAgentError("Agent failed during progress request")
+                        if event.get("reason") == "quota_exhausted":
+                            raise CloudAgentError("GLM 账户余额不足或没有可用资源包")
+                        raise CloudAgentError("Agent failed during progress request: "
+                                              + str(event.get("reason", "unavailable"))[:40])
                     if event.get("type") == "timing":
                         print("[REMOTE_TIMING] " + json.dumps(event), flush=True)
                     elif event.get("type") in {"tool_start", "text_delta"} and self.on_event:

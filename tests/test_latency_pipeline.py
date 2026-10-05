@@ -262,6 +262,17 @@ class EventApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("result", [e["type"] for e in events])
         self.assertNotIn("secret", str(events))
 
+    async def test_quota_error_event_is_actionable_without_provider_detail(self):
+        from fastapi import HTTPException
+        fake = NS(model="test", chat=AsyncMock(side_effect=HTTPException(
+            status_code=502, detail="RateLimitError 1113 余额不足 private-provider-detail")))
+        with patch.object(api, "get_agent", return_value=fake):
+            events = [json.loads(line) async for line in api.chat_events(
+                api.ChatRequest(text="你好"))]
+        error = next(event for event in events if event["type"] == "error")
+        self.assertEqual(error["reason"], "quota_exhausted")
+        self.assertNotIn("private-provider-detail", str(events))
+
     async def test_concurrent_request_traces_are_isolated(self):
         async def fake_chat(*args, **kwargs):
             await asyncio.sleep(0)
@@ -306,6 +317,15 @@ class EdgeEventsTests(unittest.TestCase):
         with patch("edge.agent.cloud_client.urlopen", return_value=stream):
             self.assertEqual(client._post_chat({}), {"reply": "ok"})
         client.on_event.assert_called_once()
+        client._post_json.assert_not_called()
+
+    def test_quota_event_reports_clear_failure_without_legacy_retry(self):
+        client = self.client()
+        stream = io.BytesIO(b'{"type":"error","error":"HTTPException",'
+                            b'"reason":"quota_exhausted"}\n')
+        with patch("edge.agent.cloud_client.urlopen", return_value=stream):
+            with self.assertRaisesRegex(CloudAgentError, "GLM"):
+                client._post_chat({})
         client._post_json.assert_not_called()
 
     def test_text_delta_is_forwarded(self):
