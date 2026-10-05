@@ -1,5 +1,7 @@
 # Jetson 启动、测试与维护
 
+2026-10-05 百炼试用：在测试目录 `/home/jetson/luckrobot_latency_test` 的 `.env` 增加 `DASHSCOPE_API_KEY=你的北京地域百炼密钥`，不要提交 `.env`。当前模型配置是 `qwen3.8-flash`，默认关闭原智谱 `web_search`。启动前可运行 `.venv/bin/python -B -m unittest discover -s tests -q` 和 `bash scripts/run_robot.sh --check`；启动后分别试普通问答、视觉请求、天气和点歌，核对 `logs/cloud-latency.log` 的路由与模型阶段。没有百炼密钥时 Cloud 首次请求会报 `DASHSCOPE_API_KEY is not configured`；单元测试不能证明账号权限、额度或设备语音链路正常。
+
 2026-10-05 模型错误诊断：`[REMOTE_TIMING] model_route_json status=error` 后若显示/播报“大模型账户余额不足或没有可用资源包”，说明 GLM 上游返回了额度错误，需检查对应账户，不是麦克风、QQ 歌单或本地路由故障。Cloud 事件仅传 `quota_exhausted` 等有限原因，不传上游完整报错。若音频端仍停在“正在识别”，查看 `[ASR_TEXT]` 和 `[GATE] IGNORE`；空识别或被忽略的唤醒残片现在会把画面恢复为“我在听”或“等待下一句话”。
 
 2026-10-05：音频进程启动后检查 QQ 音乐登录状态；若已登录，或屏幕扫码登录成功，`music.library_refresh_on_login: true` 会启动一次后台个人歌单同步。查看 `logs/audio-latency.log` 中的 `[MUSIC] PERSONAL_REFRESH_LOGIN_START` / `PERSONAL_REFRESH_LOGIN_OK playlists=... songs=...`；失败看 `PERSONAL_REFRESH_LOGIN_ERROR`。同步结果保存在 `private/qqmusic-library.json`，自动补充点歌路由的歌手/歌名词表，不写回 `configs/music_preferences.yaml`。首次同步可能占用共享 QQ 浏览器，结束后再测试语音点歌；退出登录会清除个人缓存。
