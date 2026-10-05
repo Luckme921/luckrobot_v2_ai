@@ -121,13 +121,16 @@ class GLMAgent:
             {},
         )
 
-        api_key = os.getenv(
-            "ZAI_API_KEY"
-        )
+        self.provider = str(agent_cfg.get("provider", "zhipu")).lower()
+        key_names = {"zhipu": "ZAI_API_KEY", "bailian": "DASHSCOPE_API_KEY"}
+        if self.provider not in key_names:
+            raise ValueError(f"Unsupported agent provider: {self.provider}")
+        key_name = key_names[self.provider]
+        api_key = os.getenv(key_name)
 
         if not api_key:
             raise RuntimeError(
-                "ZAI_API_KEY is not configured"
+                f"{key_name} is not configured"
             )
 
         self.model = agent_cfg["model"]
@@ -147,6 +150,7 @@ class GLMAgent:
             "thinking",
             "enabled",
         )
+        self.enable_thinking = bool(agent_cfg.get("enable_thinking", False))
 
         self.reasoning_effort = agent_cfg.get(
             "reasoning_effort",
@@ -253,6 +257,13 @@ class GLMAgent:
             "应该使用 web_search，而不是引用旧历史说无法联网。"
         )
 
+        self.web_search_enabled = bool(web_search_cfg.get("enabled", False))
+        if not self.web_search_enabled:
+            self.system_prompt += (
+                "\n当前配置未启用 web_search。不要选择 web_search；"
+                "遇到实时信息问题，应明确说明当前无法联网检索，不能编造最新结果。"
+            )
+
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=agent_cfg[
@@ -272,15 +283,13 @@ class GLMAgent:
 
         web_search_client = None
 
-        if bool(
-            web_search_cfg.get(
-                "enabled",
-                False,
-            )
-        ):
+        if self.web_search_enabled:
+            search_key = os.getenv("ZAI_API_KEY")
+            if not search_key:
+                raise RuntimeError("ZAI_API_KEY is required when web_search.enabled is true")
             web_search_client = (
                 ZhipuWebSearch(
-                    api_key=api_key,
+                    api_key=search_key,
                     endpoint=str(
                         web_search_cfg[
                             "endpoint"
@@ -326,6 +335,8 @@ class GLMAgent:
         )
 
     def _extra_body(self) -> dict:
+        if getattr(self, "provider", "zhipu") == "bailian":
+            return {"enable_thinking": self.enable_thinking}
         return {
             "thinking": {
                 "type": self.thinking,
@@ -1257,8 +1268,14 @@ class GLMAgent:
             return await self.tool_router.execute(name, arguments, **kwargs)
 
     @staticmethod
-    def _json_route_messages(text, history, local_identity, music_candidates=None):
+    def _json_route_messages(text, history, local_identity, music_candidates=None,
+                             web_search_enabled=True):
         messages = GLMAgent._build_route_messages(text, history, local_identity, music_candidates)
+        if not web_search_enabled:
+            messages[0]["content"] += (
+                "\n当前 web_search 未启用。不要选择 web_search；"
+                "实时问题选择 respond_text，说明无法核验最新信息。"
+            )
         messages[0]["content"] = messages[0]["content"].replace(
             "调用 route_turn", "输出路由 JSON").replace("通过 route_turn", "通过路由 JSON")
         messages[-1]["content"] = messages[-1]["content"].replace(
@@ -1306,9 +1323,16 @@ class GLMAgent:
             try:
                 response = await self._completion(
                     stage="model_route_json",
-                    messages=self._json_route_messages(text, history, local_identity, music_candidates),
+                    messages=self._json_route_messages(
+                        text, history, local_identity, music_candidates,
+                        getattr(self, "web_search_enabled", True)),
                     response_format={"type": "json_object"}, **common)
-                return self._validated_json_route(response.choices[0])
+                route = self._validated_json_route(response.choices[0])
+                if route["action"] == "web_search" and not getattr(
+                    self, "web_search_enabled", True
+                ):
+                    return {"action": "respond_text"}
+                return route
             except (ValueError, BadRequestError) as exc:
                 # Routing has no side effects. One legacy retry is safe;
                 # transport/auth errors propagate instead of repeating requests.
@@ -1322,7 +1346,12 @@ class GLMAgent:
         if (choice.finish_reason not in {"tool_calls", "stop"} or len(calls) != 1
                 or calls[0].function.name != "route_turn"):
             raise ValueError("Invalid legacy route response")
-        return self._parse_turn_route_arguments(calls[0].function.arguments or "{}")
+        route = self._parse_turn_route_arguments(calls[0].function.arguments or "{}")
+        if route["action"] == "web_search" and not getattr(
+            self, "web_search_enabled", True
+        ):
+            return {"action": "respond_text"}
+        return route
 
     async def chat(
         self,

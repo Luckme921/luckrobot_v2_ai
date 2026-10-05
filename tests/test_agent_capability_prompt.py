@@ -30,7 +30,7 @@ class AgentCapabilityPromptTest(
         with patch.dict(
             os.environ,
             {
-                "ZAI_API_KEY": (
+                "DASHSCOPE_API_KEY": (
                     "test-key"
                 )
             },
@@ -43,9 +43,11 @@ class AgentCapabilityPromptTest(
             agent.system_prompt
         )
 
+        self.assertIn("当前配置未启用 web_search", prompt)
+        self.assertEqual(agent._extra_body(), {"enable_thinking": False})
         self.assertIn(
-            "当前 web_search 已正式可用",
-            prompt,
+            "不要选择 web_search",
+            agent._json_route_messages("今天新闻", [], "uncertain", web_search_enabled=False)[0]["content"],
         )
 
         self.assertIn(

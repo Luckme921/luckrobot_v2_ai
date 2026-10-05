@@ -1,5 +1,11 @@
 # 统一工具接口与音乐 API
 
+## 云端模型配置（2026-10-05）
+
+`configs/agent.yaml` 默认使用北京地域百炼 OpenAI 兼容接口 `qwen3.8-flash`，兼顾普通对话和现有图片输入。密钥只放在设备本地未跟踪的 `.env`：`DASHSCOPE_API_KEY=...`；切勿提交密钥。`agent.enable_thinking: false` 使用百炼参数关闭深度思考，保持语义路由与语音回复速度；原智谱 `thinking` 参数不会发送给百炼。JSON 路由、最终文字流和视觉输入仍需用实际账号验证。
+
+现有 `web_search` 工具调用的是独立的智谱搜索接口，默认关闭；天气工具和 QQ 音乐工具不受影响。若仍要使用智谱搜索，设置 `web_search.enabled: true` 并额外提供 `ZAI_API_KEY`。这不是百炼内置联网搜索；未启用时不能宣称已核验实时新闻。改回智谱模型时需同时修改 `agent.provider`、`model`、`base_url` 和对应密钥。
+
 2026-10-05：`music.catalog_route_enabled` 默认在 `configs/audio.yaml` 开启。明确点歌时，端侧只把在 `configs/music_preferences.yaml` 的 `known_artists` / `known_titles`、偏好曲目或 `private/qqmusic-library.json` 缓存中出现的名字走本地 QQ 搜索；歌手表与歌名表独立，不要求缓存中存在该组合。QQ 搜索后的实际歌曲仍须校验。“好听的歌”“震撼全场的歌”等未命中名字的描述交给模型判断，不能把整句直接当歌名。随机播放、单首换歌、候选选择、暂停/停止仍按原有快捷路径。`library_refresh_on_login: true` 让 QQ 登录或启动时检查已登录状态成功后，在后台同步个人歌单，更新设备私有曲库缓存；退出/切换账号时清除旧缓存。该缓存会自动补充运行时的歌手/歌名词表，不改写受 Git 管理的 `music_preferences.yaml`，避免提交私人歌单。`library_refresh_enabled: false` 仍表示不做每小时周期刷新。浏览器由共享 Selenium 控制，歌单同步期间搜索可能短暂等待；同步失败时保留上一次可用缓存（主动切换账号时例外）。
 
 2026-10-01 更新：本地仅直接处理明确点歌、单首换歌和播放控制；“找一些其他音乐”“刚才的歌”等交给模型理解上下文。模型 `play_music` 表示找一首，未知歌名时以 `music_query=随便` 使用配置歌单；`recommend_music` 表示推荐几首供选择，使用 `music.preferences.preferred_tracks` 暂存候选，选定后由 QQ 搜索核实播放。当前未接入 QQ 官方推荐榜单。`end_conversation` 是会话路由动作。schema 在 `robot_tools/catalog.py`，执行在 `edge/audio/runtime.py`。QQ 播放器自动换曲由后台每三秒读取当前曲目，变化时更新屏幕并打印 `[MUSIC] TRACK_CHANGED`；仍需现场核对网页元数据与实际声音。
