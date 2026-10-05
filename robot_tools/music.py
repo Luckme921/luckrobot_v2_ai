@@ -602,6 +602,11 @@ class MusicTools:
             str(item).strip() for item in preferences.get("preferred_artists", [])
             if isinstance(item, str) and item.strip()
         ]
+        self.known_artists = [str(item).strip() for item in preferences.get("known_artists", [])
+                              if isinstance(item, str) and item.strip()]
+        self.known_titles = [str(item).strip() for item in preferences.get("known_titles", [])
+                             if isinstance(item, str) and item.strip()]
+        self.catalog_route_enabled = config.get("catalog_route_enabled", False) is True
         self.random_search_attempts = min(
             10, max(1, int(preferences.get("search_attempts", 3))))
         self.random_play_attempts = min(
@@ -865,6 +870,10 @@ class MusicTools:
             "再找一首歌曲", "下一首", "下一首歌",
         }:
             return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
+        if self.catalog_route_enabled and any(phrase in normalized for phrase in (
+                "好听的歌", "好听的音乐", "震撼全场", "振奋的音乐", "有氛围的歌")):
+            if not any(word in normalized for word in ("随便", "随机", "任意")):
+                return None
         if is_random_request(value):
             return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
         query = _extract_music_query(value)
@@ -874,8 +883,39 @@ class MusicTools:
                 return None
             if _normalize_text(query) in {"歌", "歌曲", "音乐", "一首歌", "一首音乐"}:
                 return {"name":"music_search", "arguments":{"query":"随便", "utterance":text}}
+            if self.catalog_route_enabled and not self._known_music_query(query):
+                return None
             return {"name":"music_search", "arguments":{"query":query,"utterance":text}}
         return None
+
+    def _known_music_query(self, query):
+        """Only fast-route names present in curated seeds or a cached personal library.
+
+        Artists and titles are independent vocabularies: a requested pair need
+        not have appeared together in the cache. QQ still verifies the result.
+        """
+        artists = set(self.preferred_artists) | set(self.known_artists)
+        titles = set(self.known_titles) | {item["title"] for item in self.preferred_tracks}
+        artists.update(item["artist"] for item in self.preferred_tracks)
+        if self.library:
+            for playlist in self.library.data.get("playlists", {}).values():
+                for song in playlist.get("songs", []):
+                    artists.update(song.get("artists") or [])
+                    if song.get("title"):
+                        titles.add(song["title"])
+        normalized = _normalize_text(query)
+        # Ignore short names inside descriptive language (e.g. 歌, 好听).
+        for artist in artists:
+            name = _normalize_text(artist)
+            if len(name) >= 2 and (normalized == name or re.search(
+                    rf"(?:^|的){re.escape(name)}(?:的(?:歌|歌曲|音乐)?|$)", normalized)):
+                return True
+        for title in titles:
+            name = _normalize_text(_base_song_title(title))
+            if len(name) >= 2 and name not in {"音乐", "歌曲", "好听", "推荐"}:
+                if normalized == name or (len(name) >= 3 and name in normalized):
+                    return True
+        return False
 
     def _random_play(self, *, shuffle=True):
         # Bounded attempts; never ask the user to choose again after a random request.

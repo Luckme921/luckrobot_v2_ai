@@ -191,6 +191,25 @@ class LocalMusicTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertFalse(has_explicit_music_intent(text))
 
+    def test_catalog_fast_route_only_for_known_names(self):
+        library = Mock()
+        library.data = {"playlists": {"mine": {"songs": [
+            {"title": "安和桥", "artists": ["宋冬野"]},
+            {"title": "七里香", "artists": ["周杰伦"]},
+        ]}}}
+        music = MusicTools({"catalog_route_enabled": True, "preferences": {
+            "preferred_tracks": [{"artist": "邓紫棋", "title": "泡沫"}],
+            "known_artists": ["刘欢"], "known_titles": ["从头再来"],
+        }}, library=library)
+        for phrase in ("播放安和桥", "我想听宋冬野的歌", "播放邓紫棋的七里香",
+                       "播放刘欢的七里香", "播放从头再来"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(music.local_request(phrase)["name"], "music_search")
+        for phrase in ("播放好听的歌", "播放震撼全场的歌", "播放陌生歌曲",
+                       "播放刘欢的陌生歌名", "我想听点振奋的音乐"):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(music.local_request(phrase))
+
     def setup_music(self,songs):
         player=Mock()
         player.active = True

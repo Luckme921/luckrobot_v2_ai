@@ -1,5 +1,7 @@
 # Jetson 启动、测试与维护
 
+2026-10-05：音频进程启动后检查 QQ 音乐登录状态；若已登录，或屏幕扫码登录成功，`music.library_refresh_on_login: true` 会启动一次后台个人歌单同步。查看 `logs/audio-latency.log` 中的 `[MUSIC] PERSONAL_REFRESH_LOGIN_START` / `PERSONAL_REFRESH_LOGIN_OK playlists=... songs=...`；失败看 `PERSONAL_REFRESH_LOGIN_ERROR`。同步结果保存在 `private/qqmusic-library.json`，自动补充点歌路由的歌手/歌名词表，不写回 `configs/music_preferences.yaml`。首次同步可能占用共享 QQ 浏览器，结束后再测试语音点歌；退出登录会清除个人缓存。
+
 2026-10-03 现场验证：更新后运行 `.venv/bin/python scripts/cache_tts_phrases.py` 生成新增的视觉过渡语及音乐歌手模板片段，再启动机器人。说“有没有张学友的歌，推荐一首给我听”，观察 `[ACK] SELECT` 和 `[ACK] PLAY mode=contextual`；如果显示 `mode=cached` 或 `DYNAMIC_FALLBACK`，说明本轮使用固定晓晓短句。说“现在不晚了，我打算要睡觉了”，确认日志有 `[ROUTE] action=end_conversation`、完整 `[AGENT_REPLY]`、播报后 `[STATE] SLEEPING reason=model_end_conversation`。说话跨越原来 8 秒唤醒等待或 12 秒追问等待时，应在 VAD 完成后才处理片段；`[GATE] IGNORE reason=wake_echo_fragment` 用于检查误识别唤醒残片。缓存和日志在 `private/`、`logs/`，不要提交。
 
 2026-10-01 更新：`interaction.wake.include_pre_wake_speech` 默认为 `false`。KWS 后首段 ASR 若识别到位于句中的唤醒词，默认只处理唤醒词后的内容；设为 `true` 则保留整段。ASR 没有转写出唤醒词时无法可靠确定切分点，现场应核对 `[ASR_TEXT]`、`[COMMAND]`。过渡语和告别语增加了缓存短句，部署后运行 `python scripts/cache_tts_phrases.py` 为晓晓生成新缓存；若缓存缺失，启动时会尝试本地 Kokoro 合成。测试命令为 `.venv/bin/python -B -m unittest discover -s tests -q`，并检查 `git diff --check`。QQ 自动换曲的屏幕显示还需设备现场验收。

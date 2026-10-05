@@ -1,6 +1,9 @@
 # Curated seeds for generic requests such as "随便播放一首歌".
 # The runtime searches one artist/title pair and plays the closest trusted result.
 random_play:
+  # Independent name vocabulary for the local music shortcut, not fixed pairs.
+  known_artists: [周杰伦, 陈奕迅, 孙燕姿, 林俊杰, 邓紫棋, 五月天, 张学友, 王菲, 刘欢, 宋冬野, 花粥]
+  known_titles: [安和桥, 从头再来, 完美先生和差不多小姐, 泡沫, 光年之外, 七里香, 稻香, 龙卷风, 吻别]
   search_attempts: 3
   candidate_play_attempts: 4
   preferred_tracks:

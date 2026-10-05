@@ -601,6 +601,33 @@ def main() -> None:
     auth_bridge.publish("unknown")
     auth_request_id = auth_bridge.read_json(auth_bridge.REQUEST).get("id", "")
     auth_thread = None
+    library_refresh_thread = None
+    library_refresh_generation = None
+
+    def refresh_personal_library_after_login():
+        nonlocal library_refresh_thread, library_refresh_generation
+        if music_library is None or not music_cfg.get("library_refresh_on_login", True):
+            return
+        if (library_refresh_thread is not None and library_refresh_thread.is_alive()
+                and library_refresh_generation == music_library.generation):
+            return
+
+        def refresh():
+            try:
+                print("[MUSIC] PERSONAL_REFRESH_LOGIN_START", flush=True)
+                data = music_library.refresh_all()
+                playlists = data.get("playlists", {})
+                songs = sum(len(item.get("songs", [])) for item in playlists.values())
+                print(f"[MUSIC] PERSONAL_REFRESH_LOGIN_OK playlists={len(playlists)} songs={songs}",
+                      flush=True)
+            except Exception as exc:
+                print(f"[MUSIC] PERSONAL_REFRESH_LOGIN_ERROR type={type(exc).__name__}: {exc}",
+                      flush=True)
+
+        library_refresh_generation = music_library.generation
+        library_refresh_thread = threading.Thread(target=refresh, daemon=True,
+                                                   name="qqmusic-library-login-refresh")
+        library_refresh_thread.start()
 
     def run_music_auth(action: str):
         auth_bridge.publish("logging_out" if action == "logout" else "checking"
@@ -610,6 +637,8 @@ def main() -> None:
                 raise QQMusicError("当前未使用 QQ 音乐网页播放器")
             if action == "logout":
                 music_controller.logout_account()
+                if music_library is not None:
+                    music_library.clear_cache()
                 auth_bridge.QR_IMAGE.unlink(missing_ok=True)
                 auth_bridge.AVATAR_IMAGE.unlink(missing_ok=True)
                 auth_bridge.publish("required")
@@ -624,6 +653,10 @@ def main() -> None:
                 account = music_controller.account_info(auth_bridge.AVATAR_IMAGE)
                 auth_bridge.publish(account["state"], nickname=account["nickname"],
                                     avatar=account["avatar"])
+                if account["state"] == "ready":
+                    if action == "login" and music_library is not None:
+                        music_library.clear_cache()
+                    refresh_personal_library_after_login()
         except Exception as exc:
             auth_bridge.QR_IMAGE.unlink(missing_ok=True)
             auth_bridge.BROWSER_IMAGE.unlink(missing_ok=True)

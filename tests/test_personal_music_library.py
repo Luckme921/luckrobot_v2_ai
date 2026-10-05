@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from edge.music.personal_library import (
@@ -57,6 +58,35 @@ class PersonalMusicLibraryTest(
         }
 
         return lib
+
+    def test_refresh_populates_private_catalog_and_logout_clears_it(self):
+        lib = self.make_library()
+        lib.data["playlists"] = {"123": {"name": "我喜欢", "songs": []}}
+        row = {"mid": "song-mid", "name": "安和桥", "singer": [{"name": "宋冬野"}]}
+        with patch.object(lib, "discover_playlist_ids", return_value=["123"]), \
+                patch.object(lib, "_fetch_page", return_value=[row]):
+            data = lib.refresh_all()
+        self.assertEqual(data["playlists"]["123"]["songs"][0]["title"], "安和桥")
+        self.assertTrue(lib.cache_path.exists())
+        lib.clear_cache()
+        self.assertEqual(lib.data["playlists"], {})
+        self.assertFalse(lib.cache_path.exists())
+
+    def test_account_change_discards_in_flight_refresh(self):
+        lib = self.make_library()
+        lib.data["playlists"] = {"123": {"name": "我喜欢", "songs": []}}
+        row = {"mid": "old-mid", "name": "旧歌", "singer": [{"name": "旧歌手"}]}
+
+        def switched_account(*args):
+            lib.clear_cache()
+            return [row]
+
+        with patch.object(lib, "discover_playlist_ids", return_value=["123"]), \
+                patch.object(lib, "_fetch_page", side_effect=switched_account):
+            with self.assertRaisesRegex(RuntimeError, "account changed"):
+                lib.refresh_all()
+        self.assertEqual(lib.data["playlists"], {})
+        self.assertFalse(lib.cache_path.exists())
 
     def test_lyrical_request(
         self,

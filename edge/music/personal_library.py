@@ -5,6 +5,7 @@ from functools import wraps
 import json
 import random
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -320,6 +321,8 @@ class QQMusicPersonalLibrary:
         self.controller = controller
         self.cache_path = Path(cache_path)
         self.page_size = int(page_size)
+        self._cache_lock = threading.Lock()
+        self.generation = 0
         self.data: dict[str, Any] = {
             "version": self.CACHE_VERSION,
             "refreshed_at": None,
@@ -353,6 +356,17 @@ class QQMusicPersonalLibrary:
 
         except Exception:
             return False
+
+    def clear_cache(self) -> None:
+        """Discard account-specific names when the QQ account logs out."""
+        with self._cache_lock:
+            self.generation += 1
+            self.data = {
+                "version": self.CACHE_VERSION,
+                "refreshed_at": None,
+                "playlists": {},
+            }
+            self.cache_path.unlink(missing_ok=True)
 
     def _save_cache(self) -> None:
         self.cache_path.parent.mkdir(
@@ -682,7 +696,10 @@ class QQMusicPersonalLibrary:
     def refresh_all(
         self,
     ) -> dict[str, Any]:
+        generation = self.generation
         ids = self.discover_playlist_ids()
+        if not ids:
+            raise RuntimeError("QQ Music returned no personal playlists")
 
         playlists: dict[str, Any] = {}
 
@@ -840,17 +857,15 @@ class QQMusicPersonalLibrary:
                 flush=True,
             )
 
-        self.data = {
-            "version": self.CACHE_VERSION,
-            "refreshed_at": (
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
-            ),
-            "playlists": playlists,
-        }
-
-        self._save_cache()
+        with self._cache_lock:
+            if generation != self.generation:
+                raise RuntimeError("QQ Music account changed during library refresh")
+            self.data = {
+                "version": self.CACHE_VERSION,
+                "refreshed_at": datetime.now(timezone.utc).isoformat(),
+                "playlists": playlists,
+            }
+            self._save_cache()
 
         total_songs = sum(
             len(

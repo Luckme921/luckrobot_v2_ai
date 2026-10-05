@@ -1,5 +1,7 @@
 # 统一工具接口与音乐 API
 
+2026-10-05：`music.catalog_route_enabled` 默认在 `configs/audio.yaml` 开启。明确点歌时，端侧只把在 `configs/music_preferences.yaml` 的 `known_artists` / `known_titles`、偏好曲目或 `private/qqmusic-library.json` 缓存中出现的名字走本地 QQ 搜索；歌手表与歌名表独立，不要求缓存中存在该组合。QQ 搜索后的实际歌曲仍须校验。“好听的歌”“震撼全场的歌”等未命中名字的描述交给模型判断，不能把整句直接当歌名。随机播放、单首换歌、候选选择、暂停/停止仍按原有快捷路径。`library_refresh_on_login: true` 让 QQ 登录或启动时检查已登录状态成功后，在后台同步个人歌单，更新设备私有曲库缓存；退出/切换账号时清除旧缓存。该缓存会自动补充运行时的歌手/歌名词表，不改写受 Git 管理的 `music_preferences.yaml`，避免提交私人歌单。`library_refresh_enabled: false` 仍表示不做每小时周期刷新。浏览器由共享 Selenium 控制，歌单同步期间搜索可能短暂等待；同步失败时保留上一次可用缓存（主动切换账号时例外）。
+
 2026-10-01 更新：本地仅直接处理明确点歌、单首换歌和播放控制；“找一些其他音乐”“刚才的歌”等交给模型理解上下文。模型 `play_music` 表示找一首，未知歌名时以 `music_query=随便` 使用配置歌单；`recommend_music` 表示推荐几首供选择，使用 `music.preferences.preferred_tracks` 暂存候选，选定后由 QQ 搜索核实播放。当前未接入 QQ 官方推荐榜单。`end_conversation` 是会话路由动作。schema 在 `robot_tools/catalog.py`，执行在 `edge/audio/runtime.py`。QQ 播放器自动换曲由后台每三秒读取当前曲目，变化时更新屏幕并打印 `[MUSIC] TRACK_CHANGED`；仍需现场核对网页元数据与实际声音。
 
 2026-10-03 更新：`end_conversation` 不再借用音乐请求返回。Cloud Agent 先根据当前语句和对话历史生成自然告别回复，`ChatResponse.end_conversation=true` 随最终正文返回；Edge 播完该正文后清空候选并回到等待 Lucky，且把用户与回复一起写入记忆。完整的短句“结束对话”等仍在本地门控处理，使用缓存告别语。音乐的动态过渡语只在识别到“张学友的歌”这类明确歌手时尝试；不能在线准备音频时回退到固定缓存短句，不影响音乐工具执行。

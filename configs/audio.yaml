@@ -158,6 +158,9 @@ agent_bridge:
 music:
   enabled: true
   provider: qqmusic
+  # Only names in curated preferences or the cached personal QQ library take
+  # the local search shortcut. Unknown/descriptive requests go to the model.
+  catalog_route_enabled: true
   profile_path: private/qqmusic-firefox
   firefox_binary: /usr/bin/firefox
   timeout_seconds: 30.0
@@ -165,6 +168,8 @@ music:
   headless: true
   # Keep the first QQ rollout responsive; enable after playlist refresh is timed.
   library_refresh_enabled: false
+  # Refresh the private personal-library cache after a successful login/check.
+  library_refresh_on_login: true
 tts:
   # Prepare several streamed clauses concurrently, then play them in text order.
   stream_prefetch_workers: 3
