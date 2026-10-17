@@ -616,6 +616,12 @@ class MusicTools:
         # A verified user selection is a replay reference, not a pending list.
         self.last_selected_song = None
         self.recent_random_tracks = []
+        self.recent_recommendations = []
+        self.playlist_queue = []
+        self.playlist_name = None
+        self.playlist_expected = None
+        self.playlist_missing_polls = 0
+        self.playlist_started_at = 0.0
         self.before_playback = before_playback
         self.random_queries = http_config.get("random_queries", ["周杰伦", "陈奕迅", "孙燕姿"])
         preferences = config.get("preferences", {})
@@ -857,6 +863,13 @@ class MusicTools:
         normalized = _normalize_text(value)
         if re.search(r"(?:晚安(?:喽|啦|了)?|拜拜|再见|结束对话)$", normalized):
             return None
+        playlist = self._requested_playlist(value)
+        if playlist is not None and "推荐" in normalized:
+            return {"name": "music_search", "arguments": {"query": "推荐", "utterance": text}}
+        if playlist is not None and any(word in normalized for word in ("播放", "放", "听")):
+            return {"name": "music_search", "arguments": {"query": "歌单", "utterance": text}}
+        if normalized in {"推荐几首", "推荐几首歌", "推荐几首歌曲", "推荐几首音乐"}:
+            return {"name": "music_search", "arguments": {"query": "推荐", "utterance": text}}
         if any(phrase in normalized for phrase in (
                 "找一点其他", "找一些其他", "找点其他", "再找一点其他",
                 "再找一些", "找几首", "推荐几首", "找点别的")):
@@ -961,6 +974,134 @@ class MusicTools:
                     return True
         return False
 
+    def _requested_playlist(self, text):
+        if self.library is None:
+            return None
+        value = _normalize_text(text)
+        if not ("歌单" in value or "我喜欢" in value):
+            return None
+        names = self.library.playlist_names()
+        if not isinstance(names, list):
+            return None
+        matches = [name for name in names if _normalize_text(name) in value]
+        if matches:
+            return max(matches, key=lambda name: len(_normalize_text(name)))
+        if "我的歌单" in value or "个人歌单" in value:
+            return "*"  # all cached personal playlists
+        return None
+
+    @staticmethod
+    def _song_key(song):
+        return _normalize_text("".join(song.get("artists", [])[:1]) +
+                               _base_song_title(song.get("title", "")))
+
+    @staticmethod
+    def _recommendable_song(song):
+        title = str(song.get("title", ""))
+        return (len(title) <= 80 and not re.search(
+            r"第\s*\d+\s*[集章节回]|有声书|有声小说|听书", title))
+
+    def _personal_candidates(self, playlist_name=None):
+        if self.library is None:
+            return []
+        seen, songs = set(), []
+        for playlist in self.library.data.get("playlists", {}).values():
+            if playlist_name not in (None, "*") and playlist.get("name") != playlist_name:
+                continue
+            for item in playlist.get("songs", []):
+                mid = str(item.get("mid") or "")
+                title = str(item.get("title") or "").strip()
+                artists = [str(a).strip() for a in item.get("artists", []) if str(a).strip()]
+                if not mid or not title or not artists or mid in seen:
+                    continue
+                seen.add(mid)
+                songs.append(dict(id=mid, title=title, artists=artists,
+                                  backend="qqmusic", query=f"{artists[0]} {title}"))
+        return songs
+
+    def _clear_playlist(self):
+        self.playlist_queue = []
+        self.playlist_name = None
+        self.playlist_expected = None
+        self.playlist_missing_polls = 0
+
+    def _play_playlist(self, name):
+        songs = self._personal_candidates(name)
+        if not songs:
+            return result("这个歌单还没有可播放的歌曲，请先同步 QQ 音乐歌单。",
+                          status="not_found")
+        # A repeated request starts at a different song while retaining playlist order.
+        start = next((i for i, song in enumerate(songs)
+                      if self._song_key(song) not in self.recent_random_tracks), 0)
+        ordered = songs[start:] + songs[:start]
+        self._clear_playlist()
+        for index, song in enumerate(ordered[:3]):
+            self.pending = [song]
+            self.deadline = self.clock() + 120
+            answer = self.select("第一首")
+            if answer.get("playing"):
+                self.playlist_queue = ordered[index + 1:]
+                self.playlist_name = name
+                self.playlist_expected = dict(self.current_song or {})
+                self.playlist_started_at = time.monotonic()
+                self.recent_random_tracks = (self.recent_random_tracks +
+                                             [self._song_key(song)])[-20:]
+                print(f"[MUSIC] PLAYLIST_START name={name!r} queued={len(self.playlist_queue)}",
+                      flush=True)
+                return answer
+        return result("这个歌单里的歌曲暂时无法播放，请稍后再试。",
+                      ok=False, status="unavailable")
+
+    def advance_playlist_if_needed(self, observed_track):
+        """Follow the cached playlist when QQ's browser advances or stops."""
+        if self.playlist_name is None or not self.playing:
+            return None
+        actual = self._qq_track_metadata(observed_track)
+        expected = self.playlist_expected or {}
+        same_title = (actual and _normalize_text(actual.get("title", "")) ==
+                      _normalize_text(expected.get("title", "")))
+        actual_artists = actual.get("artists", []) if actual else []
+        expected_artists = expected.get("artists", [])
+        same_artist = (not actual_artists or not expected_artists or
+                       _normalize_text(actual_artists[0]) ==
+                       _normalize_text(expected_artists[0]))
+        if same_title and same_artist:
+            self.playlist_missing_polls = 0
+            return None
+        if not actual:
+            self.playlist_missing_polls += 1
+            if self.playlist_missing_polls < 2 or time.monotonic() - self.playlist_started_at < 5:
+                return None
+        if not self.playlist_queue:
+            self._clear_playlist()
+            try:
+                self.controller.stop()
+            except (OSError, RuntimeError):
+                pass
+            self.playing = False
+            self.current_song = None
+            print("[MUSIC] PLAYLIST_FINISHED", flush=True)
+            return result("歌单已经播放完了。", executed=True, playing=False, music=None)
+        return self._play_next_playlist()
+
+    def _play_next_playlist(self):
+        for _ in range(min(3, len(self.playlist_queue))):
+            song = self.playlist_queue.pop(0)
+            self.pending = [song]
+            self.deadline = self.clock() + 120
+            answer = self.select("第一首")
+            if answer.get("playing"):
+                self.playlist_expected = dict(self.current_song or {})
+                self.playlist_started_at = time.monotonic()
+                self.playlist_missing_polls = 0
+                self.recent_random_tracks = (self.recent_random_tracks +
+                                             [self._song_key(song)])[-20:]
+                print(f"[MUSIC] PLAYLIST_ADVANCE name={self.playlist_name!r} "
+                      f"remaining={len(self.playlist_queue)}", flush=True)
+                return answer
+        self._clear_playlist()
+        return None
+
     def _random_play(self, *, shuffle=True):
         # Bounded attempts; never ask the user to choose again after a random request.
         songs = list(self.pending)
@@ -989,7 +1130,30 @@ class MusicTools:
                       query=query) for s in matches]
         return songs or self.controller.search_candidates(query, limit=3)
 
+    def _try_personal_random(self):
+        personal = [song for song in self._personal_candidates()
+                    if self._recommendable_song(song)]
+        random.shuffle(personal)
+        fresh_personal = [song for song in personal
+                          if self._song_key(song) not in self.recent_random_tracks]
+        for song in (fresh_personal or personal)[:self.random_search_attempts]:
+            self.pending = [song]
+            self.deadline = self.clock() + 120
+            answer = self.select("第一首")
+            if answer.get("playing"):
+                self.recent_random_tracks = (self.recent_random_tracks +
+                                             [self._song_key(song)])[-20:]
+                print(f"[MUSIC] RANDOM_PLAY source=personal title={song['title']!r}",
+                      flush=True)
+                return answer
+        return None
+
     def _random_search_and_play(self):
+        personal_first = random.random() < 0.5
+        if personal_first:
+            answer = self._try_personal_random()
+            if answer is not None:
+                return answer
         tracks = list(self.preferred_tracks)
         random.shuffle(tracks)
         if len(tracks) > 1:
@@ -1006,6 +1170,10 @@ class MusicTools:
             random.shuffle(artists)
             plans.extend((artist, None) for artist in artists)
         if not plans:
+            if not personal_first:
+                answer = self._try_personal_random()
+                if answer is not None:
+                    return answer
             return result("还没有配置随机音乐来源。", ok=False, status="unavailable")
 
         for query, track in plans[:self.random_search_attempts]:
@@ -1029,22 +1197,57 @@ class MusicTools:
                     key = _normalize_text(track["artist"] + track["title"])
                     self.recent_random_tracks = (
                         [item for item in self.recent_random_tracks if item != key]
-                        + [key])[-4:]
+                        + [key])[-20:]
                 print(f"[MUSIC] RANDOM_PLAY query={query!r}", flush=True)
+                return answer
+        if not personal_first:
+            answer = self._try_personal_random()
+            if answer is not None:
                 return answer
         self.clear_pending()
         return result("这次没能找到可播放的常听歌曲，稍后再试一下吧。",
                       ok=False, status="unavailable")
 
-    def _recommend(self):
-        tracks = list(self.preferred_tracks)
-        random.shuffle(tracks)
-        if not tracks:
-            return result("还没有配置推荐歌单。", ok=False, status="unavailable")
-        self.pending = [dict(id=f"recommend:{index}", title=track["title"],
-                             artists=[track["artist"]], backend="recommendation",
-                             query=f"{track['artist']} {track['title']}")
-                        for index, track in enumerate(tracks[:3])]
+    def _recommend(self, playlist_name=None, count=3):
+        personal = [song for song in self._personal_candidates(playlist_name)
+                    if self._recommendable_song(song)]
+        curated = [] if playlist_name else [
+            dict(id=f"recommend:{index}", title=track["title"],
+                 artists=[track["artist"]], backend="recommendation",
+                 query=f"{track['artist']} {track['title']}")
+            for index, track in enumerate(self.preferred_tracks)]
+        random.shuffle(personal)
+        random.shuffle(curated)
+        recent = set(self.recent_recommendations) | set(self.recent_random_tracks)
+        def fresh(items):
+            return [song for song in items if self._song_key(song) not in recent]
+        # A generic recommendation includes both the personal library and
+        # curated seeds when both exist, instead of drowning seeds in a large cache.
+        chosen, seen = [], set()
+        sources = ([fresh(personal), fresh(curated), personal, curated]
+                   if playlist_name is None else [fresh(personal), personal])
+        if playlist_name is None and personal and curated and count >= 2:
+            for source in sources[:2]:
+                if source:
+                    song = source[0]
+                    chosen.append(song)
+                    seen.add(self._song_key(song))
+        for source in sources:
+            for song in source:
+                key = self._song_key(song)
+                if key and key not in seen:
+                    chosen.append(song)
+                    seen.add(key)
+                    if len(chosen) >= count:
+                        break
+            if len(chosen) >= count:
+                break
+        if not chosen:
+            return result("个人歌单和偏好曲目中还没有可推荐的歌曲。",
+                          ok=False, status="unavailable")
+        self.pending = chosen[:count]
+        self.recent_recommendations = (self.recent_recommendations +
+                                       [self._song_key(song) for song in self.pending])[-30:]
         self.deadline = self.clock() + 120
         choices = "、".join(self._candidate_description(song) for song in self.pending)
         return result(f"可以听听{choices}。你想听哪首？", status="needs_selection",
@@ -1054,6 +1257,14 @@ class MusicTools:
         self.clear_pending()
         if not self.config.get("enabled", False):
             return result("音乐功能目前未启用。", ok=False, status="unavailable")
+        playlist_name = self._requested_playlist(utterance or query)
+        if playlist_name is not None and "推荐" in _normalize_text(utterance or query):
+            self._clear_playlist()
+            return self._recommend(playlist_name)
+        if playlist_name is not None and any(word in _normalize_text(utterance or query)
+                                             for word in ("播放", "放", "听")):
+            return self._play_playlist(playlist_name)
+        self._clear_playlist()
         if query == "推荐" or is_recommendation_request(utterance or query):
             return self._recommend()
         random_mode = is_random_request(query) or is_random_request(utterance)
@@ -1298,6 +1509,14 @@ class MusicTools:
     def control(self, action):
         if action == "stop_music":
             self.clear_pending()
+            self._clear_playlist()
+        if action == "next_music" and self.playlist_queue:
+            return self._play_next_playlist() or result(
+                "下一首暂时播放不了。", ok=False, status="unavailable")
+        if action == "next_music" and self.playlist_name is not None:
+            return self.control("stop_music")
+        if action == "previous_music":
+            self._clear_playlist()
         if not self.config.get("enabled", False):
             return result("音乐功能目前未启用。", ok=False, status="unavailable")
         name = {"pause_music": "pause", "resume_music": "resume", "next_music": "next",
@@ -1329,6 +1548,7 @@ class MusicTools:
 
     def close(self):
         self.clear_pending()
+        self._clear_playlist()
         self.current_song = None
         if self.player is not None:
             self.player.stop()

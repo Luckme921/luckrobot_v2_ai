@@ -1127,6 +1127,10 @@ def main() -> None:
                 continue
             try:
                 track, cover_revision = music_controller.current_track_snapshot(MUSIC_COVER_IMAGE)
+                advanced = music_tools.advance_playlist_if_needed(track)
+                if advanced is not None:
+                    display_music(advanced.get("music"))
+                    continue
                 current = music_tools.refresh_current_track(track)
                 if cover_revision and music_tools.current_song is not None:
                     if music_tools.current_song.get("cover_revision") != cover_revision:
