@@ -733,6 +733,7 @@ class CloudAgentClient:
 
             allowed_actions = {
                 "play_music",
+                "recommend_music",
                 "pause_music",
                 "resume_music",
                 "next_music",

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock
 
 from cloud.agent.client import (
     GLMAgent,
@@ -9,11 +12,25 @@ from cloud.agent.client import (
 from cloud.agent.tool_router import (
     TURN_ROUTE_SCHEMA,
 )
+from edge.agent.cloud_client import CloudAgentClient
 
 
 class MusicRequestProtocolTest(
     unittest.TestCase
 ):
+    def test_edge_accepts_recommend_music_from_cloud(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            client = CloudAgentClient(
+                "http://127.0.0.1:8000/chat",
+                memory_db_path=Path(directory) / "memory.sqlite3",
+            )
+            client._post_chat = Mock(return_value={
+                "reply": "", "model": "test",
+                "music_request": {"action": "recommend_music", "query": ""},
+            })
+            reply = client.chat("你帮我找找最近有什么好听的歌曲")
+            self.assertEqual(reply.music_request.action, "recommend_music")
+
     def test_route_schema_has_music_actions(
         self,
     ) -> None:

@@ -182,6 +182,8 @@ QQ 网页搜索候选同时提取歌曲行中的歌手，用于偏好歌单的�
 音乐别名配置在 `configs/music_aliases.yaml`，`artists` 和 `songs` 分开维护；如“邓紫棋/G.E.M.邓紫棋”“乃万/乃万NINEONE”。QQ 搜索后的候选校验、歌手加歌名的明确点歌共用这些等价关系；歌曲标题附加的 Live/Mix 等版本字样仍按原有版本规则处理，不把不同版本自动写成同一首歌。云端 `music_alias_add(kind, canonical, alias, evidence)` 只接受歌手或歌曲短别名，保存到未跟踪的 `private/runtime/music_aliases.learned.json`，保留依据供人工复核，拒绝冲突别名。JSON 路由的音乐联网搜索成功后，模型最多有一次补充别名机会，且两种名称须能在本轮用户话语或真实搜索结果中找到；普通播放不增加这一步。新增别名不赋予模型直接构造播放 URL 或命令的权限，歌曲仍需 QQ 实际搜索和匹配。
 
 排查《泡沫》失败的实际案例：2026-10-17 21:20 的 ASR 正确，模型却把 `music_search.query` 填成 `邓紫棋的泡沫`；QQ 已返回《泡沫》/`G.E.M.邓紫棋`，但旧代码把整串当作单一歌名过滤，45 秒后误报“不相关”。现在只在前半段命中已知歌手或配置别名时，把“歌手的歌名”规范成“歌手 歌名”，避免把普通歌名中的“的”误拆。日志 `[MUSIC] SEARCH_TIMING` 区分个人曲库与 QQ 网页耗时；`[MUSIC] QQ_CANDIDATES` 展示实际候选；`[MUSIC] NOW_PLAYING` 才表示已核验播放。现场检查可用 `tail -F logs/conversation.log logs/audio-latency.log`，先找同一请求的 `[USER]`/`[ASR_TEXT]`，再比对 `[TOOL_REQUEST]`、`QQ_CANDIDATES`、`SEARCH_TIMING`、`AUTO_PLAY`/`NOW_PLAYING` 和最终 `[ASSISTANT]`。
+
+2026-10-17 的“找找最近有什么好听的歌曲”连败是协议漏项：云端合法返回 `music_request.action=recommend_music`，端侧旧校验却只允许播放、切歌等动作，抛出 `Cloud Agent returned invalid music action`。端侧现接受该动作，随后交给已有 `music_search(query="推荐")` 路径；`model_route_json` 当时约 1 秒成功，不能把这类错误误报为 API Key 失效。
 否则随机播放会因所有候选歌手为空而全部被过滤。
 语音点歌识别包含“我想要听 / 想要听”。针对实际出现的“孙冬野南河桥”误识别，
 仅在明确点歌句式中将其纠正为“宋冬野 安和桥”；单独说出该短语不会触发点歌。
