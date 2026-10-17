@@ -419,6 +419,23 @@ class LocalMusicTests(unittest.TestCase):
         self.assertEqual(answer["status"], "needs_selection")
         self.assertEqual(answer["candidates"][0]["id"], "gem")
 
+    def test_model_artist_de_title_query_matches_qq_display_name(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="gem-foam", title="泡沫", artists=["G.E.M.邓紫棋"],
+                 backend="qqmusic", query="邓紫棋 泡沫"),
+            dict(id="other", title="唯一", artists=["G.E.M.邓紫棋"],
+                 backend="qqmusic", query="邓紫棋 泡沫"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic",
+                            "preferences": {"known_artists": ["邓紫棋"]},
+                            "http": {"auto_play_enabled": True}}, controller=controller)
+        answer = music.search("邓紫棋的泡沫", utterance="放一首邓紫棋的泡沫")
+        self.assertTrue(answer["playing"])
+        controller.search_candidates.assert_called_once_with("邓紫棋 泡沫", limit=3)
+        controller.play.assert_called_once_with("邓紫棋 泡沫", preferred_mid="gem-foam",
+                                                strict_mid=True)
+
     def test_qq_fuzzy_library_miss_falls_through_to_web_search(self):
         controller = Mock()
         controller.search_candidates.return_value = [

@@ -652,6 +652,22 @@ class MusicTools:
         self.pending = []
         self.deadline = 0.0
 
+    def _normalize_artist_title_query(self, query: str) -> str:
+        """Accept model queries written as '歌手的歌名' when singer is known."""
+        query = str(query).strip()
+        if " " in query:
+            return query
+        match = re.fullmatch(r"([^的]{2,30})的([^的]{2,80})", query)
+        if not match:
+            return query
+        artist, title = (part.strip() for part in match.groups())
+        known = set(self.known_artists + self.preferred_artists +
+                    [item["artist"] for item in self.preferred_tracks])
+        known.update(load_aliases()["artists"])
+        if not any(equivalent("artists", artist, candidate) for candidate in known):
+            return query
+        return f"{artist} {title}"
+
     @property
     def has_pending(self):
         if self.clock() >= self.deadline:
@@ -1043,7 +1059,7 @@ class MusicTools:
         random_mode = is_random_request(query) or is_random_request(utterance)
         if random_mode:
             return self._random_search_and_play()
-        query = _canonical_music_query(query)
+        query = self._normalize_artist_title_query(_canonical_music_query(query))
         if not query.strip():
             return result("你想听哪首歌，或者哪位歌手的歌？", status="needs_input")
         if self.config.get("provider", "qqmusic") == "http":
@@ -1053,15 +1069,21 @@ class MusicTools:
         else:
             if self.controller is None:
                 return result("QQ音乐控制器尚未就绪。", ok=False, status="unavailable")
+            library_started = time.monotonic()
             matches = self.library.search(query, limit=3) if self.library else []
+            library_seconds = time.monotonic() - library_started
             songs = [dict(id=s.mid, title=s.title, artists=list(s.artists), backend="qqmusic",
                           query=query) for s in matches
                      if " " in query or _qq_candidate_matches_query(
                          query, {"title": s.title, "artists": s.artists})]
             if not songs:
                 try:
+                    qq_started = time.monotonic()
                     songs = self.controller.search_candidates(
                         query, limit=12 if " " not in query else 3)
+                    print(f"[MUSIC] SEARCH_TIMING query={query!r} "
+                          f"library={library_seconds:.3f}s qq={time.monotonic() - qq_started:.3f}s "
+                          f"candidates={len(songs)}", flush=True)
                 except QQMusicAuthRequired:
                     auth_bridge.publish("required", detail="QQ 音乐登录已失效，请在屏幕上扫码登录")
                     return result("QQ 音乐需要重新登录，请点击屏幕右上角的登录入口扫码。",
