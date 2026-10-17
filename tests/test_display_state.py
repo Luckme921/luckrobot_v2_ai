@@ -2,12 +2,26 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from threading import Event
 
 from edge.display.state import DisplayPublisher
-from edge.display.rolling_text import display_rows, row_index
+from edge.display.rolling_text import display_rows, row_index, SpokenTextScroller
 
 
 class DisplayPublisherTests(unittest.TestCase):
+    def test_nonstream_speech_advances_display_before_playback_finishes(self):
+        advanced = Event()
+        offsets = []
+        def publish(offset):
+            offsets.append(offset)
+            advanced.set()
+        scroller = SpokenTextScroller("第一句。第二句。", publish,
+                                      seconds_per_cell=0.001)
+        scroller.start()
+        self.assertTrue(advanced.wait(1.0))
+        scroller.stop()
+        self.assertEqual(offsets[0], len("第一句。"))
+
     def test_rolling_rows_preserve_decimal_and_follow_spoken_offset(self):
         rows = display_rows("气温是23.5度，出门带伞。")
         self.assertEqual([row[0] for row in rows], ["气温是23.5度，", "出门带伞。"])
@@ -21,6 +35,12 @@ class DisplayPublisherTests(unittest.TestCase):
             state = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(state["assistant_lines"], ["气温是23.5度，", "出门带伞。"])
             self.assertEqual(state["assistant_line_index"], 1)
+
+    def test_long_reply_splits_into_short_visible_rows(self):
+        rows = display_rows("这是一段需要在小屏幕中逐行显示的较长回复，它应该持续向上滚动，"
+                            "而不是挤在同一行里被裁掉。")
+        self.assertGreater(len(rows), 3)
+        self.assertTrue(all(len(row[0]) <= 38 for row in rows))
 
     def test_publishes_structured_unicode_state_atomically(self):
         with tempfile.TemporaryDirectory() as directory:

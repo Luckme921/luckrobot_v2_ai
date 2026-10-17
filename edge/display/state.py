@@ -50,10 +50,17 @@ class DisplayPublisher:
             if assistant_progress_chars is not None:
                 self._state["assistant_progress_chars"] = max(0, int(assistant_progress_chars))
             if assistant_text is not None or assistant_progress_chars is not None:
+                previous_index = self._state["assistant_line_index"]
                 rows = display_rows(self._state["assistant_text"])
                 self._state["assistant_lines"] = [row[0] for row in rows]
                 self._state["assistant_line_index"] = row_index(
                     rows, self._state["assistant_progress_chars"])
+                if self._state["assistant_line_index"] != previous_index:
+                    print(
+                        f"[DISPLAY] DIALOGUE_LINE index={self._state['assistant_line_index']} "
+                        f"total={len(rows)} progress={self._state['assistant_progress_chars']}",
+                        flush=True,
+                    )
             if music_marker:
                 self._state["music"] = music
             self._state["updated_at"] = datetime.now(timezone.utc).isoformat()

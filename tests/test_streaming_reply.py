@@ -31,6 +31,15 @@ class _PreparedTts:
 
 
 class StreamingReplySpeakerTests(unittest.TestCase):
+    def test_progress_offsets_include_whitespace_removed_from_tts_chunks(self):
+        tts = _PreparedTts()
+        progress = []
+        speaker = StreamingReplySpeaker(tts, "sink", SpeechCancellation(),
+                                        on_text_progress=progress.append)
+        speaker.on_event({"type": "text_delta", "text": "第一句。 第二句。"})
+        self.assertTrue(speaker.finish())
+        self.assertIn(len("第一句。 第二句。"), progress)
+
     def test_playback_reports_active_text_offsets(self):
         progress = []
         speaker = StreamingReplySpeaker(

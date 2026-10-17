@@ -23,6 +23,7 @@ from edge.audio.status import (
     status,
 )
 from edge.display.state import MUSIC_COVER_IMAGE
+from edge.display.rolling_text import SpokenTextScroller
 from edge.audio.conversation_log import ConversationLog
 from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
 from edge.audio.tts.cancellation import SpeechInterrupted
@@ -2327,24 +2328,33 @@ def main() -> None:
                                                 flush=True,
                                             )
 
+                                            speech_scroller = SpokenTextScroller(
+                                                agent_reply.text,
+                                                lambda chars: display_dialogue(
+                                                    assistant_progress_chars=chars))
+
+                                            def on_speech_playback_begin():
+                                                acknowledgements.finish()
+                                                speech_scroller.start()
+
                                             try:
                                                 with measure("tts_total"):
                                                     if turn_monitor is not None:
                                                         tts_result = tts.speak(
                                                             agent_reply.text, speaker,
-                                                            before_playback=acknowledgements.finish,
+                                                            before_playback=on_speech_playback_begin,
                                                             cancellation=turn_monitor.cancellation,
                                                         )
                                                     elif wake_kws and wake_cfg.get("barge_in_enabled", False):
                                                         tts_result = speak_with_wake(
                                                             tts, agent_reply.text, speaker,
                                                             capture=capture, kws=wake_kws,
-                                                            before_playback=acknowledgements.finish,
+                                                            before_playback=on_speech_playback_begin,
                                                         )
                                                     else:
                                                         tts_result = tts.speak(
                                                             agent_reply.text, speaker,
-                                                            before_playback=acknowledgements.finish,
+                                                            before_playback=on_speech_playback_begin,
                                                         )
 
                                                 playback_happened = True
@@ -2402,6 +2412,8 @@ def main() -> None:
                                                     f"{exc}",
                                                     flush=True,
                                                 )
+                                            finally:
+                                                speech_scroller.stop()
 
                                         elif (
                                             tts is not None

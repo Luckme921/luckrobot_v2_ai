@@ -104,10 +104,10 @@ class StreamingReplySpeaker:
             if parts is None:
                 break
             chunk, self._buffer = parts
-            self._submit(chunk.strip())
+            self._submit(chunk)
 
     def finish(self):
-        self._submit(self._buffer.strip())
+        self._submit(self._buffer)
         self._buffer = ""
         self._queue.put(None)
         self._thread.join()
@@ -132,14 +132,17 @@ class StreamingReplySpeaker:
         if self._fallback_executor is not None:
             self._fallback_executor.shutdown(wait=False, cancel_futures=True)
 
-    def _submit(self, chunk):
+    def _submit(self, raw_chunk):
+        if not raw_chunk:
+            return
+        chunk = raw_chunk.strip()
+        start_offset = self._submitted_chars
+        self._submitted_chars += len(raw_chunk)
         if not chunk:
             return
         now = time.monotonic()
         self._sequence += 1
         sequence = self._sequence
-        start_offset = self._submitted_chars
-        self._submitted_chars += len(chunk)
         model_gap = None if self._last_model_chunk_at is None else now - self._last_model_chunk_at
         self._last_model_chunk_at = now
         print(
@@ -153,11 +156,13 @@ class StreamingReplySpeaker:
                 self.tts.prepare_offline, chunk, offline_token)
             online = (None if sequence == 1 else self._executor.submit(
                 self._prepare, sequence, chunk, online_token))
-            self._queue.put((sequence, now, chunk, start_offset, online, offline,
+            self._queue.put((sequence, now, chunk, start_offset, self._submitted_chars,
+                             online, offline,
                              online_token, offline_token))
         else:
             future = self._executor.submit(self._prepare, sequence, chunk)
-            self._queue.put((sequence, now, chunk, start_offset, future, None, None, None))
+            self._queue.put((sequence, now, chunk, start_offset, self._submitted_chars,
+                             future, None, None, None))
 
     def _prepare(self, sequence, chunk, cancellation=None):
         cancellation = cancellation or self.cancellation
@@ -181,7 +186,7 @@ class StreamingReplySpeaker:
                 item = self._queue.get()
                 if item is None:
                     return
-                sequence, received_at, chunk, start_offset, future, offline, online_token, offline_token = item
+                sequence, received_at, chunk, start_offset, end_offset, future, offline, online_token, offline_token = item
                 self.cancellation.check()
                 def hook():
                     if self._first and self.before_playback is not None:
@@ -195,7 +200,7 @@ class StreamingReplySpeaker:
                     offline_token.cancel()
                     self._last_playback_end = time.monotonic()
                     if self.on_text_progress is not None:
-                        self.on_text_progress(start_offset + len(chunk))
+                        self.on_text_progress(end_offset)
                     self._first = False
                     self._played = True
                     print(f"[STREAM_TTS] chunk={sequence} play_end mode=online_stream", flush=True)
@@ -215,7 +220,7 @@ class StreamingReplySpeaker:
                     cancellation=self.cancellation)
                 self._last_playback_end = time.monotonic()
                 if self.on_text_progress is not None:
-                    self.on_text_progress(start_offset + len(chunk))
+                    self.on_text_progress(end_offset)
                 self._first = False
                 self._played = True
                 print(f"[STREAM_TTS] chunk={sequence} play_end", flush=True)

@@ -377,9 +377,11 @@ Window {
                     root.stateLabel = value.label || root.robotState
                     root.userText = value.user_text || ""
                     var nextAssistantText = value.assistant_text || ""
-                    if (root.assistantText !== nextAssistantText) {
+                    var nextAssistantLines = value.assistant_lines || []
+                    if (root.assistantText !== nextAssistantText ||
+                            JSON.stringify(root.assistantLines) !== JSON.stringify(nextAssistantLines)) {
                         root.assistantText = nextAssistantText
-                        root.assistantLines = value.assistant_lines || []
+                        root.assistantLines = nextAssistantLines
                     }
                     root.assistantLineIndex = value.assistant_line_index || 0
                     var nextMusic = value.music || null

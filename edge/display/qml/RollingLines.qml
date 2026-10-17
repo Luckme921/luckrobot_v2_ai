@@ -10,7 +10,16 @@ Flickable {
     property real rowHeight: height / 3
     contentWidth: width
     contentHeight: lineColumn.height
-    contentY: Math.max(0, Math.min(activeIndex, Math.max(0, lines.length - 1))) * rowHeight
+    function followActive() {
+        var index = Math.max(0, Math.min(activeIndex, Math.max(0, lines.length - 1)))
+        contentY = Math.max(0, Math.min(index * rowHeight,
+                                       Math.max(0, contentHeight - height)))
+    }
+    onActiveIndexChanged: followActive()
+    onLinesChanged: Qt.callLater(followActive)
+    onHeightChanged: followActive()
+    onContentHeightChanged: followActive()
+    Component.onCompleted: Qt.callLater(followActive)
     clip: true
     interactive: false
     boundsBehavior: Flickable.StopAtBounds
