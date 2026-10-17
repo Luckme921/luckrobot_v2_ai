@@ -33,6 +33,55 @@ Window {
     property bool qqQrAvailable: false
     property int qqQrToken: 0
     property bool qqSwitchPending: false
+    property bool musicControlPending: false
+    property string musicControlRequestId: ""
+
+    function musicIsPlaying() {
+        return !musicInfo || musicInfo.playing !== false
+    }
+
+    function requestMusicControl(action) {
+        if (musicControlPending) return
+        musicControlPending = true
+        var request = new XMLHttpRequest()
+        request.onreadystatechange = function() {
+            if (request.readyState !== XMLHttpRequest.DONE) return
+            if (request.status >= 200 && request.status < 300) {
+                try {
+                    root.musicControlRequestId = JSON.parse(request.responseText).id || ""
+                    if (!root.musicControlRequestId) root.musicControlPending = false
+                }
+                catch (error) { root.musicControlPending = false }
+            } else {
+                root.musicControlPending = false
+                console.warn("Music control request failed: " + action + " HTTP " + request.status)
+            }
+        }
+        request.open("POST", "http://127.0.0.1:8765/api/music/control")
+        request.setRequestHeader("X-LuckRobot-Display", "1")
+        request.setRequestHeader("Content-Type", "application/json")
+        request.send(JSON.stringify({action: action}))
+    }
+
+    Timer {
+        interval: 350; repeat: true; running: root.musicControlPending && !!root.musicControlRequestId
+        onTriggered: {
+            var request = new XMLHttpRequest()
+            request.onreadystatechange = function() {
+                if (request.readyState !== XMLHttpRequest.DONE || request.status !== 200) return
+                try {
+                    var result = JSON.parse(request.responseText)
+                    if (result.id === root.musicControlRequestId) {
+                        root.musicControlPending = false
+                        root.musicControlRequestId = ""
+                        if (!result.ok) console.warn("Music control failed: " + result.message)
+                    }
+                } catch (error) {}
+            }
+            request.open("GET", "http://127.0.0.1:8765/api/music/control")
+            request.send()
+        }
+    }
 
     function requestQqLogin() {
         qqAuthOpen = true
@@ -141,7 +190,7 @@ Window {
         height: width / 1.45
         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.065 }
         radius: width * 0.22; color: "#d90a1724"
-        border.width: Math.max(2, root.height * 0.003); border.color: root.accent()
+        border.width: Math.max(3, root.height * 0.0045); border.color: root.accent()
         opacity: root.robotState === "sleeping" ? 0.63 : 1
         scale: root.robotState === "sleeping" ? 0.96 : 1
         Behavior on border.color { ColorAnimation { duration: 250 } }
@@ -189,31 +238,79 @@ Window {
         width: root.width * 0.88
         height: root.height * (root.musicLyrics.length ? 0.60 : 0.68)
 
+        Column {
+            id: musicControls
+            width: Math.max(66, root.width * 0.075)
+            spacing: root.height * 0.018
+            anchors { left: parent.left; leftMargin: parent.width * 0.09;
+                verticalCenter: record.verticalCenter }
+            Repeater {
+                model: [
+                    {glyph: "◀◀", action: "previous_music"},
+                    {glyph: root.musicIsPlaying() ? "Ⅱ" : "▶",
+                     action: root.musicIsPlaying() ? "pause_music" : "resume_music"},
+                    {glyph: "▶▶", action: "next_music"}
+                ]
+                Rectangle {
+                    width: musicControls.width; height: width * 0.72
+                    radius: height * 0.30
+                    color: controlMouse.pressed ? "#235b43" : "#123d2d"
+                    border.color: "#54e5a0"; border.width: 2
+                    opacity: root.musicControlPending ? 0.55 : 1
+                    Text {
+                        anchors.centerIn: parent
+                        text: modelData.glyph; color: "#f4fff8"; font.bold: true
+                        font.pixelSize: Math.max(21, parent.height * 0.43)
+                    }
+                    MouseArea {
+                        id: controlMouse; anchors.fill: parent
+                        onClicked: {
+                            console.log("[DISPLAY] MUSIC_TOUCH " + modelData.action)
+                            root.requestMusicControl(modelData.action)
+                        }
+                    }
+                }
+            }
+        }
+
         Item {
             id: record
-            width: Math.min(parent.width * 0.42, parent.height * 0.62)
-            height: width
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top }
+            height: Math.min(parent.height * 0.62, root.height * 0.36)
+            // The Jetson framebuffer uses non-square display pixels on this HDMI panel.
+            width: height * 0.76
+            anchors { horizontalCenter: parent.horizontalCenter;
+                horizontalCenterOffset: root.width * 0.075; top: parent.top }
             RotationAnimation on rotation {
                 from: 0; to: 360; duration: 12000
-                loops: Animation.Infinite; running: musicPanel.visible
+                loops: Animation.Infinite; running: musicPanel.visible && root.musicIsPlaying()
             }
-            Rectangle {
-                anchors.fill: parent; radius: width / 2
-                color: "#0c1d19"; border.color: "#31d687"; border.width: Math.max(3, width * 0.012)
-            }
-            Repeater {
-                model: 4
-                Rectangle {
-                    width: record.width * (0.86 - index * 0.14)
-                    height: width; radius: width / 2
-                    anchors.centerIn: parent; color: "transparent"
-                    border.color: index % 2 ? "#255a43" : "#183d30"
-                    border.width: Math.max(1, record.width * 0.006)
+            Canvas {
+                anchors.fill: parent
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    ctx.save()
+                    ctx.translate(width / 2, height / 2)
+                    ctx.scale(width / height, 1)
+                    ctx.beginPath()
+                    ctx.arc(0, 0, height * 0.49, 0, Math.PI * 2)
+                    ctx.fillStyle = "#0c1d19"
+                    ctx.fill()
+                    ctx.strokeStyle = "#31d687"
+                    ctx.lineWidth = Math.max(3, height * 0.012)
+                    ctx.stroke()
+                    for (var i = 0; i < 4; i++) {
+                        ctx.beginPath()
+                        ctx.arc(0, 0, height * (0.86 - i * 0.14) / 2, 0, Math.PI * 2)
+                        ctx.strokeStyle = i % 2 ? "#255a43" : "#183d30"
+                        ctx.lineWidth = Math.max(1, height * 0.006)
+                        ctx.stroke()
+                    }
+                    ctx.restore()
                 }
             }
             Rectangle {
-                width: parent.width * 0.34; height: width; radius: width / 2
+                width: parent.width * 0.34; height: parent.height * 0.34; radius: width / 2
                 anchors.centerIn: parent
                 visible: !musicCoverCanvas.coverReady
                 gradient: Gradient {
@@ -228,7 +325,7 @@ Window {
             Canvas {
                 id: musicCoverCanvas
                 visible: !!root.musicCover()
-                width: record.width * 0.82; height: width
+                width: record.width * 0.82; height: record.height * 0.82
                 anchors.centerIn: parent
                 property string coverUrl: root.musicCover()
                 property bool coverReady: false
@@ -246,16 +343,18 @@ Window {
                     ctx.clearRect(0, 0, width, height)
                     if (!coverUrl || !isImageLoaded(coverUrl)) return
                     ctx.save()
+                    ctx.translate(width / 2, height / 2)
+                    ctx.scale(width / height, 1)
                     ctx.beginPath()
-                    ctx.arc(width / 2, height / 2, width / 2, 0, Math.PI * 2)
+                    ctx.arc(0, 0, height / 2, 0, Math.PI * 2)
                     ctx.closePath()
                     ctx.clip()
-                    ctx.drawImage(coverUrl, 0, 0, width, height)
+                    ctx.drawImage(coverUrl, -height / 2, -height / 2, height, height)
                     ctx.restore()
                 }
             }
             Rectangle {
-                width: parent.width * 0.06; height: width; radius: width / 2
+                width: parent.width * 0.06; height: parent.height * 0.06; radius: width / 2
                 anchors.centerIn: parent; color: "#08241c"
             }
         }
@@ -265,7 +364,9 @@ Window {
             width: Math.min(parent.width * 0.62, root.width * 0.56)
             height: root.height * 0.105
             spacing: width * 0.025
-            anchors { horizontalCenter: parent.horizontalCenter; top: record.bottom; topMargin: root.height * 0.018 }
+            anchors { horizontalCenter: parent.horizontalCenter;
+                horizontalCenterOffset: root.width * 0.075;
+                top: record.bottom; topMargin: root.height * 0.018 }
             Repeater {
                 model: 13
                 Item {
@@ -276,7 +377,7 @@ Window {
                         anchors.bottom: parent.bottom; radius: width / 2
                         color: index % 2 ? "#78efac" : "#31d687"
                         SequentialAnimation on height {
-                            running: musicPanel.visible; loops: Animation.Infinite
+                            running: musicPanel.visible && root.musicIsPlaying(); loops: Animation.Infinite
                             NumberAnimation { to: equalizer.height * (0.35 + (index % 5) * 0.12); duration: 240 + index * 19; easing.type: Easing.InOutQuad }
                             NumberAnimation { to: equalizer.height * (0.16 + (index % 3) * 0.08); duration: 280 + index * 13; easing.type: Easing.InOutQuad }
                         }
@@ -285,21 +386,6 @@ Window {
             }
         }
 
-        Text {
-            id: musicTitleText
-            anchors { top: equalizer.bottom; topMargin: root.height * 0.018; horizontalCenter: parent.horizontalCenter }
-            width: parent.width * 0.92; horizontalAlignment: Text.AlignHCenter
-            text: root.musicTitle(); color: "#f4fff8"; font.bold: true
-            font.pixelSize: Math.max(24, root.height * 0.052)
-            elide: Text.ElideRight
-        }
-        Text {
-            anchors { top: musicTitleText.bottom; topMargin: root.height * 0.008; horizontalCenter: parent.horizontalCenter }
-            width: parent.width * 0.88; horizontalAlignment: Text.AlignHCenter
-            text: root.musicArtists(); color: "#a8dcc0"
-            font.pixelSize: Math.max(17, root.height * 0.030)
-            elide: Text.ElideRight
-        }
     }
 
     Item {
@@ -321,7 +407,7 @@ Window {
             visible: root.robotState === "music"
             anchors { top: parent.top }
             width: parent.width; horizontalAlignment: Text.AlignHCenter
-            text: "正在播放：《" + root.musicTitle() + "》" + (root.musicArtists() ? " · " + root.musicArtists() : "")
+            text: (root.musicIsPlaying() ? "正在播放：《" : "已暂停播放：《") + root.musicTitle() + "》" + (root.musicArtists() ? " · " + root.musicArtists() : "")
             color: "#d8f7e6"; font.bold: true
             font.pixelSize: Math.max(18, root.height * 0.034); elide: Text.ElideRight
         }

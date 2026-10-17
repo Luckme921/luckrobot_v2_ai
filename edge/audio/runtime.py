@@ -102,7 +102,7 @@ from edge.music.qqmusic import (
     QQMusicController,
     QQMusicError,
 )
-from edge.music import auth_bridge
+from edge.music import auth_bridge, control_bridge
 from edge.vision.camera import (
     CameraError,
     GStreamerCameraRing,
@@ -601,6 +601,7 @@ def main() -> None:
     auth_bridge.AVATAR_IMAGE.unlink(missing_ok=True)
     auth_bridge.publish("unknown")
     auth_request_id = auth_bridge.read_json(auth_bridge.REQUEST).get("id", "")
+    music_control_request_id = control_bridge.read_json(control_bridge.REQUEST).get("id", "")
     auth_thread = None
     library_refresh_thread = None
     library_refresh_generation = None
@@ -1296,6 +1297,31 @@ def main() -> None:
                         vad.window_size
                     ):
                         poll_music_login()
+                        control_request = control_bridge.read_json(control_bridge.REQUEST)
+                        control_id = control_request.get("id", "")
+                        if control_id and control_id != music_control_request_id:
+                            music_control_request_id = control_id
+                            action = control_request.get("action")
+                            if action in control_bridge.ACTIONS:
+                                try:
+                                    control_result = music_tools.control(action)
+                                except Exception as exc:
+                                    print(f"[MUSIC] TOUCH_CONTROL_ERROR action={action} "
+                                          f"type={type(exc).__name__}", flush=True)
+                                    control_result = {"ok": False, "message": "播放器暂时无法执行操作。",
+                                                      "playing": music_playing}
+                                music_playing = control_result.get("playing", music_playing)
+                                if control_result.get("ok") and "music" in control_result:
+                                    display_music(control_result["music"],
+                                                  playing=music_playing)
+                                    if control_result["music"] is not None:
+                                        display_state("music", "等待 Lucky")
+                                    else:
+                                        display_state("sleeping", "等待 Lucky")
+                                control_bridge.publish(control_id, action, control_result)
+                                print(f"[MUSIC] TOUCH_CONTROL action={action} "
+                                      f"ok={control_result.get('ok')} playing={music_playing}",
+                                      flush=True)
                         if (
                             music_playing
                             and music_tools.playback_finished()
@@ -2267,7 +2293,8 @@ def main() -> None:
                                             tool_result = local_tools.execute(tool_name, tool_request["arguments"])
                                             music_playing = tool_result.get("playing", music_playing)
                                             if "music" in tool_result:
-                                                display_music(tool_result.get("music"))
+                                                display_music(tool_result.get("music"),
+                                                              playing=music_playing)
                                             agent_client.record_completed_turn(command_text, tool_result["message"])
                                             turn_memory_recorded = True
                                             agent_reply = AgentReply(text=tool_result["message"], model="local-tool")

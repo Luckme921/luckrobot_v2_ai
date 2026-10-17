@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi import Header, HTTPException
 
 from edge.display.state import DEFAULT_STATE, MUSIC_COVER_IMAGE
-from edge.music import auth_bridge
+from edge.music import auth_bridge, control_bridge
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,6 +45,25 @@ def health():
 @app.get("/api/music/auth")
 def music_auth():
     return JSONResponse(auth_bridge.status(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/music/control")
+def music_control(payload: dict,
+                  x_luckrobot_display: str | None = Header(default=None)):
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    action = payload.get("action")
+    if action not in control_bridge.ACTIONS:
+        raise HTTPException(status_code=422)
+    request = control_bridge.request_action(action)
+    return JSONResponse({"state": "requested", "id": request["id"]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/music/control")
+def music_control_status():
+    return JSONResponse(control_bridge.read_json(control_bridge.STATUS),
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/music/cover")

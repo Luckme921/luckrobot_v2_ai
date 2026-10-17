@@ -27,7 +27,9 @@ def display_dialogue(*, user_text=None, assistant_text=None,
                      assistant_progress_chars=assistant_progress_chars)
 
 
-def display_music(music):
+def display_music(music, *, playing=None):
+    if music is not None and playing is not None:
+        music = dict(music, playing=bool(playing))
     _display.publish(music_marker=True, music=music)
 
 

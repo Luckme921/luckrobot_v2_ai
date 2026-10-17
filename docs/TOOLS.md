@@ -1,5 +1,7 @@
 # 统一工具接口与音乐 API
 
+显示屏的音乐按钮使用独立的本机控制入口 `/api/music/control`，只接受 `pause_music`、`resume_music`、`previous_music`、`next_music` 四种固定动作。请求通过 `private/runtime/qqmusic-control-request.json` 传给音频进程，并调用现有 `MusicTools.control`；不接受 URL 或命令字符串。`GET /api/music/control` 返回最近一次执行结果，供触屏按钮避免重复提交。语音工具 `music_control` 的 schema 和处理函数保持原样。
+
 2026-10-17：`private/qqmusic-library.json` 与 `configs/music_preferences.yaml` 共同作为选曲来源。“推荐几首”从个人曲库和偏好曲目各取候选，并避开本进程最近推荐/播放过的歌曲；“从我的歌单推荐三首”只从个人曲库取；“播放我喜欢歌单”按该歌单缓存顺序逐首播放，开始位置跳过最近播放的曲目。QQ 网页自动换曲或停止后，后台曲目监控用缓存中的下一首 MID 再次经 QQ 搜索校验并播放；无法校验时跳过有限候选，歌单结束时停止。点“下一首”跳到缓存队列下一首，停止播放或发起新搜索会清除队列。个人缓存仍只在 `private/`，不得提交；歌单播放和自动接续需要 Jetson 现场验收。
 
 2026-10-05《跳楼机》排查：`[TOOL_REQUEST] source=model name=music_search query=跳楼机` 证明模型曾正确请求搜索，但个人歌单缓存的宽松模糊结果把《九张机》等误当候选，未进入 QQ 网页搜索。现在单独歌名的缓存结果先核对标题或歌手，不匹配就读 QQ 网页更多候选；最终候选也会过滤明显不相关结果，不会让用户在错误列表中反复选择。另一次模型已给出 `DJ阿哲 跳楼机`，端侧却因原话只有“搜一下”而拒绝；现在带歌手与歌名的明确查找句可通过该门槛。仍要以 QQ 实际搜索与播放结果为准，模型文字不得冒充已播放。
