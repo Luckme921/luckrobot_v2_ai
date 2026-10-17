@@ -407,6 +407,18 @@ class LocalMusicTests(unittest.TestCase):
         self.assertFalse(music.has_pending)
         controller.play.assert_not_called()
 
+    def test_qq_artist_search_accepts_display_name_with_prefix(self):
+        controller = Mock()
+        controller.search_candidates.return_value = [
+            dict(id="gem", title="泡沫", artists=["G.E.M.邓紫棋"],
+                 backend="qqmusic", query="邓紫棋"),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"},
+                           controller=controller)
+        answer = music.search("邓紫棋", utterance="放一首邓紫棋的歌")
+        self.assertEqual(answer["status"], "needs_selection")
+        self.assertEqual(answer["candidates"][0]["id"], "gem")
+
     def test_qq_fuzzy_library_miss_falls_through_to_web_search(self):
         controller = Mock()
         controller.search_candidates.return_value = [

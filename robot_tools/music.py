@@ -130,7 +130,9 @@ def _qq_candidate_matches_query(query: str, song: dict) -> bool:
         return False
     if wanted == title or (len(wanted) >= 3 and wanted in title):
         return True
-    if any(wanted == _normalize_text(artist) for artist in song.get("artists", [])):
+    if any(wanted == _normalize_text(artist) or
+           (len(wanted) >= 3 and wanted in _normalize_text(artist))
+           for artist in song.get("artists", [])):
         return True
     return len(wanted) >= 4 and SequenceMatcher(None, wanted, title).ratio() >= 0.8
 
@@ -1059,6 +1061,9 @@ class MusicTools:
             return result("没有找到可播放的歌曲，请换一个歌名或歌手。", status="not_found")
 
         if self.config.get("provider", "qqmusic") == "qqmusic" and " " not in query:
+            print(f"[MUSIC] QQ_CANDIDATES query={query!r} "
+                  f"items={[(str(song.get('title', ''))[:50], [str(a)[:30] for a in song.get('artists', [])]) for song in songs[:12]]!r}",
+                  flush=True)
             songs = [song for song in songs if _qq_candidate_matches_query(query, song)]
             if not songs:
                 return result("QQ 音乐没有找到这首歌，搜索结果只有不相关的歌曲。",
