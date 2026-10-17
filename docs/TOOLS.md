@@ -184,6 +184,8 @@ QQ 网页搜索候选同时提取歌曲行中的歌手，用于偏好歌单的�
 排查《泡沫》失败的实际案例：2026-10-17 21:20 的 ASR 正确，模型却把 `music_search.query` 填成 `邓紫棋的泡沫`；QQ 已返回《泡沫》/`G.E.M.邓紫棋`，但旧代码把整串当作单一歌名过滤，45 秒后误报“不相关”。现在只在前半段命中已知歌手或配置别名时，把“歌手的歌名”规范成“歌手 歌名”，避免把普通歌名中的“的”误拆。日志 `[MUSIC] SEARCH_TIMING` 区分个人曲库与 QQ 网页耗时；`[MUSIC] QQ_CANDIDATES` 展示实际候选；`[MUSIC] NOW_PLAYING` 才表示已核验播放。现场检查可用 `tail -F logs/conversation.log logs/audio-latency.log`，先找同一请求的 `[USER]`/`[ASR_TEXT]`，再比对 `[TOOL_REQUEST]`、`QQ_CANDIDATES`、`SEARCH_TIMING`、`AUTO_PLAY`/`NOW_PLAYING` 和最终 `[ASSISTANT]`。
 
 2026-10-17 的“找找最近有什么好听的歌曲”连败是协议漏项：云端合法返回 `music_request.action=recommend_music`，端侧旧校验却只允许播放、切歌等动作，抛出 `Cloud Agent returned invalid music action`。端侧现接受该动作，随后交给已有 `music_search(query="推荐")` 路径；`model_route_json` 当时约 1 秒成功，不能把这类错误误报为 API Key 失效。
+
+同日晚间《红豆》播放失败发生在选歌后：个人曲库或推荐条目保存的 QQ MID 不再出现在当前网页搜索结果中，播放器抛出 `QQMusicSelectionExpired`。现在只在这种明确的旧 MID 错误下，重新读取 QQ 当前候选；要求歌名主体和歌手均与原选择一致，才用新 MID 重试一次，日志记为 `[MUSIC] QQ_MID_RETRY`。找不到可信候选则停止，不会因为标题相同就播放其他歌手的版本；`[MUSIC] NOW_PLAYING` 仍是成功依据。
 否则随机播放会因所有候选歌手为空而全部被过滤。
 语音点歌识别包含“我想要听 / 想要听”。针对实际出现的“孙冬野南河桥”误识别，
 仅在明确点歌句式中将其纠正为“宋冬野 安和桥”；单独说出该短语不会触发点歌。

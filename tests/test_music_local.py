@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import Mock
+from edge.music.qqmusic import QQMusicSelectionExpired
 from robot_tools.music import (
     FallbackMusicProvider,
     MusicTools,
@@ -13,6 +14,36 @@ from robot_tools.music import (
 def song(id,title="龙卷风",artist="周杰伦"):
     return dict(id=id,title=title,artists=[artist],backend="http",url="https://example.com/"+id)
 class LocalMusicTests(unittest.TestCase):
+    def test_stale_qq_mid_retries_verified_same_song(self):
+        controller = Mock()
+        controller.play.side_effect = [QQMusicSelectionExpired("missing"), "红豆 - 王菲"]
+        controller.search_candidates.return_value = [
+            dict(id="wrong", title="红豆", artists=["其他人"]),
+            dict(id="current", title="红豆", artists=["王菲"]),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.pending = [dict(id="old", title="红豆", artists=["王菲"],
+                              backend="qqmusic", query="王菲 红豆")]
+        music.deadline = music.clock() + 120
+        answer = music.select("第一首")
+        self.assertTrue(answer["playing"])
+        self.assertEqual(controller.play.call_args_list[-1].kwargs,
+                         {"preferred_mid": "current", "strict_mid": True})
+
+    def test_stale_qq_mid_rejects_other_artist(self):
+        controller = Mock()
+        controller.play.side_effect = QQMusicSelectionExpired("missing")
+        controller.search_candidates.return_value = [
+            dict(id="wrong", title="红豆", artists=["其他人"]),
+        ]
+        music = MusicTools({"enabled": True, "provider": "qqmusic"}, controller=controller)
+        music.pending = [dict(id="old", title="红豆", artists=["王菲"],
+                              backend="qqmusic", query="王菲 红豆")]
+        music.deadline = music.clock() + 120
+        answer = music.select("第一首")
+        self.assertFalse(answer["playing"])
+        controller.play.assert_called_once()
+
     def test_qq_track_refresh_reports_auto_advance_once(self):
         controller = Mock()
         controller.current_track.return_value = "七里香 - 周杰伦"

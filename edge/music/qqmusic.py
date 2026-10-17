@@ -40,6 +40,10 @@ class QQMusicAuthRequired(QQMusicError):
     """The QQ web player is signed out."""
 
 
+class QQMusicSelectionExpired(QQMusicError):
+    """A previously selected QQ song MID is absent from the current result page."""
+
+
 class QQMusicAmbiguousError(
     QQMusicError
 ):
@@ -1542,7 +1546,7 @@ class QQMusicController:
 
                 if not song:
                     if strict_mid:
-                        raise QQMusicError("Selected song is no longer present; search again")
+                        raise QQMusicSelectionExpired("Selected song is no longer present; search again")
                     print(
                         "[MUSIC] "
                         "PERSONAL_MID_MISS "

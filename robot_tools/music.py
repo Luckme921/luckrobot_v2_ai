@@ -12,7 +12,7 @@ from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from edge.music.qqmusic import QQMusicAuthRequired
+from edge.music.qqmusic import QQMusicAuthRequired, QQMusicSelectionExpired
 from edge.music import auth_bridge
 from robot_tools.music_aliases import equivalent, load_aliases, normalize as normalize_alias
 
@@ -1221,8 +1221,38 @@ class MusicTools:
             if self.before_playback is not None:
                 self.before_playback()
             try:
-                actual_track = self.controller.play(song.get("query", song["title"]),
-                                                    preferred_mid=song["id"], strict_mid=True)
+                play_query = song.get("query", song["title"])
+                try:
+                    actual_track = self.controller.play(play_query,
+                                                        preferred_mid=song["id"], strict_mid=True)
+                except QQMusicSelectionExpired:
+                    # A personal-library MID may be absent from QQ's current
+                    # search page. Retry only a newly verified title/artist MID.
+                    candidates = self.controller.search_candidates(play_query, limit=12)
+                    expected_title = _normalize_text(_base_song_title(
+                        str(song["title"]).split("《", 1)[0]))
+                    expected_artists = song.get("artists", [])
+                    selected_markers = [marker for marker in VERSION_MARKERS
+                                        if marker in str(song["title"]).casefold()]
+                    verified = [candidate for candidate in candidates
+                                if _normalize_text(_base_song_title(
+                                    str(candidate.get("title", "")).split("《", 1)[0])) == expected_title
+                                and any(equivalent("artists", expected, actual)
+                                        for expected in expected_artists
+                                        for actual in candidate.get("artists", []))
+                                and all(marker in str(candidate.get("title", "")).casefold()
+                                        for marker in selected_markers)]
+                    if not verified:
+                        raise
+                    verified.sort(key=lambda candidate: (
+                        _normalize_text(candidate.get("title", "")) !=
+                        _normalize_text(song["title"]),
+                        len(str(candidate.get("title", "")))))
+                    replacement = verified[0]
+                    print(f"[MUSIC] QQ_MID_RETRY title={song['title']!r} "
+                          f"old_mid={song['id']} new_mid={replacement['id']}", flush=True)
+                    actual_track = self.controller.play(play_query,
+                                                        preferred_mid=replacement["id"], strict_mid=True)
             except (OSError, RuntimeError) as exc:
                 print(f"[MUSIC] QQ_PLAY_FAILED title={song.get('title')!r} "
                       f"error={type(exc).__name__} reason={str(exc)[:160]!r} "
