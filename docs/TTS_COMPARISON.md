@@ -19,7 +19,7 @@ Windows 打开 private/tts-eval/listening/index.html；同一页提供 Piper、K
 
 ## 重现
 
-独立环境：private/tts-eval-venv，piper-tts 1.8.0、edge-tts 7.2.8、onnxruntime 1.23.2。完整依赖记录在试听目录 environment.txt。不要向机器人共用 .venv 安装测试依赖。
+独立环境：private/tts-eval-venv，piper-tts 1.8.0、edge-tts 7.3.1、onnxruntime 1.23.2。完整依赖记录在试听目录 environment.txt。不要向机器人共用 .venv 安装测试依赖。
 
     private/tts-eval-venv/bin/python -m scripts.benchmark_tts --engine piper --runs 3
     private/tts-eval-venv/bin/python -m scripts.benchmark_tts --engine edge --runs 3

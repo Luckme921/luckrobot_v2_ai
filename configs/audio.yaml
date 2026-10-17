@@ -174,7 +174,7 @@ tts:
   # Prepare several streamed clauses concurrently, then play them in text order.
   stream_prefetch_workers: 3
   # After a segment ends, briefly wait for Edge before using ready Kokoro audio.
-  stream_fallback_grace_seconds: 0.35
+  stream_fallback_grace_seconds: 2.0
   acknowledgement_enabled: true
   acknowledgement_delay_seconds: 0.35
   dynamic_music_acknowledgement_enabled: true

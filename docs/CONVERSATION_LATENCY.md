@@ -111,7 +111,7 @@ Jetson 回归：python -B -m unittest discover -s tests -q。
 
 configs/audio.yaml: tts.provider=edge，edge_voice=zh-CN-XiaoxiaoNeural。改回 provider=kokoro 可恢复原离线路径。Kokoro 仍在启动时加载并生成工具过渡语缓存；正常回答由 Edge 提供，所以过渡语和最终回复可能音色不同。
 
-edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 环境的 edge-tts 7.2.8，把 MP3 经 GStreamer 解码为 24kHz 单声道 s16le PCM；主进程持续写入 pacat，不等完整文件下载。edge_python 当前为 private/tts-eval-venv/bin/python，设备已有该环境；迁移设备须创建独立环境并安装 edge-tts==7.2.8，准备 gst-launch-1.0 的 mpegaudioparse、mpg123audiodec、audioconvert、audioresample、fdsrc/fdsink 和 pacat。
+edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 环境的 edge-tts 7.3.1，把 MP3 经 GStreamer 解码为 24kHz 单声道 s16le PCM；主进程持续写入 pacat，不等完整文件下载。edge_python 当前为 private/tts-eval-venv/bin/python，设备已有该环境；迁移设备须创建独立环境并安装 edge-tts==7.3.1，准备 gst-launch-1.0 的 mpegaudioparse、mpg123audiodec、audioconvert、audioresample、fdsrc/fdsink 和 pacat。旧版 7.2.8 在 2026-10 的 Jetson 上出现 WebSocket HTTP 403，在线合成失败会直接回退 Kokoro；这种失败无法通过增大等待阈值修复。
 
 首批解码 PCM 超时默认 8 秒，后续无数据默认 10 秒，总轮次上限 120 秒（检查点限制）。未向播放器提交 PCM 时失败才转 Kokoro；一旦尝试提交就禁止整句重播，避免重复讲话。回退会增加首音等待。网络合成在子进程进行，可与过渡语等待重叠；正式 PCM 提交前仍等待过渡语结束。
 
@@ -178,6 +178,6 @@ KWS 已经确认 Lucky 后，首个 VAD/ASR 片段会使用
 
 普通未分段的 `EdgeOnlineTts.speak()` 原本就逐批读取解码 PCM，并在首批到达时启动 `pacat`，不等待整句下载完成。此前正文 `StreamingReplySpeaker` 却对每个标点段调用 `prepare()`，等整段下载完才播放。
 
-现在正文第一段直接走 Edge 在线 PCM 实时播放，后续段仍在文本到达时并发准备并按文本顺序播出。每段同时提交 Kokoro 备用生成（共用单个 Kokoro 工作线程，避免并发调用驻留模型）。前一段播放结束后，若下一段 Edge 尚未完成，最多再等 `tts.stream_fallback_grace_seconds`（默认 0.35 秒）；备用已就绪则播备用，若双方都未就绪则取先完成且成功的一方。未选中的在线请求在其检查点取消。在线 PCM 一旦已提交播放器，失败时不重播整段，避免重复声音。首段的离线备用同样从文本段到达时准备，但仅在首批在线音频提交前失败时使用。
+现在正文第一段直接走 Edge 在线 PCM 实时播放，后续段仍在文本到达时并发准备并按文本顺序播出。每段同时提交 Kokoro 备用生成（共用单个 Kokoro 工作线程，避免并发调用驻留模型）。前一段播放结束后，若下一段 Edge 尚未完成，最多再等 `tts.stream_fallback_grace_seconds`（默认 2.0 秒）；备用已就绪则播备用，若双方都未就绪则取先完成且成功的一方。未选中的在线请求在其检查点取消。在线 PCM 一旦已提交播放器，失败时不重播整段，避免重复声音。首段的离线备用同样从文本段到达时准备，但仅在首批在线音频提交前失败时使用。
 
 `text_delta`、标点分段、在线音频 PCM 流和工具进度事件仍是不同层次。后续每段虽然提前合成，仍需完整段准备好才开始播放；本次没有实现跨段共用同一个 Edge 请求。现场需要测首音、段间 `playback_gap`、在线/本地交替的音色、Lucky 打断后子进程回收与 Kokoro 对 ASR 的资源竞争。可将 `stream_fallback_grace_seconds` 调大以偏向晓晓音色，调小以偏向无等待；音色切换会更频繁。
