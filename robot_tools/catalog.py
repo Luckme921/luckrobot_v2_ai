@@ -253,6 +253,17 @@ WEATHER_SCHEMA = {"type": "object", "properties": {
 TOOL_SCHEMAS.append({"type": "function", "function": {
     "name": "get_weather", "description": "查询指定城市今起最多七天的天气。地点不明确时 city 留空以询问用户。",
     "parameters": WEATHER_SCHEMA}})
+MUSIC_ALIAS_SCHEMA = {"type": "object", "properties": {
+    "kind": {"type": "string", "enum": ["artists", "songs"]},
+    "canonical": {"type": "string", "maxLength": 60},
+    "alias": {"type": "string", "maxLength": 60},
+    "evidence": {"type": "string", "maxLength": 300}},
+    "required": ["kind", "canonical", "alias", "evidence"],
+    "additionalProperties": False}
+TOOL_SCHEMAS.append({"type": "function", "function": {
+    "name": "music_alias_add",
+    "description": "仅在用户明确说出音乐别名，或联网搜索结果明确证明同一歌手/歌曲的中英文名、口语别称时，记录短别名供以后 QQ 音乐匹配。不得猜测；Live/Mix 是版本标记，不应把不同版本误写为别名。先完成搜索再提供来源摘要。",
+    "parameters": MUSIC_ALIAS_SCHEMA}})
 route_props = TURN_ROUTE_SCHEMA["function"]["parameters"]["properties"]
 route_props["action"]["enum"].extend(["get_weather", "volume_control", "select_music"])
 route_props.update({

@@ -1267,6 +1267,37 @@ class GLMAgent:
         with measure("tool_" + name):
             return await self.tool_router.execute(name, arguments, **kwargs)
 
+    async def _maybe_learn_music_alias(self, text, tool_result):
+        """Give the model one bounded chance to record an evidenced music alias."""
+        if not tool_result.get("ok") or not re.search(r"歌|音乐|歌手|曲", text):
+            return
+        alias_tool = next(item for item in TOOL_SCHEMAS
+                          if item["function"]["name"] == "music_alias_add")
+        response = await self._completion(
+            stage="model_music_alias", model=self.model,
+            messages=[{"role": "system", "content":
+                       "只核对用户原话和真实联网搜索结果。若结果明确证明某歌手或歌曲的别名，调用 music_alias_add 一次；否则直接回答‘无可记录别名’。不得把不同歌手、翻唱或 Live/Mix 版本当成别名。"},
+                      {"role": "user", "content": text},
+                      {"role": "system", "content": "WEB_SEARCH_RESULT=" +
+                       json.dumps(tool_result, ensure_ascii=False)[:6000]}],
+            tools=[alias_tool], tool_choice="auto", temperature=0,
+            max_tokens=180, extra_body=self._extra_body())
+        calls = response.choices[0].message.tool_calls or []
+        if len(calls) == 1 and calls[0].function.name == "music_alias_add":
+            try:
+                arguments = json.loads(calls[0].function.arguments or "{}")
+            except json.JSONDecodeError:
+                return
+            grounded = json.dumps(tool_result, ensure_ascii=False) + text
+            if not all(re.search(re.escape(str(arguments.get(key, ""))), grounded,
+                                 re.IGNORECASE) for key in ("canonical", "alias")
+                       if arguments.get(key)) or not all(arguments.get(key) for key in
+                                                         ("canonical", "alias")):
+                print("[MUSIC_ALIAS] status=rejected reason=not_in_evidence", flush=True)
+                return
+            saved = await self._execute_tool("music_alias_add", arguments)
+            print(f"[MUSIC_ALIAS] status={saved.get('status', 'error')}", flush=True)
+
     @staticmethod
     def _json_route_messages(text, history, local_identity, music_candidates=None,
                              web_search_enabled=True):
@@ -1691,6 +1722,12 @@ class GLMAgent:
                     budget=tool_budget,
                 )
             )
+
+            if action == "web_search":
+                try:
+                    await self._maybe_learn_music_alias(text, tool_result)
+                except Exception as exc:
+                    print(f"[MUSIC_ALIAS] check_failed={type(exc).__name__}", flush=True)
 
             answer_messages = list(
                 messages[:-1]

@@ -1,0 +1,7 @@
+# Curated equivalences for QQ Music display names and spoken requests.
+# Keys are canonical names; values are alternative names. Keep entries specific.
+artists:
+  邓紫棋: [G.E.M.邓紫棋, G.E.M., GEM]
+  乃万: [乃万NINEONE, NINEONE]
+songs:
+  安和桥: [安河桥]

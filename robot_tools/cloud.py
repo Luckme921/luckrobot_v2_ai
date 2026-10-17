@@ -12,6 +12,9 @@ from cloud.agent.web_search import (
 from robot_tools.catalog import TOOL_SCHEMAS, TURN_ROUTE_SCHEMA
 from robot_tools.weather import get_weather
 from robot_tools.navigation import navigate_to
+from robot_tools.music_aliases import add_alias
+from robot_tools.catalog import MUSIC_ALIAS_SCHEMA
+from robot_tools.registry import validate
 import asyncio
 
 @dataclass
@@ -55,6 +58,14 @@ class ToolRouter:
             return self._navigate_to(
                 arguments
             )
+
+        if name == "music_alias_add":
+            try:
+                validate(arguments, MUSIC_ALIAS_SCHEMA)
+            except ValueError:
+                return {"ok": False, "tool": name, "status": "rejected",
+                        "executed": False, "reason": "invalid_arguments"}
+            return {"tool": name, **await asyncio.to_thread(add_alias, **arguments)}
 
         if name == "web_search":
             return await self._web_search(

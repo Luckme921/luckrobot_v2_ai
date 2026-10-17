@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 from edge.music.qqmusic import QQMusicAuthRequired
 from edge.music import auth_bridge
+from robot_tools.music_aliases import equivalent, load_aliases, normalize as normalize_alias
 
 VERSION_MARKERS = (
     "live", "现场", "dj", "remix", "翻唱", "cover", "伴奏", "纯音乐",
@@ -130,7 +131,10 @@ def _qq_candidate_matches_query(query: str, song: dict) -> bool:
         return False
     if wanted == title or (len(wanted) >= 3 and wanted in title):
         return True
-    if any(wanted == _normalize_text(artist) or
+    if equivalent("songs", query, _base_song_title(song.get("title", ""))):
+        return True
+    if any(equivalent("artists", query, artist) or
+           wanted == _normalize_text(artist) or
            (len(wanted) >= 3 and wanted in _normalize_text(artist))
            for artist in song.get("artists", [])):
         return True
@@ -319,6 +323,9 @@ def explicit_candidate(query, songs, minimum_score=0.62):
             aliases = [a]
             if len(a) >= 3:
                 aliases.append(a[-2:])
+            for canonical, variants in load_aliases()["artists"].items():
+                if equivalent("artists", canonical, artist):
+                    aliases.extend(normalize_alias(name) for name in [canonical, *variants])
             alias = next((item for item in aliases if item and item in q), None)
             if alias is None:
                 continue
@@ -329,6 +336,8 @@ def explicit_candidate(query, songs, minimum_score=0.62):
                 SequenceMatcher(None, remaining, title).ratio(),
                 SequenceMatcher(None, base(remaining), base(primary_title)).ratio(),
             )
+            if equivalent("songs", remaining, _base_song_title(primary_title)):
+                title_score = 1.0
             if base(remaining) and (
                     base(remaining) in base(title) or base(title) in base(remaining)):
                 title_score = max(title_score, 0.95)
