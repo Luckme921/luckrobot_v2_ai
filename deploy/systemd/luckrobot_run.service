@@ -1,0 +1,23 @@
+[Unit]
+Description=LuckRobot cloud, display API and audio supervisor
+Wants=luckrobot-display.service user@1000.service
+After=luckrobot-display.service user@1000.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=jetson
+Group=jetson
+WorkingDirectory=/home/jetson/luckrobot_latency_test
+Environment=HOME=/home/jetson
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+ExecStartPre=/usr/bin/bash /home/jetson/luckrobot_latency_test/scripts/wait_for_pulseaudio.sh
+ExecStart=/usr/bin/bash /home/jetson/luckrobot_latency_test/scripts/run_robot.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,11 @@
 # Jetson 启动、测试与维护
 
+## systemd 守护启动（测试目录）
+
+使用 `deploy/systemd/luckrobot_run.service` 管理 Cloud、显示状态 API 和音频监督进程；Qt framebuffer 画面仍由 `luckrobot-display.service` 单独运行。音频使用 jetson 用户的 PulseAudio，会话路径须设置 `XDG_RUNTIME_DIR=/run/user/1000` 与 `PULSE_SERVER=unix:/run/user/1000/pulse/native`。unit 等待 PulseAudio 可连接后再启动程序；`ExecStop` 无需读取 `robot.lock`，systemd 会向服务进程组发送停止信号。启用前确保 `loginctl show-user jetson -p Linger` 显示 `Linger=yes`，且设备上没有手工启动的另一套监督进程。
+
+安装或更新：`sudo install -m 644 deploy/systemd/luckrobot_run.service /etc/systemd/system/luckrobot_run.service`，然后 `sudo systemctl daemon-reload && sudo systemctl reset-failed luckrobot_run.service && sudo systemctl enable --now luckrobot_run.service`。查验：`systemctl status luckrobot_run.service luckrobot-display.service`、`journalctl -u luckrobot_run.service -b -n 80 --no-pager`、`tail -n 80 logs/audio-latency.log`。若云服务或音频子进程退出，监督进程会停止其余子进程，再由 systemd 按限速策略重启。
+
 本地歌单功能验收：QQ 登录且 `private/qqmusic-library.json` 已同步后，依次说“播放我喜欢歌单”“下一首”“停止音乐”“推荐几首歌”“从我的歌单推荐三首”。检查 `logs/audio-latency.log` 的 `[MUSIC] PLAYLIST_START`、`PLAYLIST_ADVANCE`、`PLAYLIST_FINISHED`，并核对扬声器实际曲目与屏幕歌名。缓存缺失时先在屏幕完成 QQ 登录/检查，让 `library_refresh_on_login` 同步；不要把个人曲库复制进受 Git 管理的配置文件。
 
 2026-10-05 百炼试用：在测试目录 `/home/jetson/luckrobot_latency_test` 的 `.env` 增加 `DASHSCOPE_API_KEY=你的北京地域百炼密钥`，不要提交 `.env`。当前模型配置是 `qwen3.8-flash`，默认关闭原智谱 `web_search`。启动前可运行 `.venv/bin/python -B -m unittest discover -s tests -q` 和 `bash scripts/run_robot.sh --check`；启动后分别试普通问答、视觉请求、天气和点歌，核对 `logs/cloud-latency.log` 的路由与模型阶段。没有百炼密钥时 Cloud 首次请求会报 `DASHSCOPE_API_KEY is not configured`；单元测试不能证明账号权限、额度或设备语音链路正常。
