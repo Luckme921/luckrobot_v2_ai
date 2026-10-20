@@ -30,10 +30,12 @@ class FanLightTest(unittest.TestCase):
         self.controller = FanLightController('/dev/test', lambda **kw: self.port)
 
     def test_startup_order(self):
-        self.port.replies = [b'OK\r\n'] * 5 + [b'FAN1=50% LIGHT=ON MODE=BREATH\r\n']
+        self.port.replies = ([b'FAN1=100% LIGHT=OFF MODE=STATIC DATA=PA7\r\n'] +
+                             [b'OK\r\n'] * 5 +
+                             [b'FAN1=50% LIGHT=ON MODE=BREATH\r\n'])
         self.assertIn('MODE=BREATH', self.controller.initialize())
         self.assertEqual(self.port.writes, [
-            b'FAN1 50\n', b'PIXELS 64\n', b'BRIGHT 20\n',
+            b'STATUS\n', b'FAN1 50\n', b'PIXELS 64\n', b'BRIGHT 20\n',
             b'COLOR 255 0 0\n', b'MODE BREATH\n', b'STATUS\n',
         ])
 
@@ -50,6 +52,12 @@ class FanLightTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             fan_light_control(self.controller, 'set_light', preset='red_breath')
         self.assertEqual(len(self.port.writes), 2)
+
+    def test_unknown_serial_device_receives_no_write_commands(self):
+        self.port.replies = [b'other device\r\n']
+        with self.assertRaises(RuntimeError):
+            self.controller.initialize()
+        self.assertEqual(self.port.writes, [b'STATUS\n'])
 
     def test_exact_local_route(self):
         self.assertEqual(local_fan_light_request('红色呼吸灯。')['arguments'],

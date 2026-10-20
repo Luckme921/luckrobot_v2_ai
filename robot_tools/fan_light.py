@@ -10,9 +10,10 @@ class FanLightController:
             import serial
             serial_factory = serial.Serial
         if port is None:
-            matches = glob('/dev/serial/by-id/usb-Arm_DAPLink_CMSIS-DAP_*-if01')
+            matches = (glob('/dev/serial/by-id/usb-Arm_DAPLink_CMSIS-DAP_*-if01') +
+                       glob('/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_*-if00-port0'))
             if len(matches) != 1:
-                raise RuntimeError(f'expected one PWLINK2 UART, found {len(matches)}')
+                raise RuntimeError(f'expected one STM32 UART candidate, found {len(matches)}')
             port = matches[0]
         self._serial = serial_factory(port=port, baudrate=115200, bytesize=8,
                                       parity='N', stopbits=1, timeout=1,
@@ -31,6 +32,9 @@ class FanLightController:
         return reply
 
     def initialize(self):
+        identity = self.command('STATUS')
+        if not all(marker in identity for marker in ('FAN1=', 'LIGHT=', 'MODE=', 'DATA=PA7')):
+            raise RuntimeError('serial device did not return STM32 fan/light status')
         for command in ('FAN1 50', 'PIXELS 64', 'BRIGHT 20',
                         'COLOR 255 0 0', 'MODE BREATH'):
             self.command(command)

@@ -1,6 +1,6 @@
 # Jetson 启动、测试与维护
 
-风扇灯光：在运行音频进程的 Jetson venv 中安装 `pyserial`，确认 `/dev/serial/by-id/usb-Arm_DAPLink_CMSIS-DAP_*-if01` 恰好匹配一个设备，且该用户可访问串口。启动日志应有 `[FAN_LIGHT] initialized`，其中状态为 `FAN1=50%`、`LIGHT=ON`、`MODE=BREATH`、`RGB=255,0,0`、`BRIGHT=20`。串口只能由音频进程独占，运行期间不要同时使用 `~/stm32_fan_ctl.py`。现场分别说“红色呼吸灯”“关闭风扇灯”“彩虹灯”并观察两只实体灯；状态回复不能代替实物验收。未部署到 Jetson 前，本地单元测试只验证命令和路由逻辑。
+风扇灯光：在运行音频进程的 Jetson venv 中安装 `pyserial`，确认 `/dev/serial/by-id/` 下恰好存在一个 PWLINK2 或 CP2102 候选设备，且该用户可访问串口。当前 Jetson 实测 CP2102 对 `STATUS` 返回 STM32 风扇状态；程序也会核对状态签名后才写入默认值。启动日志应有 `[FAN_LIGHT] initialized`，其中状态为 `FAN1=50%`、`LIGHT=ON`、`MODE=BREATH`、`RGB=255,0,0`、`BRIGHT=20`。串口只能由音频进程独占，运行期间不要同时使用 `~/stm32_fan_ctl.py`。现场分别说“红色呼吸灯”“关闭风扇灯”“彩虹灯”并观察两只实体灯；状态回复不能代替实物验收。
 
 ## systemd 守护启动（测试目录）
 

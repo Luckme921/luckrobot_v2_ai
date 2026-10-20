@@ -2,7 +2,7 @@
 
 ## 风扇和灯效（Jetson 本地）
 
-`robot_tools/fan_light.py` 独占打开 `/dev/serial/by-id/usb-Arm_DAPLink_CMSIS-DAP_*-if01`，按 115200 8N1 逐条发送 ASCII 命令及换行，并检查 STM32 的 `OK` 回复。Jetson 的 Python 环境需安装 `pyserial`：`.venv/bin/python -m pip install pyserial`。启动时依次设 `FAN1 50`、`PIXELS 64`、`BRIGHT 20`、`COLOR 255 0 0`、`MODE BREATH`，然后读 `STATUS`。找不到唯一串口或初始化失败时记录 `[FAN_LIGHT] unavailable`，其余语音功能继续运行，工具报告不可用。
+`robot_tools/fan_light.py` 从 PWLINK2 或 CP2102 的 `/dev/serial/by-id/` 稳定路径中查找唯一设备，先用 `STATUS` 核对 STM32 状态签名，再独占串口按 115200 8N1 逐条发送 ASCII 命令及换行，并检查 STM32 的 `OK` 回复。Jetson 的 Python 环境需安装 `pyserial`：`.venv/bin/python -m pip install pyserial`。启动时依次设 `FAN1 50`、`PIXELS 64`、`BRIGHT 20`、`COLOR 255 0 0`、`MODE BREATH`，然后读 `STATUS`。找不到唯一串口或初始化失败时记录 `[FAN_LIGHT] unavailable`，其余语音功能继续运行，工具报告不可用。
 
 模型只可调用 `fan_light_control` 的 `set_speed`、`set_light`、`light_off`、`light_on`、`status`；灯效预设只允许 `red_breath`、`red_static`、`blue_static`、`rainbow`，亮度固定在已验证的 20%。精确语句“红色呼吸灯”“彩虹灯”“关闭风扇灯”“打开风扇灯”在 Edge 本地直接路由。`COLOR` 会切回静态，因此呼吸预设先发颜色再发模式。两只实体风扇共用 `FAN1`；`STATUS` 是控制器目标状态，不是 RPM 测量。`PIXELS 64` 是当前工作设置，仍待确认实际灯珠连线和数量。
 
