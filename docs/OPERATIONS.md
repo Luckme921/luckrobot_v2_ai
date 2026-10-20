@@ -1,5 +1,7 @@
 # Jetson 启动、测试与维护
 
+风扇灯光：在运行音频进程的 Jetson venv 中安装 `pyserial`，确认 `/dev/serial/by-id/usb-Arm_DAPLink_CMSIS-DAP_*-if01` 恰好匹配一个设备，且该用户可访问串口。启动日志应有 `[FAN_LIGHT] initialized`，其中状态为 `FAN1=50%`、`LIGHT=ON`、`MODE=BREATH`、`RGB=255,0,0`、`BRIGHT=20`。串口只能由音频进程独占，运行期间不要同时使用 `~/stm32_fan_ctl.py`。现场分别说“红色呼吸灯”“关闭风扇灯”“彩虹灯”并观察两只实体灯；状态回复不能代替实物验收。未部署到 Jetson 前，本地单元测试只验证命令和路由逻辑。
+
 ## systemd 守护启动（测试目录）
 
 使用 `deploy/systemd/luckrobot_run.service` 管理 Cloud、显示状态 API 和音频监督进程；Qt framebuffer 画面仍由 `luckrobot-display.service` 单独运行。音频使用 jetson 用户的 PulseAudio，会话路径须设置 `XDG_RUNTIME_DIR=/run/user/1000` 与 `PULSE_SERVER=unix:/run/user/1000/pulse/native`。unit 等待 PulseAudio 可连接后再启动程序；`ExecStop` 无需读取 `robot.lock`，systemd 会向服务进程组发送停止信号。启用前确保 `loginctl show-user jetson -p Linger` 显示 `Linger=yes`，且设备上没有手工启动的另一套监督进程。

@@ -252,7 +252,7 @@ class MusicRequestResponse(
 
 
 class LocalToolResponse(BaseModel):
-    name: Literal["volume_control", "music_search", "music_select", "music_control"]
+    name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control"]
     arguments: dict
 
 class ChatResponse(BaseModel):

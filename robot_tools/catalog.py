@@ -229,6 +229,12 @@ TURN_ROUTE_SCHEMA = {
 
 # Local tool schemas are the same contract used by Edge's registry.
 LOCAL_SCHEMAS = {
+    "fan_light_control": {
+        "type": "object", "properties": {
+            "action": {"type": "string", "enum": ["set_speed", "set_light", "light_off", "light_on", "status"]},
+            "percent": {"type": "integer", "minimum": 0, "maximum": 100},
+            "preset": {"type": "string", "enum": ["red_breath", "red_static", "blue_static", "rainbow"]}},
+        "required": ["action"], "additionalProperties": False},
     "volume_control": {
         "type": "object", "properties": {
             "action": {"type": "string", "enum": ["get", "set", "up", "down", "max"]},
@@ -265,14 +271,22 @@ TOOL_SCHEMAS.append({"type": "function", "function": {
     "description": "仅在用户明确说出音乐别名，或联网搜索结果明确证明同一歌手/歌曲的中英文名、口语别称时，记录短别名供以后 QQ 音乐匹配。不得猜测；Live/Mix 是版本标记，不应把不同版本误写为别名。先完成搜索再提供来源摘要。",
     "parameters": MUSIC_ALIAS_SCHEMA}})
 route_props = TURN_ROUTE_SCHEMA["function"]["parameters"]["properties"]
-route_props["action"]["enum"].extend(["get_weather", "volume_control", "select_music"])
+route_props["action"]["enum"].extend(["get_weather", "volume_control", "select_music", "fan_light_control"])
 route_props.update({
     "city": {"type": "string", "maxLength": 80},
     "days": {"type": "integer", "minimum": 1, "maximum": 7},
     "volume_action": {"type": "string", "enum": ["get", "set", "up", "down", "max"]},
     "percent": {"type": "integer", "minimum": 0, "maximum": 100},
+    "fan_light_action": {"type": "string", "enum": ["set_speed", "set_light", "light_off", "light_on", "status"]},
+    "fan_light_percent": {"type": "integer", "minimum": 0, "maximum": 100},
+    "fan_light_preset": {"type": "string", "enum": ["red_breath", "red_static", "blue_static", "rainbow"]},
 })
 TURN_ROUTE_SCHEMA["function"]["description"] += (
     "天气选择 get_weather 并给出 city、days；音量选择 volume_control，"
     "提供 volume_action 和可选 percent；从刚才音乐候选中选择用 select_music，"
     "在 music_query 中保留编号或歌曲名。")
+TURN_ROUTE_SCHEMA["function"]["description"] += (
+    "明确要求调节散热风扇、切换风扇灯效或查询其状态时选择 fan_light_control；"
+    "fan_light_action 为 set_speed/set_light/light_off/light_on/status。"
+    "set_speed 提供 fan_light_percent；set_light 提供 fan_light_preset，"
+    "仅支持 red_breath、red_static、blue_static、rainbow。")

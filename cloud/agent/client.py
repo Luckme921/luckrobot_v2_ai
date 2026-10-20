@@ -651,6 +651,19 @@ class GLMAgent:
             validate(values, LOCAL_SCHEMAS["volume_control"])
             return {"action": action, "local_tool": "volume_control", "arguments": values}
 
+        if action == "fan_light_control":
+            values = {"action": arguments.get("fan_light_action", "")}
+            if "fan_light_percent" in arguments:
+                values["percent"] = arguments["fan_light_percent"]
+            if "fan_light_preset" in arguments:
+                values["preset"] = arguments["fan_light_preset"]
+            validate(values, LOCAL_SCHEMAS["fan_light_control"])
+            if values["action"] == "set_speed" and "percent" not in values:
+                raise ValueError("fan speed requires percent")
+            if values["action"] == "set_light" and "preset" not in values:
+                raise ValueError("light mode requires preset")
+            return {"action": action, "local_tool": "fan_light_control", "arguments": values}
+
         music_actions = {
             "play_music",
             "recommend_music",
@@ -1076,6 +1089,10 @@ class GLMAgent:
                     "未说明城市时 city 留空，不猜地点。天气知识问题仍是 respond_text。"
                     "调节或查询音量选择 volume_control，volume_action 为 get/set/up/down/max，"
                     "set 时 percent 为整数百分比。"
+                    "调节散热风扇或风扇灯选择 fan_light_control，fan_light_action 为"
+                    "set_speed/set_light/light_off/light_on/status。set_speed 提供"
+                    "fan_light_percent；set_light 提供 fan_light_preset，值为"
+                    "red_breath/red_static/blue_static/rainbow。"
                     "用户从刚才音乐候选中选择时选 select_music，music_query 保留编号或歌名。"
                     "若有当前候选列表，用户对列表中歌曲或歌手的指代视为选歌，"
                     "选择 select_music 并返回候选编号，不要重新搜索。"
@@ -1596,7 +1613,7 @@ class GLMAgent:
                 flush=True,
             )
 
-            if action == "volume_control":
+            if action in {"volume_control", "fan_light_control"}:
                 raise LocalToolRequestRequired(route["local_tool"], route["arguments"])
 
             if action == "request_vision":

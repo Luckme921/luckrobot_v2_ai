@@ -12,6 +12,7 @@ from edge.music.personal_library import (
 )
 
 from robot_tools.edge import build_edge_tools
+from robot_tools.fan_light import FanLightController, local_fan_light_request
 from robot_tools.music import DirectAudioPlayer, MusicTools, has_explicit_music_intent
 
 import builtins
@@ -594,7 +595,17 @@ def main() -> None:
         step_percent=10, max_percent=100)
     music_tools = MusicTools(music_cfg, music_controller, music_library,
                              player=DirectAudioPlayer(device_volume.sink_name))
-    local_tools = build_edge_tools(device_volume, music_tools)
+    fan_light = None
+    try:
+        fan_light = FanLightController()
+        fan_status = fan_light.initialize()
+        print(f"[FAN_LIGHT] initialized {fan_status}", flush=True)
+    except Exception as exc:
+        print(f"[FAN_LIGHT] unavailable: {type(exc).__name__}: {exc}", flush=True)
+        if fan_light is not None:
+            fan_light.close()
+        fan_light = None
+    local_tools = build_edge_tools(device_volume, music_tools, fan_light)
 
     auth_bridge.QR_IMAGE.unlink(missing_ok=True)
     auth_bridge.BROWSER_IMAGE.unlink(missing_ok=True)
@@ -2064,13 +2075,20 @@ def main() -> None:
                                                 # satisfy this fast path.
                                                 fast_path_request = None
 
-                                        local_request = music_tools.local_request(command_text)
-                                        status("本地处理音乐" if local_request is not None else "思考 / 模型处理中")
+                                        local_request = local_fan_light_request(command_text)
+                                        if local_request is None:
+                                            local_request = music_tools.local_request(command_text)
+                                        local_fan_request = (local_request is not None and
+                                                             local_request["name"] == "fan_light_control")
+                                        status("本地控制风扇灯光" if local_fan_request else
+                                               "本地处理音乐" if local_request is not None else "思考 / 模型处理中")
                                         display_state(
                                             "thinking",
+                                            "正在控制风扇灯光" if local_fan_request else
                                             "正在处理音乐" if local_request is not None else "想一想")
                                         if local_request is not None:
-                                            agent_reply = AgentReply(text="", model="local-music", tool_request=local_request)
+                                            agent_reply = AgentReply(text="", model="local-fan-light" if local_fan_request
+                                                                     else "local-music", tool_request=local_request)
                                         elif (
                                             fast_path_request
                                             is not None
@@ -2279,7 +2297,7 @@ def main() -> None:
                                                 turn_monitor.cancellation.check()
                                             tool_name = tool_request["name"]
                                             tool_source = (
-                                                "local" if agent_reply.model == "local-music"
+                                                "local" if agent_reply.model in {"local-music", "local-fan-light"}
                                                 else "model"
                                             )
                                             print(
@@ -2635,6 +2653,8 @@ def main() -> None:
         music_metadata_stop.set()
         direction_monitor.stop()
         music_tools.close()
+        if fan_light is not None:
+            fan_light.close()
         acknowledgements.finish()
         conversation_log.close()
         if music_controller is not None:
