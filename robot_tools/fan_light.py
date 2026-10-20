@@ -3,6 +3,8 @@
 from glob import glob
 from threading import Lock
 
+from robot_tools.chinese_colors import color_rgb, is_unambiguous_color
+
 
 class FanLightController:
     def __init__(self, port=None, serial_factory=None):
@@ -35,9 +37,7 @@ class FanLightController:
         identity = self.command('STATUS')
         if not all(marker in identity for marker in ('FAN1=', 'LIGHT=', 'MODE=', 'DATA=PA7')):
             raise RuntimeError('serial device did not return STM32 fan/light status')
-        # Until PWM wiring is verified, release the control line so a powered
-        # fan can use its internal pull-up and run at full speed.
-        for command in ('FAN OFF', 'PIXELS 64', 'BRIGHT 20',
+        for command in ('FAN1 50', 'PIXELS 64', 'BRIGHT 20',
                         'COLOR 255 0 0', 'MODE BREATH'):
             self.command(command)
         return self.command('STATUS')
@@ -46,27 +46,34 @@ class FanLightController:
         self._serial.close()
 
 
-def fan_light_control(controller, action, percent=None, preset=None, red=None, green=None, blue=None, mode=None):
+def fan_light_control(controller, action, percent=None, color_name=None,
+                      red=None, green=None, blue=None, mode=None):
     if action == 'set_speed':
-        return _rejected('PWM 接线尚未核实；为避免风扇停转，暂时只释放控制线使风扇全速运行。')
+        if type(percent) is not int or not 0 <= percent <= 100:
+            return _rejected('请说明 0 到 100 的风扇 PWM 百分比。')
+        controller.command(f'FAN1 {percent}')
+        message = f'控制器已接受风扇 PWM {percent}% 设置。'
     elif action == 'set_light':
-        commands = {
-            'red_breath': ('BRIGHT 20', 'COLOR 255 0 0', 'MODE BREATH'),
-            'red_static': ('BRIGHT 20', 'COLOR 255 0 0'),
-            'blue_static': ('BRIGHT 20', 'COLOR 0 0 255'),
-            'rainbow': ('BRIGHT 20', 'MODE RAINBOW'),
-        }.get(preset)
-        if commands is None and preset is None:
-            if mode not in {'static', 'breath'} or any(
-                type(value) is not int or not 0 <= value <= 255
-                for value in (red, green, blue)
-            ):
-                return _rejected('请指定静态或呼吸模式，以及 0 到 255 的 RGB 颜色。')
+        if mode not in {'static', 'breath', 'rainbow'}:
+            return _rejected('请选择静态、呼吸或彩虹模式。')
+        if mode == 'rainbow':
+            if color_name is not None or any(value is not None for value in (red, green, blue)):
+                return _rejected('彩虹模式不接受指定颜色。')
+            commands = ('BRIGHT 20', 'MODE RAINBOW')
+        else:
+            if color_name is not None and any(value is not None for value in (red, green, blue)):
+                return _rejected('颜色名和 RGB 数值请只选一种。')
+            if color_name is not None:
+                try:
+                    red, green, blue = color_rgb(color_name)
+                except ValueError as exc:
+                    return _rejected(str(exc))
+            if any(type(value) is not int or not 0 <= value <= 255
+                   for value in (red, green, blue)):
+                return _rejected('请提供色表中的颜色名或 0 到 255 的 RGB 数值。')
             commands = ('BRIGHT 20', f'COLOR {red} {green} {blue}')
             if mode == 'breath':
                 commands += ('MODE BREATH',)
-        if commands is None:
-            return _rejected('未知灯效预设。')
         for command in commands:
             controller.command(command)
         message = '控制器已接受灯效命令；实体灯光需要现场确认。'
@@ -91,15 +98,19 @@ def _rejected(message):
 def local_fan_light_request(text):
     """Exact, unambiguous phrases bypass cloud routing."""
     normalized = text.strip().rstrip('。！!，, ')
-    presets = {
-        '红色呼吸灯': {'action': 'set_light', 'preset': 'red_breath'},
-        '打开红色呼吸灯': {'action': 'set_light', 'preset': 'red_breath'},
-        '黄色呼吸灯': {'action': 'set_light', 'mode': 'breath', 'red': 255, 'green': 255, 'blue': 0},
-        '打开黄色呼吸灯': {'action': 'set_light', 'mode': 'breath', 'red': 255, 'green': 255, 'blue': 0},
-        '彩虹灯': {'action': 'set_light', 'preset': 'rainbow'},
-        '打开彩虹灯': {'action': 'set_light', 'preset': 'rainbow'},
+    fixed = {
+        '彩虹灯': {'action': 'set_light', 'mode': 'rainbow'},
+        '打开彩虹灯': {'action': 'set_light', 'mode': 'rainbow'},
         '关闭风扇灯': {'action': 'light_off'},
         '打开风扇灯': {'action': 'light_on'},
     }
-    args = presets.get(normalized)
+    args = fixed.get(normalized)
+    if args is None:
+        phrase = normalized.removeprefix('打开')
+        for suffix, mode in (('呼吸灯', 'breath'), ('静态灯', 'static')):
+            if phrase.endswith(suffix):
+                name = phrase[:-len(suffix)]
+                if is_unambiguous_color(name):
+                    args = {'action': 'set_light', 'color_name': name, 'mode': mode}
+                break
     return {'name': 'fan_light_control', 'arguments': args} if args else None

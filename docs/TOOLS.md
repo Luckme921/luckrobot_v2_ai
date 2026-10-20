@@ -2,9 +2,9 @@
 
 ## 风扇和灯效（Jetson 本地）
 
-`robot_tools/fan_light.py` 从 PWLINK2 或 CP2102 的 `/dev/serial/by-id/` 稳定路径中查找唯一设备，先用 `STATUS` 核对 STM32 状态签名，再独占串口按 115200 8N1 逐条发送 ASCII 命令及换行，并检查 STM32 的 `OK` 回复。Jetson 的 Python 环境需安装 `pyserial`：`.venv/bin/python -m pip install pyserial`。因现场接入 PWM 后风扇停转，诊断期间启动时先发 `FAN OFF` 释放 PWM 控制线，暂时拒绝语音调速；然后依次设 `PIXELS 64`、`BRIGHT 20`、`COLOR 255 0 0`、`MODE BREATH`，最后读 `STATUS`。确认 PWM 接线和实体转动后再恢复原定的 `FAN1 50`。找不到唯一串口或初始化失败时记录 `[FAN_LIGHT] unavailable`，其余语音功能继续运行，工具报告不可用。
+`robot_tools/fan_light.py` 从 PWLINK2 或 CP2102 的 `/dev/serial/by-id/` 稳定路径中查找唯一设备，先用 `STATUS` 核对 STM32 状态签名，再独占串口按 115200 8N1 逐条发送 ASCII 命令及换行，并检查 STM32 的 `OK` 回复。Jetson 的 Python 环境需安装 `pyserial`：`.venv/bin/python -m pip install pyserial`。接线修正后，启动时依次设 `FAN1 50`、`PIXELS 64`、`BRIGHT 20`、`COLOR 255 0 0`、`MODE BREATH`，最后读 `STATUS`。找不到唯一串口或初始化失败时记录 `[FAN_LIGHT] unavailable`，其余语音功能继续运行，工具报告不可用。
 
-模型只可调用 `fan_light_control` 的 `set_speed`、`set_light`、`light_off`、`light_on`、`status`；灯效可选 `red_breath`、`red_static`、`blue_static`、`rainbow` 预设，或提供受限的 RGB 整数与静态/呼吸模式，亮度固定在已验证的 20%。精确语句“红色呼吸灯”“黄色呼吸灯”“彩虹灯”“关闭风扇灯”“打开风扇灯”在 Edge 本地直接路由。`COLOR` 会切回静态，因此呼吸灯先发颜色再发模式。两只实体风扇共用 `FAN1`；`STATUS` 是控制器目标状态，不是 RPM 测量。工具回复仅代表控制器接受命令，不能证明实体灯或风扇工作。`PIXELS 64` 是当前工作设置，仍待确认实际灯珠连线和数量。
+模型只可调用 `fan_light_control` 的 `set_speed`、`set_light`、`light_off`、`light_on`、`status`。`set_light` 接受静态、呼吸或彩虹模式；静态和呼吸可用原话颜色名或明确 RGB 值。`robot_tools/chinese_colors.json` 收录[天天配色网中文颜色表](https://www.ttpeise.com/color/chinese.html)的 256 条名称与 HEX 值，运行时离线查表；重名且 HEX 不同的颜色拒绝自动选择。网站的“黄色”对应 `#ffd400`（RGB 255,212,0），不是先前手写的 `255,255,0`。亮度固定在已验证的 20%。精确短语如“黄色呼吸灯”“桃色静态灯”“彩虹灯”在 Edge 本地直接路由。`COLOR` 会切回静态，因此呼吸灯先发颜色再发模式。两只实体风扇共用 `FAN1`；`STATUS` 是控制器目标状态，不是 RPM 测量。工具回复仅代表控制器接受命令。`PIXELS 64` 是当前工作设置，仍待确认实际灯珠连线和数量。
 
 显示屏的音乐按钮使用独立的本机控制入口 `/api/music/control`，只接受 `pause_music`、`resume_music`、`previous_music`、`next_music` 四种固定动作。请求通过 `private/runtime/qqmusic-control-request.json` 传给音频进程，并调用现有 `MusicTools.control`；不接受 URL 或命令字符串。`GET /api/music/control` 返回最近一次执行结果，供触屏按钮避免重复提交。语音工具 `music_control` 的 schema 和处理函数保持原样。
 

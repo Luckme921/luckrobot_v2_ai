@@ -655,19 +655,20 @@ class GLMAgent:
             values = {"action": arguments.get("fan_light_action", "")}
             if "fan_light_percent" in arguments:
                 values["percent"] = arguments["fan_light_percent"]
-            if "fan_light_preset" in arguments:
-                values["preset"] = arguments["fan_light_preset"]
-            for color_field in ("mode", "red", "green", "blue"):
+            for color_field in ("color_name", "mode", "red", "green", "blue"):
                 route_field = "fan_light_" + color_field
                 if route_field in arguments:
                     values[color_field] = arguments[route_field]
             validate(values, LOCAL_SCHEMAS["fan_light_control"])
             if values["action"] == "set_speed" and "percent" not in values:
                 raise ValueError("fan speed requires percent")
-            if values["action"] == "set_light" and "preset" not in values and not all(
-                field in values for field in ("mode", "red", "green", "blue")
-            ):
-                raise ValueError("light mode requires preset or RGB and mode")
+            if values["action"] == "set_light":
+                if "mode" not in values:
+                    raise ValueError("light mode is required")
+                if values["mode"] != "rainbow" and "color_name" not in values and not all(
+                    field in values for field in ("red", "green", "blue")
+                ):
+                    raise ValueError("light color is required")
             return {"action": action, "local_tool": "fan_light_control", "arguments": values}
 
         music_actions = {
@@ -1097,10 +1098,11 @@ class GLMAgent:
                     "set 时 percent 为整数百分比。"
                     "调节散热风扇或风扇灯选择 fan_light_control，fan_light_action 为"
                     "set_speed/set_light/light_off/light_on/status。set_speed 提供"
-                    "fan_light_percent；set_light 提供 fan_light_preset，值为"
-                    "red_breath/red_static/blue_static/rainbow，或提供 fan_light_mode"
-                    "(static/breath) 和 fan_light_red/green/blue 三个 0 到 255 的整数。"
-                    "黄色呼吸灯应为 RGB 255,255,0 加 breath，不得改为红色。"
+                    "fan_light_percent；set_light 提供 fan_light_mode"
+                    "(static/breath/rainbow)。静态或呼吸灯还需提供原话中的"
+                    "fan_light_color_name，如黄色、桃色、青磁色；若用户明确给出"
+                    "RGB 数值则使用 fan_light_red/green/blue。颜色名由本地色表核对，"
+                    "不可擅自换成其他颜色。彩虹模式无需颜色。"
                     "用户从刚才音乐候选中选择时选 select_music，music_query 保留编号或歌名。"
                     "若有当前候选列表，用户对列表中歌曲或歌手的指代视为选歌，"
                     "选择 select_music 并返回候选编号，不要重新搜索。"

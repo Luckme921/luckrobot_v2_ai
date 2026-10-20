@@ -1,6 +1,6 @@
 # Jetson 启动、测试与维护
 
-风扇灯光：在运行音频进程的 Jetson venv 中安装 `pyserial`，确认 `/dev/serial/by-id/` 下恰好存在一个 PWLINK2 或 CP2102 候选设备，且该用户可访问串口。当前 Jetson 实测 CP2102 对 `STATUS` 返回 STM32 风扇状态；程序也会核对状态签名后才写入默认值。PWM 接线故障诊断期间，启动时释放 PWM 控制线，应看到 `FAN1=100%/FREE`；灯状态目标为 `LIGHT=ON`、`MODE=BREATH`、`RGB=255,0,0`、`BRIGHT=20`。串口只能由音频进程独占，运行期间不要同时使用 `~/stm32_fan_ctl.py`。现场分别说“红色呼吸灯”“关闭风扇灯”“彩虹灯”并观察两只实体灯；状态回复不能代替实物验收。
+风扇灯光：在运行音频进程的 Jetson venv 中安装 `pyserial`，确认 `/dev/serial/by-id/` 下恰好存在一个 PWLINK2 或 CP2102 候选设备，且该用户可访问串口。当前 Jetson 实测 CP2102 对 `STATUS` 返回 STM32 风扇状态；程序也会核对状态签名后才写入默认值。接线修正后，启动状态目标为 `FAN1=50%`、`LIGHT=ON`、`MODE=BREATH`、`RGB=255,0,0`、`BRIGHT=20`。串口只能由音频进程独占，运行期间不要同时使用 `~/stm32_fan_ctl.py`。现场分别说“红色呼吸灯”“关闭风扇灯”“彩虹灯”并观察两只实体灯；状态回复不能代替实物验收。
 
 独立手动调试：先 `sudo systemctl stop luckrobot_run.service`，然后运行 `.venv/bin/python scripts/fan_serial_manual.py status`。可依次运行 `release`、`bright 20`、`color 255 255 0`、`mode breath`、`light off`、`light on`。每次运行都先核对 STM32 的 `STATUS` 签名，输出命令原始回复与执行后状态。PWM 接线故障未排除前不要用 `speed`；若确需诊断，参数 `--allow-pwm speed 50` 必须放在子命令前，且需持续观察风扇是否停转。调试结束用 `sudo systemctl start luckrobot_run.service` 恢复服务。
 
