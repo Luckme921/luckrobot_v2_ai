@@ -233,7 +233,11 @@ LOCAL_SCHEMAS = {
         "type": "object", "properties": {
             "action": {"type": "string", "enum": ["set_speed", "set_light", "light_off", "light_on", "status"]},
             "percent": {"type": "integer", "minimum": 0, "maximum": 100},
-            "preset": {"type": "string", "enum": ["red_breath", "red_static", "blue_static", "rainbow"]}},
+            "preset": {"type": "string", "enum": ["red_breath", "red_static", "blue_static", "rainbow"]},
+            "mode": {"type": "string", "enum": ["static", "breath"]},
+            "red": {"type": "integer", "minimum": 0, "maximum": 255},
+            "green": {"type": "integer", "minimum": 0, "maximum": 255},
+            "blue": {"type": "integer", "minimum": 0, "maximum": 255}},
         "required": ["action"], "additionalProperties": False},
     "volume_control": {
         "type": "object", "properties": {
@@ -280,6 +284,10 @@ route_props.update({
     "fan_light_action": {"type": "string", "enum": ["set_speed", "set_light", "light_off", "light_on", "status"]},
     "fan_light_percent": {"type": "integer", "minimum": 0, "maximum": 100},
     "fan_light_preset": {"type": "string", "enum": ["red_breath", "red_static", "blue_static", "rainbow"]},
+    "fan_light_mode": {"type": "string", "enum": ["static", "breath"]},
+    "fan_light_red": {"type": "integer", "minimum": 0, "maximum": 255},
+    "fan_light_green": {"type": "integer", "minimum": 0, "maximum": 255},
+    "fan_light_blue": {"type": "integer", "minimum": 0, "maximum": 255},
 })
 TURN_ROUTE_SCHEMA["function"]["description"] += (
     "天气选择 get_weather 并给出 city、days；音量选择 volume_control，"
@@ -289,4 +297,6 @@ TURN_ROUTE_SCHEMA["function"]["description"] += (
     "明确要求调节散热风扇、切换风扇灯效或查询其状态时选择 fan_light_control；"
     "fan_light_action 为 set_speed/set_light/light_off/light_on/status。"
     "set_speed 提供 fan_light_percent；set_light 提供 fan_light_preset，"
-    "仅支持 red_breath、red_static、blue_static、rainbow。")
+    "可用 red_breath、red_static、blue_static、rainbow 预设，或提供"
+    "fan_light_mode(static/breath) 和 fan_light_red/green/blue 三个 0..255 整数。"
+    "用户要求黄色呼吸时使用 RGB=255,255,0 和 breath，不得改为红色。")

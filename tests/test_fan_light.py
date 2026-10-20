@@ -35,7 +35,7 @@ class FanLightTest(unittest.TestCase):
                              [b'FAN1=50% LIGHT=ON MODE=BREATH\r\n'])
         self.assertIn('MODE=BREATH', self.controller.initialize())
         self.assertEqual(self.port.writes, [
-            b'STATUS\n', b'FAN1 50\n', b'PIXELS 64\n', b'BRIGHT 20\n',
+            b'STATUS\n', b'FAN OFF\n', b'PIXELS 64\n', b'BRIGHT 20\n',
             b'COLOR 255 0 0\n', b'MODE BREATH\n', b'STATUS\n',
         ])
 
@@ -45,6 +45,7 @@ class FanLightTest(unittest.TestCase):
         self.assertEqual(self.port.writes[-3:], [
             b'BRIGHT 20\n', b'COLOR 255 0 0\n', b'MODE BREATH\n'])
         self.assertFalse(fan_light_control(self.controller, 'set_speed', percent=-1)['executed'])
+        self.assertFalse(fan_light_control(self.controller, 'set_speed', percent=50)['executed'])
         self.assertFalse(fan_light_control(self.controller, 'set_light', preset='flash')['executed'])
 
     def test_firmware_error_stops_sequence(self):
@@ -63,6 +64,16 @@ class FanLightTest(unittest.TestCase):
         self.assertEqual(local_fan_light_request('红色呼吸灯。')['arguments'],
                          {'action': 'set_light', 'preset': 'red_breath'})
         self.assertIsNone(local_fan_light_request('我要红色呼吸灯吗'))
+        self.assertEqual(local_fan_light_request('黄色呼吸灯')['arguments'],
+                         {'action': 'set_light', 'mode': 'breath',
+                          'red': 255, 'green': 255, 'blue': 0})
+
+    def test_arbitrary_rgb_breath(self):
+        result = fan_light_control(self.controller, 'set_light', mode='breath',
+                                   red=255, green=255, blue=0)
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.port.writes, [b'BRIGHT 20\n',
+                                            b'COLOR 255 255 0\n', b'MODE BREATH\n'])
 
 
 if __name__ == '__main__':
