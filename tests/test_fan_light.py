@@ -68,13 +68,11 @@ class FanLightTest(unittest.TestCase):
         self.assertEqual(local_fan_light_request('黄色呼吸灯')['arguments'],
                          {'action': 'set_light', 'color_name': '黄色', 'mode': 'breath'})
 
-    def test_color_table_and_ambiguous_name(self):
-        self.assertEqual(len(json_rows := [value for values in color_table().values()
-                                             for value in values]), 256)
+    def test_color_table_uses_first_entry_for_duplicate_names(self):
+        self.assertEqual(len(color_table()), 251)
         self.assertEqual(color_rgb('黄色'), (255, 212, 0))
         self.assertEqual(color_rgb('绿色'), color_rgb('绿'))
-        with self.assertRaises(ValueError):
-            color_rgb('桦色')
+        self.assertEqual(color_rgb('桦色'), (198, 60, 38))
 
     def test_arbitrary_rgb_breath(self):
         result = fan_light_control(self.controller, 'set_light', mode='breath',

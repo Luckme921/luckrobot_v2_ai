@@ -3,7 +3,7 @@
 from glob import glob
 from threading import Lock
 
-from robot_tools.chinese_colors import color_rgb, is_unambiguous_color
+from robot_tools.chinese_colors import color_rgb, has_color
 
 
 class FanLightController:
@@ -110,7 +110,7 @@ def local_fan_light_request(text):
         for suffix, mode in (('呼吸灯', 'breath'), ('静态灯', 'static')):
             if phrase.endswith(suffix):
                 name = phrase[:-len(suffix)]
-                if is_unambiguous_color(name):
+                if has_color(name):
                     args = {'action': 'set_light', 'color_name': name, 'mode': mode}
                 break
     return {'name': 'fan_light_control', 'arguments': args} if args else None
