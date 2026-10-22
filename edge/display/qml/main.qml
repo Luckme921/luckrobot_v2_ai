@@ -289,19 +289,23 @@ Window {
                         c.fill()
                     }
                     if (root.wakeFlash > 0.03 && root.eyeOpen > 0.05) {
+                        var outerX = side === 0 ? x : x + ew
+                        var direction = side === 0 ? -1 : 1
                         for (var trail = 1; trail <= 2; trail++) {
-                            var drift = (side === 0 ? -1 : 1) * w *
-                                    (0.025 + trail * 0.048) * root.wakeTrail
+                            var spread = ew * (trail === 1 ? 0.30 : 0.55) * root.wakeTrail
                             c.beginPath()
-                            c.moveTo(x + drift, y + eh * 0.10)
-                            c.lineTo(x + ew + drift, y - eh * 0.12)
-                            c.quadraticCurveTo(x + ew * 0.85 + drift, y + eh * 0.92,
-                                               x + ew * 0.43 + drift, y + eh)
-                            c.quadraticCurveTo(x + ew * 0.09 + drift, y + eh * 0.90,
-                                               x + drift, y + eh * 0.10)
-                            c.closePath()
-                            c.globalAlpha = root.wakeFlash * (0.58 - trail * 0.12)
-                            c.lineWidth = Math.max(3, h * 0.009)
+                            c.moveTo(outerX, y + eh * 0.10)
+                            c.quadraticCurveTo(outerX + direction * spread * 0.55,
+                                               y + eh * (0.02 - trail * 0.09),
+                                               outerX + direction * spread,
+                                               y + eh * (0.09 - trail * 0.08))
+                            c.moveTo(outerX, y + eh * 0.10)
+                            c.quadraticCurveTo(outerX + direction * spread * 0.45,
+                                               y + eh * (0.38 + trail * 0.07),
+                                               outerX + direction * spread,
+                                               y + eh * (0.15 + trail * 0.07))
+                            c.globalAlpha = root.wakeFlash * (0.68 - trail * 0.13)
+                            c.lineWidth = Math.max(4, h * (0.008 + trail * 0.003))
                             c.strokeStyle = color
                             c.stroke()
                         }
