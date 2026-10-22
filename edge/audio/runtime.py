@@ -60,7 +60,7 @@ def print(*args, **kwargs):
 import argparse
 import json
 from edge.audio.acknowledgement import ToolAcknowledgement, PHRASES
-from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, GOODBYE_PHRASES, cache_path, valid_clip
+from edge.audio.tts.phrase_cache import ALL_PHRASES, WAKE_PHRASES, GOODBYE_PHRASES, cache_path, valid_clip, play_cached_reply
 from shared.timing import begin_turn, measure, record, turn_started
 from pathlib import Path
 import subprocess
@@ -1627,7 +1627,7 @@ def main() -> None:
                                         try:
                                             acknowledgements.finish()
                                             print("[WAKE] LOCAL_REPLY cached=true", flush=True)
-                                            subprocess.run(["paplay", f"--device={speaker}", str(clip)], check=True, timeout=15)
+                                            play_cached_reply(clip, speaker, display_voice_playing)
                                             time.sleep(post_playback_guard_seconds)
                                         except (OSError, subprocess.SubprocessError) as exc:
                                             print(f"[WAKE] REPLY_ERROR {type(exc).__name__}", flush=True)
@@ -1654,8 +1654,7 @@ def main() -> None:
                                 if clip is not None and speaker != "<unavailable>":
                                     capture.stop()
                                     try:
-                                        subprocess.run(["paplay", f"--device={speaker}", str(clip)],
-                                                       check=True, timeout=15)
+                                        play_cached_reply(clip, speaker, display_voice_playing)
                                     except (OSError, subprocess.SubprocessError) as exc:
                                         print(f"[GOODBYE] REPLY_ERROR {type(exc).__name__}", flush=True)
                                     finally:

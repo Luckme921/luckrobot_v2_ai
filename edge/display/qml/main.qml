@@ -22,6 +22,20 @@ Window {
     property int musicLyricIndex: 0
     property bool blinking: false
     onBlinkingChanged: demonFace.requestPaint()
+    property bool eyesAsleep: true
+    property real eyeOpen: 0
+    onEyeOpenChanged: demonFace.requestPaint()
+    Behavior on eyeOpen { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
+    property real wakeFlash: 0
+    onWakeFlashChanged: demonFace.requestPaint()
+    onRobotStateChanged: {
+        if (root.robotState !== "sleeping" && root.robotState !== "music" && root.eyesAsleep) {
+            root.eyesAsleep = false
+            root.eyeOpen = 1
+            root.wakeFlash = 1
+            wakeFlashDecay.restart()
+        }
+    }
     property real gaze: 0
     property real gazeY: 0
     Behavior on gaze { NumberAnimation { duration: 900; easing.type: Easing.InOutQuad } }
@@ -216,17 +230,31 @@ Window {
                 var c = getContext("2d"), w = width, h = height
                 c.clearRect(0, 0, w, h)
                 var color = root.eyeColor()
-                var shut = root.blinking
+                var shut = root.blinking || root.eyeOpen < 0.02
                 var pulse = root.lightInfo.mode === "breath" ? 0.72 + 0.18 * Math.sin(root.glowPhase * 0.14) : 0.9
                 if (root.lightInfo.on === false) pulse = 0.25
                 for (var side = 0; side < 2; side++) {
                     var x = side === 0 ? w * 0.045 : w * 0.535
-                    var y = h * 0.28, ew = w * 0.42, eh = shut ? h * 0.008 : h * 0.23
+                    var y = h * 0.28, ew = w * 0.42
+                    var eh = root.blinking ? h * 0.008 : h * (0.008 + root.eyeOpen * 0.222)
                     var cx = x + ew * 0.5, cy = y + eh * 0.45
                     c.save()
                     c.translate(cx, cy)
                     c.rotate(side === 0 ? 0.25 : -0.13)
                     c.translate(-cx, -cy)
+                    if (root.wakeFlash > 0 && root.eyeOpen > 0.05) {
+                        for (var trail = 1; trail <= 3; trail++) {
+                            var drift = (side === 0 ? -1 : 1) * w *
+                                    (0.018 + trail * 0.014) * (1 - root.wakeFlash)
+                            c.beginPath()
+                            c.moveTo(x + drift, y + eh * 0.10)
+                            c.lineTo(x + ew + drift, y - eh * 0.12)
+                            c.globalAlpha = root.wakeFlash * (0.31 - trail * 0.065)
+                            c.lineWidth = Math.max(3, h * (0.007 + trail * 0.003))
+                            c.strokeStyle = color
+                            c.stroke()
+                        }
+                    }
                     c.beginPath()
                     c.moveTo(x, y + eh * 0.10)
                     c.lineTo(x + ew, y - eh * 0.12)
@@ -240,6 +268,11 @@ Window {
                         var edge = glowStep / 31
                         c.globalAlpha = pulse * (0.020 + edge * 0.022)
                         c.lineWidth = Math.max(4, h * (0.080 - edge * 0.073))
+                        c.stroke()
+                    }
+                    if (root.wakeFlash > 0) {
+                        c.globalAlpha = root.wakeFlash * 0.45
+                        c.lineWidth = Math.max(8, h * 0.023)
                         c.stroke()
                     }
                     if (!shut) {
@@ -525,8 +558,23 @@ Window {
         }
     }
 
+    NumberAnimation {
+        id: wakeFlashDecay
+        target: root; property: "wakeFlash"
+        from: 1; to: 0; duration: 800; easing.type: Easing.OutQuad
+    }
     Timer {
-        interval: 3600; repeat: true; running: root.robotState !== "music"
+        interval: 300000
+        running: root.robotState === "sleeping" && !root.eyesAsleep
+        onTriggered: {
+            root.eyesAsleep = true
+            root.eyeOpen = 0
+            root.gaze = 0
+            root.gazeY = 0
+        }
+    }
+    Timer {
+        interval: 3600; repeat: true; running: root.robotState !== "music" && !root.eyesAsleep
         onTriggered: { root.blinking = true; closeBlink.start() }
     }
     Timer { id: closeBlink; interval: 100; onTriggered: root.blinking = false }
@@ -535,7 +583,7 @@ Window {
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
-        interval: 3200; repeat: true; running: root.robotState !== "music" && root.robotState !== "speaking"
+        interval: 3200; repeat: true; running: root.robotState !== "music" && root.robotState !== "speaking" && !root.eyesAsleep
         onTriggered: {
             root.gazeStep = (root.gazeStep + 1) % 4
             var step = root.gazeStep
