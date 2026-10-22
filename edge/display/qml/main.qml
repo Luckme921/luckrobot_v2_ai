@@ -235,19 +235,26 @@ Window {
                     c.closePath()
                     c.globalAlpha = shut ? pulse : 1
                     c.fillStyle = shut ? color : "#f9fbff"; c.fill()
-                    c.globalAlpha = pulse * 0.32
-                    c.lineWidth = Math.max(18, h * 0.056)
-                    c.strokeStyle = "#850012"; c.stroke()
-                    c.globalAlpha = pulse * 0.62
-                    c.lineWidth = Math.max(11, h * 0.032)
-                    c.strokeStyle = "#ce1029"; c.stroke()
-                    c.globalAlpha = pulse * 0.88
-                    c.lineWidth = Math.max(6, h * 0.016)
-                    c.strokeStyle = "#ff3447"
-                    c.stroke()
-                    c.globalAlpha = pulse
-                    c.lineWidth = Math.max(3, h * 0.009)
+                    c.globalAlpha = pulse * 0.20
+                    c.lineWidth = Math.max(26, h * 0.078)
+                    c.strokeStyle = "#69000e"; c.stroke()
+                    c.globalAlpha = pulse * 0.36
+                    c.lineWidth = Math.max(20, h * 0.060)
+                    c.strokeStyle = "#a0081c"; c.stroke()
+                    c.globalAlpha = pulse * 0.54
+                    c.lineWidth = Math.max(14, h * 0.043)
+                    c.strokeStyle = "#cb1830"; c.stroke()
+                    c.globalAlpha = pulse * 0.68
+                    c.lineWidth = Math.max(9, h * 0.028)
+                    c.strokeStyle = "#e74959"; c.stroke()
+                    c.globalAlpha = pulse * 0.66
+                    c.lineWidth = Math.max(5, h * 0.016)
                     c.strokeStyle = color; c.stroke()
+                    if (!shut) {
+                        c.globalAlpha = 0.72
+                        c.lineWidth = Math.max(3, h * 0.009)
+                        c.strokeStyle = "#f5cbd0"; c.stroke()
+                    }
                     if (!shut) {
                         var lookX = root.robotState === "speaking" ? 0 : root.gaze
                         var lookY = root.robotState === "speaking" ? 0 : root.gazeY
