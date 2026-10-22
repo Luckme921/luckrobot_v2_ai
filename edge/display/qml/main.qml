@@ -286,7 +286,7 @@ Window {
                         c.fill()
                     }
                     if (root.wakeTrail > 0 && root.wakeTrail < 1) {
-                        var innerX = side === 0 ? x + ew * 0.87 : x + ew * 0.13
+                        var innerX = x + ew * 0.5
                         var outerX = side === 0 ? x + ew * 0.17 : x + ew * 0.83
                         var direction = side === 0 ? -1 : 1
                         var wingHeight = h * 0.23
