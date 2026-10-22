@@ -23,8 +23,9 @@ Window {
     onBlinkingChanged: demonFace.requestPaint()
     property real gaze: 0
     property real gazeY: 0
-    Behavior on gaze { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
-    Behavior on gazeY { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
+    Behavior on gaze { NumberAnimation { duration: 900; easing.type: Easing.InOutQuad } }
+    Behavior on gazeY { NumberAnimation { duration: 900; easing.type: Easing.InOutQuad } }
+    property int gazeStep: 0
     property real glowPhase: 0
     property var lightInfo: ({"on": true, "mode": "breath", "rgb": [255, 0, 0]})
     function eyeColor() {
@@ -219,7 +220,7 @@ Window {
                 if (root.lightInfo.on === false) pulse = 0.25
                 for (var side = 0; side < 2; side++) {
                     var x = side === 0 ? w * 0.045 : w * 0.535
-                    var y = h * 0.37, ew = w * 0.42, eh = shut ? h * 0.008 : h * 0.23
+                    var y = h * 0.28, ew = w * 0.42, eh = shut ? h * 0.008 : h * 0.23
                     c.beginPath()
                     c.moveTo(x, y + eh * 0.10)
                     c.quadraticCurveTo(x + ew * 0.48, y + eh * 0.22, x + ew, y - eh * 0.12)
@@ -228,11 +229,15 @@ Window {
                     c.closePath()
                     c.globalAlpha = shut ? pulse : 1
                     c.fillStyle = shut ? color : "#f9fbff"; c.fill()
-                    c.globalAlpha = pulse * 0.16
-                    c.lineWidth = Math.max(15, h * 0.034)
-                    c.strokeStyle = "#ff2638"; c.stroke()
-                    c.globalAlpha = pulse * 0.40
-                    c.lineWidth = Math.max(8, h * 0.020)
+                    c.globalAlpha = pulse * 0.32
+                    c.lineWidth = Math.max(18, h * 0.056)
+                    c.strokeStyle = "#850012"; c.stroke()
+                    c.globalAlpha = pulse * 0.62
+                    c.lineWidth = Math.max(11, h * 0.032)
+                    c.strokeStyle = "#ce1029"; c.stroke()
+                    c.globalAlpha = pulse * 0.88
+                    c.lineWidth = Math.max(6, h * 0.016)
+                    c.strokeStyle = "#ff3447"
                     c.stroke()
                     c.globalAlpha = pulse
                     c.lineWidth = Math.max(3, h * 0.009)
@@ -251,10 +256,11 @@ Window {
                 }
                 c.globalAlpha = pulse
                 c.strokeStyle = color; c.lineWidth = Math.max(3, h * 0.012)
-                var mouthY = h * 0.70
+                var mouthY = h * 0.79
+                var mouthSlant = root.robotState === "speaking" ? h * 0.014 * Math.sin(root.glowPhase * 0.72) : 0
                 c.beginPath()
-                c.moveTo(w * 0.43, mouthY)
-                c.quadraticCurveTo(w * 0.5, mouthY + (root.robotState === "speaking" ? h * (0.018 + 0.012 * Math.sin(root.glowPhase * 0.7)) : h * 0.012), w * 0.57, mouthY)
+                c.moveTo(w * 0.43, mouthY - mouthSlant)
+                c.quadraticCurveTo(w * 0.5, mouthY + h * 0.012, w * 0.57, mouthY + mouthSlant)
                 c.stroke()
             }
         }
@@ -484,9 +490,10 @@ Window {
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
-        interval: 1600; repeat: true; running: root.robotState !== "music"
+        interval: 3200; repeat: true; running: root.robotState !== "music"
         onTriggered: {
-            var step = Math.floor(root.glowPhase / 13) % 4
+            root.gazeStep = (root.gazeStep + 1) % 4
+            var step = root.gazeStep
             root.gaze = step === 0 ? -1 : (step === 2 ? 1 : 0)
             root.gazeY = step === 1 ? -1 : (step === 3 ? 1 : 0)
         }
@@ -536,13 +543,13 @@ Window {
     Rectangle {
         id: qqLoginButton
         z: 10
-        width: Math.max(60, root.height * 0.085)
+        width: Math.max(52, root.height * 0.064)
         height: width
         anchors { right: parent.right; bottom: parent.bottom; margins: Math.max(18, root.height * 0.035) }
         radius: width / 2
-        color: "#1fc56f"
-        border.color: root.qqAuthState === "ready" ? "#f7e95e" : "#62f5a5"
-        border.width: 3
+        color: "#190f14"
+        border.color: root.qqAuthState === "ready" ? "#85313d" : "#55202c"
+        border.width: 1
         Text {
             visible: false
             anchors.centerIn: parent
@@ -556,7 +563,7 @@ Window {
         Text {
             anchors.centerIn: parent
             text: "♫"
-            color: "#fff6a4"; font.bold: true
+            color: "#a34c58"; font.bold: true
             font.pixelSize: parent.height * 0.63
         }
         MouseArea {
