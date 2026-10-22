@@ -457,6 +457,9 @@ class KokoroTts:
 
                     if first_write:
                         record("tts_first_pcm_submit", time.monotonic() - playback_started)
+                        observer = getattr(self, "playback_observer", None)
+                        if observer is not None:
+                            observer(True)
                         first_write = False
                     player.stdin.write(
                         data
@@ -621,6 +624,9 @@ class KokoroTts:
                 )
             except Exception:
                 pass
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
 
             raise TtsError(
                 "Kokoro streaming synthesis "
@@ -635,7 +641,12 @@ class KokoroTts:
 
         worker.join()
 
-        return_code = player.wait()
+        try:
+            return_code = player.wait()
+        finally:
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
 
         if cancellation is not None:
             cancellation.check()
@@ -726,7 +737,13 @@ class KokoroTts:
             cancellation.check()
         try:
             view = memoryview(audio.pcm)
+            playback_started = False
             while view:
+                if not playback_started:
+                    observer = getattr(self, "playback_observer", None)
+                    if observer is not None:
+                        observer(True)
+                    playback_started = True
                 written = player.stdin.write(view)
                 if not written:
                     raise TtsError("Prepared player closed its input")
@@ -740,6 +757,9 @@ class KokoroTts:
                 player.wait()
             if player.stdin and not player.stdin.closed:
                 player.stdin.close()
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
         return TtsResult(
             audio.generation_seconds, audio.audio_seconds, audio.sample_rate,
             audio.first_audio_latency_seconds, time.monotonic() - started, 1)

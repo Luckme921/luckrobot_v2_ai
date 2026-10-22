@@ -1,11 +1,32 @@
 import unittest
+import io
 from concurrent.futures import Future
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from edge.audio.tts.edge_online import EdgeOnlineTts
-from edge.audio.tts.kokoro import TtsError
+from edge.audio.tts.kokoro import TtsError, KokoroTts
+from edge.audio.tts.prepared import prepared_audio
 
 class EdgeTtsTests(unittest.TestCase):
+    def test_prepared_playback_observer_follows_player_lifetime(self):
+        for tts_class, module in ((EdgeOnlineTts, "edge.audio.tts.edge_online"),
+                                  (KokoroTts, "edge.audio.tts.kokoro")):
+            with self.subTest(tts=tts_class.__name__):
+                events = []
+                sink = io.BytesIO()
+                player = Mock(stdin=sink)
+                player.wait.return_value = 0
+                player.poll.return_value = 0
+                tts = (EdgeOnlineTts({}, Mock()) if tts_class is EdgeOnlineTts
+                       else KokoroTts.__new__(KokoroTts))
+                if tts_class is KokoroTts:
+                    tts._prepare_sink = Mock()
+                tts.playback_observer = events.append
+                audio = prepared_audio(b"\x00\x00" * 240, 24000, 0.01, 0.01)
+                with patch(module + ".subprocess.Popen", return_value=player):
+                    tts.play_prepared(audio, "sink")
+                self.assertEqual(events, [True, False])
+
     def test_first_segment_uses_already_prepared_fallback_before_audio(self):
         fallback = Mock()
         tts = EdgeOnlineTts({}, fallback)

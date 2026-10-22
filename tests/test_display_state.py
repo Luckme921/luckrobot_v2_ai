@@ -55,6 +55,17 @@ class DisplayPublisherTests(unittest.TestCase):
             self.assertEqual(data["assistant_text"], "你好呀")
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
+    def test_voice_playback_is_separate_from_speaking_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display.json"
+            publisher = DisplayPublisher({"state_path": str(path)})
+            publisher.publish(state="speaking")
+            self.assertFalse(json.loads(path.read_text(encoding="utf-8"))["voice_playing"])
+            publisher.publish(voice_playing=True)
+            self.assertTrue(json.loads(path.read_text(encoding="utf-8"))["voice_playing"])
+            publisher.publish(voice_playing=False)
+            self.assertFalse(json.loads(path.read_text(encoding="utf-8"))["voice_playing"])
+
     def test_publishes_and_clears_now_playing_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "display.json"

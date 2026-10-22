@@ -19,7 +19,12 @@ def configure_display(config):
 
 
 def display_state(value, label):
-    _display.publish(state=value, label=label)
+    _display.publish(state=value, label=label,
+                     voice_playing=False if value != "speaking" else None)
+
+
+def display_voice_playing(playing):
+    _display.publish(voice_playing=playing)
 
 
 def display_dialogue(*, user_text=None, assistant_text=None,

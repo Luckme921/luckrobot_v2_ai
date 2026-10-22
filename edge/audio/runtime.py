@@ -21,6 +21,7 @@ from edge.audio.status import (
     display_dialogue,
     display_music,
     display_light,
+    display_voice_playing,
     display_state,
     status,
 )
@@ -921,6 +922,10 @@ def main() -> None:
                     from edge.audio.tts.edge_online import EdgeOnlineTts
                     tts = EdgeOnlineTts(tts_cfg, tts)
                     print(f"[INIT] Edge TTS ready voice={tts.voice} fallback=kokoro", flush=True)
+
+                tts.playback_observer = display_voice_playing
+                if provider == "edge":
+                    tts.fallback.playback_observer = display_voice_playing
 
             except TtsError as exc:
                 print(

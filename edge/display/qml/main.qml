@@ -9,6 +9,7 @@ Window {
     title: "LuckRobot"
 
     property string robotState: "sleeping"
+    property bool voicePlaying: false
     property string stateLabel: "等待 Lucky"
     property string userText: ""
     property string assistantText: ""
@@ -264,20 +265,20 @@ Window {
                 }
                 c.globalAlpha = 1
                 var mouthY = h * 0.79
-                var talking = root.robotState === "speaking"
-                var opening = h * (talking ? 0.018 + 0.042 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.96)) : 0.028)
+                var talking = root.voicePlaying
+                var opening = h * (talking ? 0.018 + 0.042 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.96)) : 0)
                 var tilt = h * 0.040
                 var left = w * 0.40, right = w * 0.60
-                c.beginPath()
-                c.moveTo(left, mouthY + tilt * 0.5)
-                c.quadraticCurveTo(w * 0.50, mouthY - opening * 0.24, right, mouthY - tilt * 0.5)
-                c.quadraticCurveTo(w * 0.58, mouthY - tilt * 0.5 + opening * 0.82, w * 0.50, mouthY + opening * 0.70)
-                c.quadraticCurveTo(w * 0.43, mouthY + tilt * 0.5 + opening * 0.45, left, mouthY + tilt * 0.5)
-                c.closePath()
-                c.fillStyle = "#f8f8f7"; c.fill()
                 c.strokeStyle = "#d32334"; c.lineWidth = Math.max(3, h * 0.008)
-                c.stroke()
                 if (talking) {
+                    c.beginPath()
+                    c.moveTo(left, mouthY + tilt * 0.5)
+                    c.quadraticCurveTo(w * 0.50, mouthY - opening * 0.24, right, mouthY - tilt * 0.5)
+                    c.quadraticCurveTo(w * 0.58, mouthY - tilt * 0.5 + opening * 0.82, w * 0.50, mouthY + opening * 0.70)
+                    c.quadraticCurveTo(w * 0.43, mouthY + tilt * 0.5 + opening * 0.45, left, mouthY + tilt * 0.5)
+                    c.closePath()
+                    c.fillStyle = "#f8f8f7"; c.fill()
+                    c.stroke()
                     var fangX = right - w * 0.028
                     var fangTop = mouthY - tilt * 0.36 - opening * 0.08
                     c.beginPath()
@@ -287,6 +288,11 @@ Window {
                     c.closePath()
                     c.fillStyle = "#fffdf7"; c.fill()
                     c.strokeStyle = "#7b1724"; c.lineWidth = Math.max(2, h * 0.003)
+                    c.stroke()
+                } else {
+                    c.beginPath()
+                    c.moveTo(left, mouthY + tilt * 0.5)
+                    c.lineTo(right, mouthY - tilt * 0.5)
                     c.stroke()
                 }
             }
@@ -526,7 +532,8 @@ Window {
         }
     }
     Timer {
-        interval: 250; repeat: true; running: true; triggeredOnStart: true
+        interval: root.robotState === "speaking" || root.voicePlaying ? 80 : 250
+        repeat: true; running: true; triggeredOnStart: true
         onTriggered: {
             var request = new XMLHttpRequest()
             request.onreadystatechange = function() {
@@ -535,6 +542,7 @@ Window {
                 try {
                     var value = JSON.parse(request.responseText)
                     root.robotState = value.state || "sleeping"
+                    root.voicePlaying = value.voice_playing === true
                     root.lightInfo = value.light || root.lightInfo
                     root.stateLabel = value.label || root.robotState
                     root.userText = value.user_text || ""

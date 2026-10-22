@@ -21,6 +21,7 @@ DEFAULT_STATE = {
     "assistant_line_index": 0,
     "assistant_progress_chars": 0,
     "music": None,
+    "voice_playing": False,
     "light": {"on": True, "mode": "breath", "rgb": [255, 0, 0]},
 }
 
@@ -36,7 +37,8 @@ class DisplayPublisher:
 
     def publish(self, *, state=None, label=None, user_text=None,
                 assistant_text=None, assistant_progress_chars=None,
-                music_marker=False, music=None, light=None):
+                music_marker=False, music=None, light=None,
+                voice_playing=None):
         if not self.enabled:
             return
         with self._lock:
@@ -66,6 +68,8 @@ class DisplayPublisher:
                 self._state["music"] = music
             if light is not None:
                 self._state["light"] = light
+            if voice_playing is not None:
+                self._state["voice_playing"] = bool(voice_playing)
             self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._write_atomic()
 

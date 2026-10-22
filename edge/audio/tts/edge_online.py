@@ -133,7 +133,13 @@ class EdgeOnlineTts:
             cancellation.check()
         try:
             view = memoryview(audio.pcm)
+            playback_started = False
             while view:
+                if not playback_started:
+                    observer = getattr(self, "playback_observer", None)
+                    if observer is not None:
+                        observer(True)
+                    playback_started = True
                 written = player.stdin.write(view)
                 if not written:
                     raise TtsError("Prepared player closed its input")
@@ -147,6 +153,9 @@ class EdgeOnlineTts:
                 player.wait()
             if player.stdin and not player.stdin.closed:
                 player.stdin.close()
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
         return TtsResult(
             audio.generation_seconds, audio.audio_seconds, audio.sample_rate,
             audio.first_audio_latency_seconds, time.monotonic() - started, 1)
@@ -184,6 +193,9 @@ class EdgeOnlineTts:
                         cancellation.register(player)
                         cancellation.check()
                     record("tts_first_pcm_submit", time.monotonic()-start)
+                    observer = getattr(self, "playback_observer", None)
+                    if observer is not None:
+                        observer(True)
                 # Conservative: any attempted write prevents repeating the utterance.
                 state["submitted"] = True
                 view = memoryview(data)
@@ -212,3 +224,6 @@ class EdgeOnlineTts:
                 if player.poll() is None: player.kill()
                 player.wait()
                 if player.stdin and not player.stdin.closed: player.stdin.close()
+                observer = getattr(self, "playback_observer", None)
+                if observer is not None:
+                    observer(False)
