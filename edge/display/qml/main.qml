@@ -27,8 +27,6 @@ Window {
     property real eyeOpen: 0
     onEyeOpenChanged: demonFace.requestPaint()
     Behavior on eyeOpen { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-    property real wakeFlash: 0
-    onWakeFlashChanged: demonFace.requestPaint()
     property real wakeTrail: 0
     onWakeTrailChanged: demonFace.requestPaint()
     onRobotStateChanged: {
@@ -38,9 +36,7 @@ Window {
             root.blinking = false
             root.gaze = 0
             root.gazeY = 0
-            root.wakeFlash = 1
             root.wakeTrail = 0
-            wakeFlashDecay.restart()
             wakeTrailExpand.restart()
             wakeOpenDelay.restart()
             wakeHoldDone.restart()
@@ -289,22 +285,28 @@ Window {
                         c.bezierCurveTo(px - ew * 0.075, py + eh * 0.18, px - ew * 0.075, py - eh * 0.18, px, py - eh * 0.20)
                         c.fill()
                     }
-                    if (root.wakeFlash > 0.03) {
+                    if (root.wakeTrail > 0 && root.wakeTrail < 1) {
                         var innerX = side === 0 ? x + ew * 0.87 : x + ew * 0.13
                         var outerX = side === 0 ? x + ew * 0.17 : x + ew * 0.83
                         var direction = side === 0 ? -1 : 1
                         var wingHeight = h * 0.23
-                        var sweepX = innerX + (outerX - innerX) * root.wakeTrail
-                        c.beginPath()
-                        c.moveTo(sweepX, y - wingHeight * 0.22)
-                        c.quadraticCurveTo(sweepX + direction * ew * 0.15,
-                                           y + wingHeight * 0.40,
-                                           sweepX, y + wingHeight * 1.12)
-                        c.globalAlpha = Math.min(1, root.wakeFlash * 1.05)
-                        c.lineWidth = Math.max(5, h * 0.008)
-                        c.lineCap = "round"
-                        c.strokeStyle = color
-                        c.stroke()
+                        for (var ripple = 0; ripple < 3; ripple++) {
+                            var start = ripple * 0.17
+                            var travel = (root.wakeTrail - start) / (1 - start)
+                            if (travel <= 0 || travel >= 1) continue
+                            var sweepX = innerX + (outerX - innerX) * travel
+                            var arcHeight = wingHeight * (0.32 + travel * 0.82)
+                            c.beginPath()
+                            c.moveTo(sweepX, y - arcHeight * 0.22)
+                            c.quadraticCurveTo(sweepX + direction * ew * (0.05 + travel * 0.13),
+                                               y + arcHeight * 0.42,
+                                               sweepX, y + arcHeight * 0.92)
+                            c.globalAlpha = (0.94 - ripple * 0.09) * Math.pow(1 - travel, 0.72)
+                            c.lineWidth = Math.max(3, h * (0.006 - travel * 0.002))
+                            c.lineCap = "round"
+                            c.strokeStyle = color
+                            c.stroke()
+                        }
                     }
                     c.restore()
                 }
@@ -567,17 +569,12 @@ Window {
         }
     }
 
-    NumberAnimation {
-        id: wakeFlashDecay
-        target: root; property: "wakeFlash"
-        from: 1; to: 0; duration: 1150; easing.type: Easing.InQuad
-    }
     Timer { id: wakeOpenDelay; interval: 260; onTriggered: root.eyeOpen = 1 }
-    Timer { id: wakeHoldDone; interval: 1400; onTriggered: root.wakeHolding = false }
+    Timer { id: wakeHoldDone; interval: 1150; onTriggered: root.wakeHolding = false }
     NumberAnimation {
         id: wakeTrailExpand
         target: root; property: "wakeTrail"
-        from: 0; to: 1; duration: 320; easing.type: Easing.OutCubic
+        from: 0; to: 1; duration: 1100; easing.type: Easing.Linear
     }
     Timer {
         interval: 300000
