@@ -1,9 +1,11 @@
 import unittest
+import json
 
+from cloud.agent.client import GLMAgent
+from robot_tools.catalog import LOCAL_SCHEMAS
 from robot_tools.fan_light import (
-    FanLightController, fan_light_control, local_fan_light_request,
+    FanLightController, fan_light_control,
 )
-from robot_tools.chinese_colors import color_rgb, color_table
 
 
 class FakeSerial:
@@ -40,19 +42,22 @@ class FanLightTest(unittest.TestCase):
             b'COLOR 255 0 0\n', b'MODE BREATH\n', b'STATUS\n',
         ])
 
-    def test_preset_and_parameter_rejection(self):
-        result = fan_light_control(self.controller, 'set_light', color_name='黄色', mode='breath')
+    def test_rgb_and_parameter_rejection(self):
+        result = fan_light_control(self.controller, 'set_light', red=255,
+                                   green=212, blue=0, mode='breath')
         self.assertTrue(result['ok'])
         self.assertEqual(self.port.writes[-3:], [
             b'BRIGHT 20\n', b'COLOR 255 212 0\n', b'MODE BREATH\n'])
         self.assertFalse(fan_light_control(self.controller, 'set_speed', percent=-1)['executed'])
         self.assertTrue(fan_light_control(self.controller, 'set_speed', percent=50)['executed'])
-        self.assertFalse(fan_light_control(self.controller, 'set_light', color_name='不存在', mode='static')['executed'])
+        self.assertFalse(fan_light_control(self.controller, 'set_light', red=300,
+                                           green=0, blue=0, mode='static')['executed'])
 
     def test_firmware_error_stops_sequence(self):
         self.port.replies = [b'OK\r\n', b'ERR bad command\r\n']
         with self.assertRaises(RuntimeError):
-            fan_light_control(self.controller, 'set_light', color_name='黄色', mode='breath')
+            fan_light_control(self.controller, 'set_light', red=255,
+                              green=212, blue=0, mode='breath')
         self.assertEqual(len(self.port.writes), 2)
 
     def test_unknown_serial_device_receives_no_write_commands(self):
@@ -61,25 +66,24 @@ class FanLightTest(unittest.TestCase):
             self.controller.initialize()
         self.assertEqual(self.port.writes, [b'STATUS\n'])
 
-    def test_exact_local_route(self):
-        self.assertEqual(local_fan_light_request('红色呼吸灯。')['arguments'],
-                         {'action': 'set_light', 'color_name': '红色', 'mode': 'breath'})
-        self.assertIsNone(local_fan_light_request('我要红色呼吸灯吗'))
-        self.assertEqual(local_fan_light_request('黄色呼吸灯')['arguments'],
-                         {'action': 'set_light', 'color_name': '黄色', 'mode': 'breath'})
-
-    def test_color_table_uses_first_entry_for_duplicate_names(self):
-        self.assertEqual(len(color_table()), 251)
-        self.assertEqual(color_rgb('黄色'), (255, 212, 0))
-        self.assertEqual(color_rgb('绿色'), color_rgb('绿'))
-        self.assertEqual(color_rgb('桦色'), (198, 60, 38))
-
     def test_arbitrary_rgb_breath(self):
         result = fan_light_control(self.controller, 'set_light', mode='breath',
                                    red=255, green=255, blue=0)
         self.assertTrue(result['ok'])
         self.assertEqual(self.port.writes, [b'BRIGHT 20\n',
                                             b'COLOR 255 255 0\n', b'MODE BREATH\n'])
+
+    def test_model_route_passes_rgb_without_color_name(self):
+        route = GLMAgent._parse_turn_route_arguments(json.dumps({
+            'action': 'fan_light_control', 'fan_light_action': 'set_light',
+            'fan_light_mode': 'breath', 'fan_light_red': 255,
+            'fan_light_green': 212, 'fan_light_blue': 0,
+        }))
+        self.assertEqual(route['arguments'], {
+            'action': 'set_light', 'mode': 'breath',
+            'red': 255, 'green': 212, 'blue': 0,
+        })
+        self.assertNotIn('color_name', LOCAL_SCHEMAS['fan_light_control']['properties'])
 
 
 if __name__ == '__main__':

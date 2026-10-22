@@ -655,7 +655,7 @@ class GLMAgent:
             values = {"action": arguments.get("fan_light_action", "")}
             if "fan_light_percent" in arguments:
                 values["percent"] = arguments["fan_light_percent"]
-            for color_field in ("color_name", "mode", "red", "green", "blue"):
+            for color_field in ("mode", "red", "green", "blue"):
                 route_field = "fan_light_" + color_field
                 if route_field in arguments:
                     values[color_field] = arguments[route_field]
@@ -665,10 +665,10 @@ class GLMAgent:
             if values["action"] == "set_light":
                 if "mode" not in values:
                     raise ValueError("light mode is required")
-                if values["mode"] != "rainbow" and "color_name" not in values and not all(
+                if values["mode"] != "rainbow" and not all(
                     field in values for field in ("red", "green", "blue")
                 ):
-                    raise ValueError("light color is required")
+                    raise ValueError("light RGB is required")
             return {"action": action, "local_tool": "fan_light_control", "arguments": values}
 
         music_actions = {
@@ -1099,10 +1099,10 @@ class GLMAgent:
                     "调节散热风扇或风扇灯选择 fan_light_control，fan_light_action 为"
                     "set_speed/set_light/light_off/light_on/status。set_speed 提供"
                     "fan_light_percent；set_light 提供 fan_light_mode"
-                    "(static/breath/rainbow)。静态或呼吸灯还需提供原话中的"
-                    "fan_light_color_name，如黄色、桃色、青磁色；若用户明确给出"
-                    "RGB 数值则使用 fan_light_red/green/blue。颜色名由本地色表核对，"
-                    "不可擅自换成其他颜色。彩虹模式无需颜色。"
+                    "(static/breath/rainbow)。静态或呼吸灯由你判断用户要求的颜色，"
+                    "并提供 fan_light_red/green/blue 三个 0 到 255 的整数。"
+                    "用户明确给出 RGB 时沿用其数值；颜色含糊时选择 respond_text 询问，"
+                    "不可擅自换成其他颜色。彩虹模式无需 RGB。"
                     "用户从刚才音乐候选中选择时选 select_music，music_query 保留编号或歌名。"
                     "若有当前候选列表，用户对列表中歌曲或歌手的指代视为选歌，"
                     "选择 select_music 并返回候选编号，不要重新搜索。"

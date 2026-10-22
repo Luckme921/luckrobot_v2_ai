@@ -3,9 +3,6 @@
 from glob import glob
 from threading import Lock
 
-from robot_tools.chinese_colors import color_rgb, has_color
-
-
 class FanLightController:
     def __init__(self, port=None, serial_factory=None):
         if serial_factory is None:
@@ -46,7 +43,7 @@ class FanLightController:
         self._serial.close()
 
 
-def fan_light_control(controller, action, percent=None, color_name=None,
+def fan_light_control(controller, action, percent=None,
                       red=None, green=None, blue=None, mode=None):
     if action == 'set_speed':
         if type(percent) is not int or not 0 <= percent <= 100:
@@ -57,20 +54,13 @@ def fan_light_control(controller, action, percent=None, color_name=None,
         if mode not in {'static', 'breath', 'rainbow'}:
             return _rejected('请选择静态、呼吸或彩虹模式。')
         if mode == 'rainbow':
-            if color_name is not None or any(value is not None for value in (red, green, blue)):
+            if any(value is not None for value in (red, green, blue)):
                 return _rejected('彩虹模式不接受指定颜色。')
             commands = ('BRIGHT 20', 'MODE RAINBOW')
         else:
-            if color_name is not None and any(value is not None for value in (red, green, blue)):
-                return _rejected('颜色名和 RGB 数值请只选一种。')
-            if color_name is not None:
-                try:
-                    red, green, blue = color_rgb(color_name)
-                except ValueError as exc:
-                    return _rejected(str(exc))
             if any(type(value) is not int or not 0 <= value <= 255
                    for value in (red, green, blue)):
-                return _rejected('请提供色表中的颜色名或 0 到 255 的 RGB 数值。')
+                return _rejected('请提供 0 到 255 的 RGB 数值。')
             commands = ('BRIGHT 20', f'COLOR {red} {green} {blue}')
             if mode == 'breath':
                 commands += ('MODE BREATH',)
@@ -93,24 +83,3 @@ def fan_light_control(controller, action, percent=None, color_name=None,
 
 def _rejected(message):
     return {'ok': False, 'status': 'rejected', 'executed': False, 'message': message}
-
-
-def local_fan_light_request(text):
-    """Exact, unambiguous phrases bypass cloud routing."""
-    normalized = text.strip().rstrip('。！!，, ')
-    fixed = {
-        '彩虹灯': {'action': 'set_light', 'mode': 'rainbow'},
-        '打开彩虹灯': {'action': 'set_light', 'mode': 'rainbow'},
-        '关闭风扇灯': {'action': 'light_off'},
-        '打开风扇灯': {'action': 'light_on'},
-    }
-    args = fixed.get(normalized)
-    if args is None:
-        phrase = normalized.removeprefix('打开')
-        for suffix, mode in (('呼吸灯', 'breath'), ('静态灯', 'static')):
-            if phrase.endswith(suffix):
-                name = phrase[:-len(suffix)]
-                if has_color(name):
-                    args = {'action': 'set_light', 'color_name': name, 'mode': mode}
-                break
-    return {'name': 'fan_light_control', 'arguments': args} if args else None

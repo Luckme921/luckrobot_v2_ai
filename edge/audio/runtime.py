@@ -12,7 +12,7 @@ from edge.music.personal_library import (
 )
 
 from robot_tools.edge import build_edge_tools
-from robot_tools.fan_light import FanLightController, local_fan_light_request
+from robot_tools.fan_light import FanLightController
 from robot_tools.music import DirectAudioPlayer, MusicTools, has_explicit_music_intent
 
 import builtins
@@ -2075,20 +2075,13 @@ def main() -> None:
                                                 # satisfy this fast path.
                                                 fast_path_request = None
 
-                                        local_request = local_fan_light_request(command_text)
-                                        if local_request is None:
-                                            local_request = music_tools.local_request(command_text)
-                                        local_fan_request = (local_request is not None and
-                                                             local_request["name"] == "fan_light_control")
-                                        status("本地控制风扇灯光" if local_fan_request else
-                                               "本地处理音乐" if local_request is not None else "思考 / 模型处理中")
+                                        local_request = music_tools.local_request(command_text)
+                                        status("本地处理音乐" if local_request is not None else "思考 / 模型处理中")
                                         display_state(
                                             "thinking",
-                                            "正在控制风扇灯光" if local_fan_request else
                                             "正在处理音乐" if local_request is not None else "想一想")
                                         if local_request is not None:
-                                            agent_reply = AgentReply(text="", model="local-fan-light" if local_fan_request
-                                                                     else "local-music", tool_request=local_request)
+                                            agent_reply = AgentReply(text="", model="local-music", tool_request=local_request)
                                         elif (
                                             fast_path_request
                                             is not None
@@ -2297,7 +2290,7 @@ def main() -> None:
                                                 turn_monitor.cancellation.check()
                                             tool_name = tool_request["name"]
                                             tool_source = (
-                                                "local" if agent_reply.model in {"local-music", "local-fan-light"}
+                                                "local" if agent_reply.model == "local-music"
                                                 else "model"
                                             )
                                             print(
