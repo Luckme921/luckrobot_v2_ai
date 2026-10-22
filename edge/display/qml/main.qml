@@ -28,12 +28,16 @@ Window {
     Behavior on eyeOpen { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     property real wakeFlash: 0
     onWakeFlashChanged: demonFace.requestPaint()
+    property real wakeTrail: 0
+    onWakeTrailChanged: demonFace.requestPaint()
     onRobotStateChanged: {
         if (root.robotState !== "sleeping" && root.robotState !== "music" && root.eyesAsleep) {
             root.eyesAsleep = false
             root.eyeOpen = 1
             root.wakeFlash = 1
+            root.wakeTrail = 0
             wakeFlashDecay.restart()
+            wakeTrailExpand.restart()
         }
     }
     property real gaze: 0
@@ -287,7 +291,7 @@ Window {
                     if (root.wakeFlash > 0.03 && root.eyeOpen > 0.05) {
                         for (var trail = 1; trail <= 2; trail++) {
                             var drift = (side === 0 ? -1 : 1) * w *
-                                    (0.025 + trail * 0.048) * (1 - root.wakeFlash)
+                                    (0.025 + trail * 0.048) * root.wakeTrail
                             c.beginPath()
                             c.moveTo(x + drift, y + eh * 0.10)
                             c.lineTo(x + ew + drift, y - eh * 0.12)
@@ -566,7 +570,12 @@ Window {
     NumberAnimation {
         id: wakeFlashDecay
         target: root; property: "wakeFlash"
-        from: 1; to: 0; duration: 620; easing.type: Easing.Linear
+        from: 1; to: 0; duration: 1400; easing.type: Easing.InQuad
+    }
+    NumberAnimation {
+        id: wakeTrailExpand
+        target: root; property: "wakeTrail"
+        from: 0; to: 1; duration: 520; easing.type: Easing.OutCubic
     }
     Timer {
         interval: 300000
