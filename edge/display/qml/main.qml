@@ -267,11 +267,6 @@ Window {
                         c.lineWidth = Math.max(4, h * (0.080 - edge * 0.073))
                         c.stroke()
                     }
-                    if (root.wakeFlash > 0) {
-                        c.globalAlpha = root.wakeFlash * 0.45
-                        c.lineWidth = Math.max(8, h * 0.023)
-                        c.stroke()
-                    }
                     if (!shut) {
                         c.globalAlpha = 0.38
                         c.lineWidth = Math.max(4, h * 0.010)
@@ -294,23 +289,20 @@ Window {
                         c.bezierCurveTo(px - ew * 0.075, py + eh * 0.18, px - ew * 0.075, py - eh * 0.18, px, py - eh * 0.20)
                         c.fill()
                     }
-                    if (root.wakeFlash > 0.03 && root.wakeTrail > 0.02) {
-                        var outerX = side === 0 ? x : x + ew
+                    if (root.wakeFlash > 0.03) {
+                        var innerX = side === 0 ? x + ew * 0.87 : x + ew * 0.13
+                        var outerX = side === 0 ? x + ew * 0.17 : x + ew * 0.83
                         var direction = side === 0 ? -1 : 1
                         var wingHeight = h * 0.23
-                        var wave = Math.sin(root.glowPhase * 1.45)
-                        var reach = ew * (0.58 + wave * 0.12) * root.wakeTrail
-                        var rise = wingHeight * (0.58 + wave * 0.18) * root.wakeTrail
+                        var sweepX = innerX + (outerX - innerX) * root.wakeTrail
                         c.beginPath()
-                        c.moveTo(outerX - direction * reach, y - rise * 0.55)
-                        c.quadraticCurveTo(outerX - direction * reach * 0.35,
-                                           y - rise, outerX, y + wingHeight * 0.10)
-                        c.quadraticCurveTo(outerX - direction * reach * 0.35,
-                                           y + wingHeight * 0.90 + rise,
-                                           outerX - direction * reach,
-                                           y + wingHeight * 0.62 + rise * 0.55)
-                        c.globalAlpha = root.wakeFlash * 0.82
-                        c.lineWidth = Math.max(5, h * 0.007)
+                        c.moveTo(sweepX, y - wingHeight * 0.22)
+                        c.quadraticCurveTo(sweepX + direction * ew * 0.15,
+                                           y + wingHeight * 0.40,
+                                           sweepX, y + wingHeight * 1.12)
+                        c.globalAlpha = Math.min(1, root.wakeFlash * 1.05)
+                        c.lineWidth = Math.max(5, h * 0.008)
+                        c.lineCap = "round"
                         c.strokeStyle = color
                         c.stroke()
                     }
@@ -582,20 +574,10 @@ Window {
     }
     Timer { id: wakeOpenDelay; interval: 260; onTriggered: root.eyeOpen = 1 }
     Timer { id: wakeHoldDone; interval: 2100; onTriggered: root.wakeHolding = false }
-    SequentialAnimation {
+    NumberAnimation {
         id: wakeTrailExpand
-        NumberAnimation {
-            target: root; property: "wakeTrail"
-            from: 0; to: 1; duration: 280; easing.type: Easing.OutCubic
-        }
-        NumberAnimation {
-            target: root; property: "wakeTrail"
-            to: 0.78; duration: 90; easing.type: Easing.InOutQuad
-        }
-        NumberAnimation {
-            target: root; property: "wakeTrail"
-            to: 1; duration: 110; easing.type: Easing.OutCubic
-        }
+        target: root; property: "wakeTrail"
+        from: 0; to: 1; duration: 320; easing.type: Easing.OutCubic
     }
     Timer {
         interval: 300000
