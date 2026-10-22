@@ -287,18 +287,18 @@ Window {
                     }
                     if (root.wakeTrail > 0 && root.wakeTrail < 1) {
                         var innerX = x + ew * 0.5
-                        var outerX = side === 0 ? x + ew * 0.17 : x + ew * 0.83
+                        var outerX = side === 0 ? x + ew * 0.10 : x + ew * 0.90
                         var direction = side === 0 ? -1 : 1
-                        var wingHeight = h * 0.23
+                        var wingHeight = h * 0.28
                         for (var ripple = 0; ripple < 3; ripple++) {
                             var start = ripple * 0.17
                             var travel = (root.wakeTrail - start) / (1 - start)
                             if (travel <= 0 || travel >= 1) continue
                             var sweepX = innerX + (outerX - innerX) * travel
-                            var arcHeight = wingHeight * (0.32 + travel * 0.82)
+                            var arcHeight = wingHeight * (0.38 + travel * 0.88)
                             c.beginPath()
                             c.moveTo(sweepX, y - arcHeight * 0.22)
-                            c.quadraticCurveTo(sweepX + direction * ew * (0.05 + travel * 0.13),
+                            c.quadraticCurveTo(sweepX + direction * ew * (0.07 + travel * 0.16),
                                                y + arcHeight * 0.42,
                                                sweepX, y + arcHeight * 0.92)
                             c.globalAlpha = (0.94 - ripple * 0.09) * Math.pow(1 - travel, 0.72)
@@ -574,7 +574,7 @@ Window {
     NumberAnimation {
         id: wakeTrailExpand
         target: root; property: "wakeTrail"
-        from: 0; to: 1; duration: 850; easing.type: Easing.Linear
+        from: 0; to: 1; duration: 680; easing.type: Easing.Linear
     }
     Timer {
         interval: 300000
