@@ -224,11 +224,11 @@ Window {
                     var cx = x + ew * 0.5, cy = y + eh * 0.45
                     c.save()
                     c.translate(cx, cy)
-                    c.rotate(side === 0 ? 0.13 : -0.13)
+                    c.rotate(side === 0 ? 0.25 : -0.13)
                     c.translate(-cx, -cy)
                     c.beginPath()
                     c.moveTo(x, y + eh * 0.10)
-                    c.quadraticCurveTo(x + ew * 0.48, y + eh * 0.22, x + ew, y - eh * 0.12)
+                    c.lineTo(x + ew, y - eh * 0.12)
                     c.quadraticCurveTo(x + ew * 0.85, y + eh * 0.92, x + ew * 0.43, y + eh)
                     c.quadraticCurveTo(x + ew * 0.09, y + eh * 0.90, x, y + eh * 0.10)
                     c.closePath()
@@ -265,25 +265,30 @@ Window {
                 c.globalAlpha = 1
                 var mouthY = h * 0.79
                 var talking = root.robotState === "speaking"
-                var opening = h * (talking ? 0.014 + 0.030 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.55)) : 0.014)
+                var opening = h * (talking ? 0.010 + 0.038 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.96)) : 0.014)
+                var tilt = h * 0.040
                 var left = w * 0.40, right = w * 0.60
                 c.beginPath()
-                c.moveTo(left, mouthY)
-                c.quadraticCurveTo(w * 0.50, mouthY - opening * 0.42, right, mouthY - opening * 0.18)
-                c.quadraticCurveTo(w * 0.57, mouthY + opening * 0.92, w * 0.50, mouthY + opening * 0.68)
-                c.quadraticCurveTo(w * 0.44, mouthY + opening * 0.55, left, mouthY)
+                c.moveTo(left, mouthY + tilt * 0.5)
+                c.quadraticCurveTo(w * 0.50, mouthY - opening * 0.24, right, mouthY - tilt * 0.5)
+                c.quadraticCurveTo(w * 0.58, mouthY - tilt * 0.5 + opening * 0.82, w * 0.50, mouthY + opening * 0.70)
+                c.quadraticCurveTo(w * 0.43, mouthY + tilt * 0.5 + opening * 0.45, left, mouthY + tilt * 0.5)
                 c.closePath()
-                c.fillStyle = "#22080d"; c.fill()
+                c.fillStyle = "#f8f8f7"; c.fill()
                 c.strokeStyle = "#d32334"; c.lineWidth = Math.max(3, h * 0.008)
                 c.stroke()
-                var fangX = right - w * 0.025
-                var fangTop = mouthY - opening * 0.20
-                c.beginPath()
-                c.moveTo(fangX - w * 0.007, fangTop)
-                c.lineTo(fangX + w * 0.007, fangTop)
-                c.lineTo(fangX, fangTop + Math.min(opening * 0.60, h * 0.020))
-                c.closePath()
-                c.fillStyle = "#fff5ef"; c.fill()
+                if (talking) {
+                    var fangX = right - w * 0.028
+                    var fangTop = mouthY - tilt * 0.36 - opening * 0.08
+                    c.beginPath()
+                    c.moveTo(fangX - w * 0.007, fangTop)
+                    c.lineTo(fangX + w * 0.007, fangTop)
+                    c.lineTo(fangX, fangTop + Math.min(opening * 0.56, h * 0.024))
+                    c.closePath()
+                    c.fillStyle = "#fffdf7"; c.fill()
+                    c.strokeStyle = "#7b1724"; c.lineWidth = Math.max(2, h * 0.003)
+                    c.stroke()
+                }
             }
         }
     }
@@ -508,7 +513,7 @@ Window {
     }
     Timer { id: closeBlink; interval: 100; onTriggered: root.blinking = false }
     Timer {
-        interval: 120; repeat: true; running: root.robotState !== "music"
+        interval: 80; repeat: true; running: root.robotState !== "music"
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
