@@ -20,6 +20,7 @@ Window {
     property string musicLyricSignature: ""
     property int musicLyricIndex: 0
     property bool blinking: false
+    onBlinkingChanged: demonFace.requestPaint()
     property real gaze: 0
     property real gazeY: 0
     Behavior on gaze { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
@@ -226,16 +227,19 @@ Window {
                     c.quadraticCurveTo(x + ew * 0.09, y + eh * 0.90, x, y + eh * 0.10)
                     c.closePath()
                     c.globalAlpha = shut ? pulse : 1
-                    c.shadowColor = "#ff2638"; c.shadowBlur = h * 0.10
                     c.fillStyle = shut ? color : "#f9fbff"; c.fill()
+                    c.globalAlpha = pulse * 0.16
+                    c.lineWidth = Math.max(15, h * 0.034)
+                    c.strokeStyle = "#ff2638"; c.stroke()
+                    c.globalAlpha = pulse * 0.40
+                    c.lineWidth = Math.max(8, h * 0.020)
+                    c.stroke()
                     c.globalAlpha = pulse
-                    c.shadowBlur = h * 0.07
-                    c.lineWidth = Math.max(4, h * 0.012)
+                    c.lineWidth = Math.max(3, h * 0.009)
                     c.strokeStyle = color; c.stroke()
                     if (!shut) {
                         var px = x + ew * (0.52 + root.gaze * 0.20)
                         var py = y + eh * (0.38 + root.gazeY * 0.13)
-                        c.shadowBlur = 0
                         c.globalAlpha = 1
                         c.fillStyle = "#050408"
                         c.beginPath()
@@ -246,7 +250,6 @@ Window {
                     }
                 }
                 c.globalAlpha = pulse
-                c.shadowColor = color; c.shadowBlur = h * 0.055
                 c.strokeStyle = color; c.lineWidth = Math.max(3, h * 0.012)
                 var mouthY = h * 0.70
                 c.beginPath()
@@ -475,15 +478,15 @@ Window {
         interval: 3600; repeat: true; running: root.robotState !== "music"
         onTriggered: { root.blinking = true; closeBlink.start() }
     }
-    Timer { id: closeBlink; interval: 80; onTriggered: root.blinking = false }
+    Timer { id: closeBlink; interval: 100; onTriggered: root.blinking = false }
     Timer {
-        interval: 50; repeat: true; running: root.robotState !== "music"
+        interval: 120; repeat: true; running: root.robotState !== "music"
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
         interval: 1600; repeat: true; running: root.robotState !== "music"
         onTriggered: {
-            var step = Math.floor(root.glowPhase / 32) % 4
+            var step = Math.floor(root.glowPhase / 13) % 4
             root.gaze = step === 0 ? -1 : (step === 2 ? 1 : 0)
             root.gazeY = step === 1 ? -1 : (step === 3 ? 1 : 0)
         }
