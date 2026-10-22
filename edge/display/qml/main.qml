@@ -292,18 +292,19 @@ Window {
                         var outerX = side === 0 ? x : x + ew
                         var direction = side === 0 ? -1 : 1
                         for (var trail = 1; trail <= 2; trail++) {
-                            var spread = ew * (trail === 1 ? 0.30 : 0.55) * root.wakeTrail
+                            var reach = ew * (trail === 1 ? 0.34 : 0.55) * root.wakeTrail
+                            var rise = eh * (trail === 1 ? 0.24 : 0.42) * root.wakeTrail
                             c.beginPath()
                             c.moveTo(outerX, y + eh * 0.10)
-                            c.quadraticCurveTo(outerX + direction * spread * 0.55,
-                                               y + eh * (0.02 - trail * 0.09),
-                                               outerX + direction * spread,
-                                               y + eh * (0.09 - trail * 0.08))
+                            c.quadraticCurveTo(outerX - direction * reach * 0.48,
+                                               y - rise,
+                                               outerX - direction * reach,
+                                               y - rise * 0.58)
                             c.moveTo(outerX, y + eh * 0.10)
-                            c.quadraticCurveTo(outerX + direction * spread * 0.45,
-                                               y + eh * (0.38 + trail * 0.07),
-                                               outerX + direction * spread,
-                                               y + eh * (0.15 + trail * 0.07))
+                            c.quadraticCurveTo(outerX - direction * reach * 0.48,
+                                               y + eh * 0.88 + rise,
+                                               outerX - direction * reach,
+                                               y + eh * 0.60 + rise)
                             c.globalAlpha = root.wakeFlash * (0.68 - trail * 0.13)
                             c.lineWidth = Math.max(4, h * (0.008 + trail * 0.003))
                             c.strokeStyle = color
