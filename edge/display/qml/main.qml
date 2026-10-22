@@ -21,6 +21,9 @@ Window {
     property int musicLyricIndex: 0
     property bool blinking: false
     property real gaze: 0
+    property real gazeY: 0
+    Behavior on gaze { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
+    Behavior on gazeY { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
     property real glowPhase: 0
     property var lightInfo: ({"on": true, "mode": "breath", "rgb": [255, 0, 0]})
     function eyeColor() {
@@ -200,16 +203,8 @@ Window {
     Rectangle {
         id: face
         visible: root.robotState !== "music"
-        width: Math.min(root.width * 0.62, root.height * 0.70)
-        height: width / 1.45
-        anchors.centerIn: parent
-        radius: width * 0.15; color: "#08090e"
-        border.width: 1; border.color: "#25212a"
-        opacity: root.robotState === "sleeping" ? 0.63 : 1
-        scale: root.robotState === "sleeping" ? 0.96 : 1
-        Behavior on border.color { ColorAnimation { duration: 250 } }
-        Behavior on opacity { NumberAnimation { duration: 300 } }
-        Behavior on scale { NumberAnimation { duration: 300 } }
+        anchors.fill: parent
+        color: "#050408"
 
         Canvas {
             id: demonFace
@@ -218,38 +213,45 @@ Window {
                 var c = getContext("2d"), w = width, h = height
                 c.clearRect(0, 0, w, h)
                 var color = root.eyeColor()
-                var shut = root.blinking || root.robotState === "sleeping"
-                var pulse = root.lightInfo.mode === "breath" ? 0.65 + 0.25 * Math.sin(root.glowPhase * 0.14) : 0.9
+                var shut = root.blinking
+                var pulse = root.lightInfo.mode === "breath" ? 0.72 + 0.18 * Math.sin(root.glowPhase * 0.14) : 0.9
                 if (root.lightInfo.on === false) pulse = 0.25
-                c.globalAlpha = pulse
                 for (var side = 0; side < 2; side++) {
-                    var x = side === 0 ? w * 0.09 : w * 0.55
-                    var y = h * 0.32, ew = w * 0.36, eh = shut ? h * 0.018 : h * 0.18
+                    var x = side === 0 ? w * 0.045 : w * 0.535
+                    var y = h * 0.37, ew = w * 0.42, eh = shut ? h * 0.008 : h * 0.23
                     c.beginPath()
-                    c.moveTo(x, y)
-                    c.quadraticCurveTo(x + ew * 0.42, y + eh * 0.16, x + ew, y - eh * 0.20)
-                    c.quadraticCurveTo(x + ew * 0.76, y + eh * 1.2, x + ew * 0.38, y + eh)
-                    c.quadraticCurveTo(x + ew * 0.08, y + eh * 0.82, x, y)
+                    c.moveTo(x, y + eh * 0.10)
+                    c.quadraticCurveTo(x + ew * 0.48, y + eh * 0.22, x + ew, y - eh * 0.12)
+                    c.quadraticCurveTo(x + ew * 0.85, y + eh * 0.92, x + ew * 0.43, y + eh)
+                    c.quadraticCurveTo(x + ew * 0.09, y + eh * 0.90, x, y + eh * 0.10)
                     c.closePath()
-                    c.shadowColor = color; c.shadowBlur = h * 0.085
-                    c.fillStyle = color; c.fill()
-                    c.shadowBlur = h * 0.025
+                    c.globalAlpha = shut ? pulse : 1
+                    c.shadowColor = "#ff2638"; c.shadowBlur = h * 0.10
+                    c.fillStyle = shut ? color : "#f9fbff"; c.fill()
+                    c.globalAlpha = pulse
+                    c.shadowBlur = h * 0.07
+                    c.lineWidth = Math.max(4, h * 0.012)
+                    c.strokeStyle = color; c.stroke()
                     if (!shut) {
-                        var px = x + ew * (0.53 + root.gaze * 0.16)
-                        c.fillStyle = "#09090d"
+                        var px = x + ew * (0.52 + root.gaze * 0.20)
+                        var py = y + eh * (0.38 + root.gazeY * 0.13)
+                        c.shadowBlur = 0
+                        c.globalAlpha = 1
+                        c.fillStyle = "#050408"
                         c.beginPath()
-                        c.moveTo(px, y - eh * 0.08)
-                        c.bezierCurveTo(px + ew * 0.10, y, px + ew * 0.10, y + eh * 0.9, px, y + eh * 0.97)
-                        c.bezierCurveTo(px - ew * 0.10, y + eh * 0.9, px - ew * 0.10, y, px, y - eh * 0.08)
+                        c.moveTo(px, py - eh * 0.20)
+                        c.bezierCurveTo(px + ew * 0.075, py - eh * 0.18, px + ew * 0.075, py + eh * 0.18, px, py + eh * 0.20)
+                        c.bezierCurveTo(px - ew * 0.075, py + eh * 0.18, px - ew * 0.075, py - eh * 0.18, px, py - eh * 0.20)
                         c.fill()
                     }
                 }
+                c.globalAlpha = pulse
                 c.shadowColor = color; c.shadowBlur = h * 0.055
-                c.strokeStyle = color; c.lineWidth = Math.max(3, h * 0.019)
-                var mouthY = h * 0.72
+                c.strokeStyle = color; c.lineWidth = Math.max(3, h * 0.012)
+                var mouthY = h * 0.70
                 c.beginPath()
-                c.moveTo(w * 0.38, mouthY)
-                c.quadraticCurveTo(w * 0.5, mouthY + (root.robotState === "speaking" ? h * (0.05 + 0.04 * Math.sin(root.glowPhase * 0.7)) : h * 0.025), w * 0.62, mouthY)
+                c.moveTo(w * 0.43, mouthY)
+                c.quadraticCurveTo(w * 0.5, mouthY + (root.robotState === "speaking" ? h * (0.018 + 0.012 * Math.sin(root.glowPhase * 0.7)) : h * 0.012), w * 0.57, mouthY)
                 c.stroke()
             }
         }
@@ -470,17 +472,21 @@ Window {
     }
 
     Timer {
-        interval: 5200; repeat: true; running: root.robotState !== "sleeping" && root.robotState !== "music"
+        interval: 3600; repeat: true; running: root.robotState !== "music"
         onTriggered: { root.blinking = true; closeBlink.start() }
     }
-    Timer { id: closeBlink; interval: 130; onTriggered: root.blinking = false }
+    Timer { id: closeBlink; interval: 80; onTriggered: root.blinking = false }
     Timer {
         interval: 50; repeat: true; running: root.robotState !== "music"
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
-        interval: 2300; repeat: true; running: root.robotState !== "sleeping" && root.robotState !== "music"
-        onTriggered: root.gaze = root.gaze > 0 ? -1 : (root.gaze < 0 ? 0 : 1)
+        interval: 1600; repeat: true; running: root.robotState !== "music"
+        onTriggered: {
+            var step = Math.floor(root.glowPhase / 32) % 4
+            root.gaze = step === 0 ? -1 : (step === 2 ? 1 : 0)
+            root.gazeY = step === 1 ? -1 : (step === 3 ? 1 : 0)
+        }
     }
     Timer {
         interval: 250; repeat: true; running: true; triggeredOnStart: true
@@ -526,15 +532,16 @@ Window {
 
     Rectangle {
         id: qqLoginButton
-        visible: root.robotState === "music"
         z: 10
-        width: Math.max(230, root.width * 0.18)
-        height: Math.max(45, root.height * 0.07)
-        anchors { left: parent.left; top: parent.top; margins: 20 }
-        radius: 12
-        color: root.qqAuthState === "required" ? "#9b3f52" : "#173849"
-        border.color: root.qqAuthState === "ready" ? "#52ffd2" : "#66e6ff"
+        width: Math.max(60, root.height * 0.085)
+        height: width
+        anchors { right: parent.right; bottom: parent.bottom; margins: Math.max(18, root.height * 0.035) }
+        radius: width / 2
+        color: "#1fc56f"
+        border.color: root.qqAuthState === "ready" ? "#f7e95e" : "#62f5a5"
+        border.width: 3
         Text {
+            visible: false
             anchors.centerIn: parent
             text: root.qqAuthState === "ready" ?
                   "QQ 音乐 · " + (root.qqNickname || "已登录") : "QQ 音乐登录"
@@ -542,6 +549,12 @@ Window {
             font.pixelSize: Math.max(17, Math.min(22, root.height * 0.027))
             width: parent.width - 24; horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
+        }
+        Text {
+            anchors.centerIn: parent
+            text: "♫"
+            color: "#fff6a4"; font.bold: true
+            font.pixelSize: parent.height * 0.63
         }
         MouseArea {
             anchors.fill: parent
