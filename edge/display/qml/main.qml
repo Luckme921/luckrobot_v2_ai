@@ -26,7 +26,7 @@ Window {
     property bool wakeHolding: false
     property real eyeOpen: 0
     onEyeOpenChanged: demonFace.requestPaint()
-    Behavior on eyeOpen { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+    Behavior on eyeOpen { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
     property real wakeTrail: 0
     onWakeTrailChanged: demonFace.requestPaint()
     onRobotStateChanged: {
@@ -359,15 +359,16 @@ Window {
         id: musicPanel
         visible: root.robotState === "music"
         anchors { top: parent.top; topMargin: root.height * 0.055; horizontalCenter: parent.horizontalCenter }
-        width: root.width * 0.88
+        width: root.width * 0.92
         height: root.height * (root.musicLyrics.length ? 0.60 : 0.68)
 
         Column {
             id: musicControls
             width: Math.max(66, root.width * 0.075)
             spacing: root.height * 0.018
-            anchors { left: parent.left; leftMargin: parent.width * 0.09;
-                verticalCenter: record.verticalCenter }
+            anchors { left: parent.left; leftMargin: parent.width * 0.075;
+                verticalCenter: record.verticalCenter;
+                verticalCenterOffset: root.height * 0.09 }
             Repeater {
                 model: [
                     {glyph: "◀◀", action: "previous_music"},
@@ -378,13 +379,14 @@ Window {
                 Rectangle {
                     width: musicControls.width; height: width * 0.72
                     radius: height * 0.30
-                    color: controlMouse.pressed ? "#235b43" : "#123d2d"
-                    border.color: "#54e5a0"; border.width: 2
+                    color: "transparent"
                     opacity: root.musicControlPending ? 0.55 : 1
                     Text {
                         anchors.centerIn: parent
-                        text: modelData.glyph; color: "#f4fff8"; font.bold: true
-                        font.pixelSize: Math.max(21, parent.height * 0.43)
+                        text: modelData.glyph
+                        color: controlMouse.pressed ? "#31d687" : "#f4fff8"
+                        font.bold: true
+                        font.pixelSize: Math.max(28, parent.height * 0.60)
                     }
                     MouseArea {
                         id: controlMouse; anchors.fill: parent
@@ -400,10 +402,9 @@ Window {
         Item {
             id: record
             height: Math.min(parent.height * 0.62, root.height * 0.36)
-            // The Jetson framebuffer uses non-square display pixels on this HDMI panel.
-            width: height * 0.76
+            width: height
             anchors { horizontalCenter: parent.horizontalCenter;
-                horizontalCenterOffset: root.width * 0.075; top: parent.top }
+                horizontalCenterOffset: root.width * 0.16; top: parent.top }
             RotationAnimation on rotation {
                 from: 0; to: 360; duration: 12000
                 loops: Animation.Infinite; running: musicPanel.visible && root.musicIsPlaying()
@@ -415,7 +416,6 @@ Window {
                     ctx.clearRect(0, 0, width, height)
                     ctx.save()
                     ctx.translate(width / 2, height / 2)
-                    ctx.scale(width / height, 1)
                     ctx.beginPath()
                     ctx.arc(0, 0, height * 0.49, 0, Math.PI * 2)
                     ctx.fillStyle = "#0c1d19"
@@ -468,7 +468,6 @@ Window {
                     if (!coverUrl || !isImageLoaded(coverUrl)) return
                     ctx.save()
                     ctx.translate(width / 2, height / 2)
-                    ctx.scale(width / height, 1)
                     ctx.beginPath()
                     ctx.arc(0, 0, height / 2, 0, Math.PI * 2)
                     ctx.closePath()
@@ -489,8 +488,8 @@ Window {
             height: root.height * 0.105
             spacing: width * 0.025
             anchors { horizontalCenter: parent.horizontalCenter;
-                horizontalCenterOffset: root.width * 0.075;
-                top: record.bottom; topMargin: root.height * 0.018 }
+                horizontalCenterOffset: root.width * 0.16;
+                top: record.bottom; topMargin: root.height * 0.055 }
             Repeater {
                 model: 13
                 Item {
@@ -569,12 +568,12 @@ Window {
         }
     }
 
-    Timer { id: wakeOpenDelay; interval: 260; onTriggered: root.eyeOpen = 1 }
-    Timer { id: wakeHoldDone; interval: 1150; onTriggered: root.wakeHolding = false }
+    Timer { id: wakeOpenDelay; interval: 180; onTriggered: root.eyeOpen = 1 }
+    Timer { id: wakeHoldDone; interval: 850; onTriggered: root.wakeHolding = false }
     NumberAnimation {
         id: wakeTrailExpand
         target: root; property: "wakeTrail"
-        from: 0; to: 1; duration: 680; easing.type: Easing.Linear
+        from: 0; to: 1; duration: 490; easing.type: Easing.Linear
     }
     Timer {
         interval: 300000
