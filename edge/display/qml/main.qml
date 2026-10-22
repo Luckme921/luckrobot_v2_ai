@@ -235,12 +235,13 @@ Window {
                     c.closePath()
                     c.globalAlpha = shut ? pulse : 1
                     c.fillStyle = shut ? color : "#f9fbff"; c.fill()
-                    c.globalAlpha = pulse
-                    c.shadowColor = color
-                    c.shadowBlur = h * 0.050
-                    c.lineWidth = Math.max(5, h * 0.011)
-                    c.strokeStyle = color; c.stroke()
-                    c.shadowBlur = 0
+                    c.strokeStyle = color
+                    for (var glowStep = 0; glowStep < 32; glowStep++) {
+                        var edge = glowStep / 31
+                        c.globalAlpha = pulse * (0.020 + edge * 0.022)
+                        c.lineWidth = Math.max(4, h * (0.080 - edge * 0.073))
+                        c.stroke()
+                    }
                     if (!shut) {
                         c.globalAlpha = 0.38
                         c.lineWidth = Math.max(4, h * 0.010)
@@ -277,8 +278,6 @@ Window {
                 lipColor.addColorStop(0.65, "#e32a40")
                 lipColor.addColorStop(1, "#921324")
                 c.strokeStyle = lipColor; c.lineWidth = Math.max(3, h * 0.008)
-                c.shadowColor = "#a20b24"
-                c.shadowBlur = h * 0.012
                 if (talking) {
                     c.beginPath()
                     c.moveTo(left, mouthY + tilt * 0.5)
@@ -292,7 +291,6 @@ Window {
                     mouthShade.addColorStop(1, "#d59ca5")
                     c.fillStyle = mouthShade; c.fill()
                     c.stroke()
-                    c.shadowBlur = 0
                     var fangX = right - w * 0.028
                     var fangTop = mouthY - tilt * 0.36 - opening * 0.08
                     c.beginPath()
@@ -308,7 +306,6 @@ Window {
                     c.moveTo(left, mouthY + tilt * 0.5)
                     c.lineTo(right, mouthY - tilt * 0.5)
                     c.stroke()
-                    c.shadowBlur = 0
                 }
             }
         }
