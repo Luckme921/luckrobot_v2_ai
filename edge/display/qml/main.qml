@@ -221,6 +221,11 @@ Window {
                 for (var side = 0; side < 2; side++) {
                     var x = side === 0 ? w * 0.045 : w * 0.535
                     var y = h * 0.28, ew = w * 0.42, eh = shut ? h * 0.008 : h * 0.23
+                    var cx = x + ew * 0.5, cy = y + eh * 0.45
+                    c.save()
+                    c.translate(cx, cy)
+                    c.rotate(side === 0 ? 0.13 : -0.13)
+                    c.translate(-cx, -cy)
                     c.beginPath()
                     c.moveTo(x, y + eh * 0.10)
                     c.quadraticCurveTo(x + ew * 0.48, y + eh * 0.22, x + ew, y - eh * 0.12)
@@ -243,8 +248,10 @@ Window {
                     c.lineWidth = Math.max(3, h * 0.009)
                     c.strokeStyle = color; c.stroke()
                     if (!shut) {
-                        var px = x + ew * (0.52 + root.gaze * 0.20)
-                        var py = y + eh * (0.38 + root.gazeY * 0.13)
+                        var lookX = root.robotState === "speaking" ? 0 : root.gaze
+                        var lookY = root.robotState === "speaking" ? 0 : root.gazeY
+                        var px = x + ew * (0.52 + lookX * 0.20)
+                        var py = y + eh * (0.38 + lookY * 0.13)
                         c.globalAlpha = 1
                         c.fillStyle = "#050408"
                         c.beginPath()
@@ -253,15 +260,30 @@ Window {
                         c.bezierCurveTo(px - ew * 0.075, py + eh * 0.18, px - ew * 0.075, py - eh * 0.18, px, py - eh * 0.20)
                         c.fill()
                     }
+                    c.restore()
                 }
-                c.globalAlpha = pulse
-                c.strokeStyle = color; c.lineWidth = Math.max(3, h * 0.012)
+                c.globalAlpha = 1
                 var mouthY = h * 0.79
-                var mouthSlant = root.robotState === "speaking" ? h * 0.014 * Math.sin(root.glowPhase * 0.72) : 0
+                var talking = root.robotState === "speaking"
+                var opening = h * (talking ? 0.014 + 0.030 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.55)) : 0.014)
+                var left = w * 0.40, right = w * 0.60
                 c.beginPath()
-                c.moveTo(w * 0.43, mouthY - mouthSlant)
-                c.quadraticCurveTo(w * 0.5, mouthY + h * 0.012, w * 0.57, mouthY + mouthSlant)
+                c.moveTo(left, mouthY)
+                c.quadraticCurveTo(w * 0.50, mouthY - opening * 0.42, right, mouthY - opening * 0.18)
+                c.quadraticCurveTo(w * 0.57, mouthY + opening * 0.92, w * 0.50, mouthY + opening * 0.68)
+                c.quadraticCurveTo(w * 0.44, mouthY + opening * 0.55, left, mouthY)
+                c.closePath()
+                c.fillStyle = "#22080d"; c.fill()
+                c.strokeStyle = "#d32334"; c.lineWidth = Math.max(3, h * 0.008)
                 c.stroke()
+                var fangX = right - w * 0.025
+                var fangTop = mouthY - opening * 0.20
+                c.beginPath()
+                c.moveTo(fangX - w * 0.007, fangTop)
+                c.lineTo(fangX + w * 0.007, fangTop)
+                c.lineTo(fangX, fangTop + Math.min(opening * 0.60, h * 0.020))
+                c.closePath()
+                c.fillStyle = "#fff5ef"; c.fill()
             }
         }
     }
@@ -490,7 +512,7 @@ Window {
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
-        interval: 3200; repeat: true; running: root.robotState !== "music"
+        interval: 3200; repeat: true; running: root.robotState !== "music" && root.robotState !== "speaking"
         onTriggered: {
             root.gazeStep = (root.gazeStep + 1) % 4
             var step = root.gazeStep
