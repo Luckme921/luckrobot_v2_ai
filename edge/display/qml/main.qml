@@ -23,6 +23,7 @@ Window {
     property bool blinking: false
     onBlinkingChanged: demonFace.requestPaint()
     property bool eyesAsleep: true
+    property bool wakeHolding: false
     property real eyeOpen: 0
     onEyeOpenChanged: demonFace.requestPaint()
     Behavior on eyeOpen { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
@@ -33,11 +34,16 @@ Window {
     onRobotStateChanged: {
         if (root.robotState !== "sleeping" && root.robotState !== "music" && root.eyesAsleep) {
             root.eyesAsleep = false
-            root.eyeOpen = 1
+            root.wakeHolding = true
+            root.blinking = false
+            root.gaze = 0
+            root.gazeY = 0
             root.wakeFlash = 1
             root.wakeTrail = 0
             wakeFlashDecay.restart()
             wakeTrailExpand.restart()
+            wakeOpenDelay.restart()
+            wakeHoldDone.restart()
         }
     }
     property real gaze: 0
@@ -288,25 +294,26 @@ Window {
                         c.bezierCurveTo(px - ew * 0.075, py + eh * 0.18, px - ew * 0.075, py - eh * 0.18, px, py - eh * 0.20)
                         c.fill()
                     }
-                    if (root.wakeFlash > 0.03 && root.eyeOpen > 0.05) {
+                    if (root.wakeFlash > 0.03 && root.wakeTrail > 0.02) {
                         var outerX = side === 0 ? x : x + ew
                         var direction = side === 0 ? -1 : 1
+                        var wingHeight = h * 0.23
                         for (var trail = 1; trail <= 2; trail++) {
-                            var reach = ew * (trail === 1 ? 0.34 : 0.55) * root.wakeTrail
-                            var rise = eh * (trail === 1 ? 0.24 : 0.42) * root.wakeTrail
+                            var reach = ew * (trail === 1 ? 0.50 : 0.74) * root.wakeTrail
+                            var rise = wingHeight * (trail === 1 ? 0.48 : 0.82) * root.wakeTrail
                             c.beginPath()
-                            c.moveTo(outerX, y + eh * 0.10)
+                            c.moveTo(outerX, y + wingHeight * 0.10)
                             c.quadraticCurveTo(outerX - direction * reach * 0.48,
                                                y - rise,
                                                outerX - direction * reach,
                                                y - rise * 0.58)
-                            c.moveTo(outerX, y + eh * 0.10)
+                            c.moveTo(outerX, y + wingHeight * 0.10)
                             c.quadraticCurveTo(outerX - direction * reach * 0.48,
-                                               y + eh * 0.88 + rise,
+                                               y + wingHeight * 0.88 + rise,
                                                outerX - direction * reach,
-                                               y + eh * 0.60 + rise)
-                            c.globalAlpha = root.wakeFlash * (0.68 - trail * 0.13)
-                            c.lineWidth = Math.max(4, h * (0.008 + trail * 0.003))
+                                               y + wingHeight * 0.60 + rise)
+                            c.globalAlpha = root.wakeFlash * (1.02 - trail * 0.16)
+                            c.lineWidth = Math.max(8, h * (0.014 + trail * 0.005))
                             c.strokeStyle = color
                             c.stroke()
                         }
@@ -575,8 +582,10 @@ Window {
     NumberAnimation {
         id: wakeFlashDecay
         target: root; property: "wakeFlash"
-        from: 1; to: 0; duration: 1400; easing.type: Easing.InQuad
+        from: 1; to: 0; duration: 1750; easing.type: Easing.InQuad
     }
+    Timer { id: wakeOpenDelay; interval: 260; onTriggered: root.eyeOpen = 1 }
+    Timer { id: wakeHoldDone; interval: 2100; onTriggered: root.wakeHolding = false }
     SequentialAnimation {
         id: wakeTrailExpand
         NumberAnimation {
@@ -603,7 +612,7 @@ Window {
         }
     }
     Timer {
-        interval: 3600; repeat: true; running: root.robotState !== "music" && !root.eyesAsleep
+        interval: 3600; repeat: true; running: root.robotState !== "music" && !root.eyesAsleep && !root.wakeHolding
         onTriggered: { root.blinking = true; closeBlink.start() }
     }
     Timer { id: closeBlink; interval: 100; onTriggered: root.blinking = false }
@@ -612,7 +621,7 @@ Window {
         onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
     }
     Timer {
-        interval: 3200; repeat: true; running: root.robotState !== "music" && root.robotState !== "speaking" && !root.eyesAsleep
+        interval: 3200; repeat: true; running: root.robotState !== "music" && root.robotState !== "speaking" && !root.eyesAsleep && !root.wakeHolding
         onTriggered: {
             root.gazeStep = (root.gazeStep + 1) % 4
             var step = root.gazeStep
