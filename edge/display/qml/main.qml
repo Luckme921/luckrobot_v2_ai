@@ -242,19 +242,6 @@ Window {
                     c.translate(cx, cy)
                     c.rotate(side === 0 ? 0.25 : -0.13)
                     c.translate(-cx, -cy)
-                    if (root.wakeFlash > 0 && root.eyeOpen > 0.05) {
-                        for (var trail = 1; trail <= 3; trail++) {
-                            var drift = (side === 0 ? -1 : 1) * w *
-                                    (0.015 + trail * 0.025) * (1 - root.wakeFlash)
-                            c.beginPath()
-                            c.moveTo(x + drift, y + eh * 0.10)
-                            c.lineTo(x + ew + drift, y - eh * 0.12)
-                            c.globalAlpha = root.wakeFlash * (0.72 - trail * 0.12)
-                            c.lineWidth = Math.max(3, h * (0.007 + trail * 0.003))
-                            c.strokeStyle = color
-                            c.stroke()
-                        }
-                    }
                     c.beginPath()
                     c.moveTo(x, y + eh * 0.10)
                     c.lineTo(x + ew, y - eh * 0.12)
@@ -296,6 +283,24 @@ Window {
                         c.bezierCurveTo(px + ew * 0.075, py - eh * 0.18, px + ew * 0.075, py + eh * 0.18, px, py + eh * 0.20)
                         c.bezierCurveTo(px - ew * 0.075, py + eh * 0.18, px - ew * 0.075, py - eh * 0.18, px, py - eh * 0.20)
                         c.fill()
+                    }
+                    if (root.wakeFlash > 0.03 && root.eyeOpen > 0.05) {
+                        for (var trail = 1; trail <= 2; trail++) {
+                            var drift = (side === 0 ? -1 : 1) * w *
+                                    (0.025 + trail * 0.048) * (1 - root.wakeFlash)
+                            c.beginPath()
+                            c.moveTo(x + drift, y + eh * 0.10)
+                            c.lineTo(x + ew + drift, y - eh * 0.12)
+                            c.quadraticCurveTo(x + ew * 0.85 + drift, y + eh * 0.92,
+                                               x + ew * 0.43 + drift, y + eh)
+                            c.quadraticCurveTo(x + ew * 0.09 + drift, y + eh * 0.90,
+                                               x + drift, y + eh * 0.10)
+                            c.closePath()
+                            c.globalAlpha = root.wakeFlash * (0.58 - trail * 0.12)
+                            c.lineWidth = Math.max(3, h * 0.009)
+                            c.strokeStyle = color
+                            c.stroke()
+                        }
                     }
                     c.restore()
                 }
