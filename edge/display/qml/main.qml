@@ -577,10 +577,20 @@ Window {
         target: root; property: "wakeFlash"
         from: 1; to: 0; duration: 1400; easing.type: Easing.InQuad
     }
-    NumberAnimation {
+    SequentialAnimation {
         id: wakeTrailExpand
-        target: root; property: "wakeTrail"
-        from: 0; to: 1; duration: 520; easing.type: Easing.OutCubic
+        NumberAnimation {
+            target: root; property: "wakeTrail"
+            from: 0; to: 1; duration: 430; easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: root; property: "wakeTrail"
+            to: 0.84; duration: 130; easing.type: Easing.InOutQuad
+        }
+        NumberAnimation {
+            target: root; property: "wakeTrail"
+            to: 1; duration: 170; easing.type: Easing.OutCubic
+        }
     }
     Timer {
         interval: 300000
