@@ -235,16 +235,15 @@ Window {
                     c.closePath()
                     c.globalAlpha = shut ? pulse : 1
                     c.fillStyle = shut ? color : "#f9fbff"; c.fill()
-                    c.strokeStyle = color
-                    for (var glowStep = 0; glowStep < 20; glowStep++) {
-                        var edge = glowStep / 19
-                        c.globalAlpha = pulse * (0.035 + edge * 0.035)
-                        c.lineWidth = Math.max(4, h * (0.080 - edge * 0.073))
-                        c.stroke()
-                    }
+                    c.globalAlpha = pulse
+                    c.shadowColor = color
+                    c.shadowBlur = h * 0.050
+                    c.lineWidth = Math.max(5, h * 0.011)
+                    c.strokeStyle = color; c.stroke()
+                    c.shadowBlur = 0
                     if (!shut) {
-                        c.globalAlpha = 0.62
-                        c.lineWidth = Math.max(3, h * 0.007)
+                        c.globalAlpha = 0.38
+                        c.lineWidth = Math.max(4, h * 0.010)
                         c.strokeStyle = "#ffe3e6"; c.stroke()
                     }
                     if (!shut) {
@@ -253,7 +252,11 @@ Window {
                         var px = x + ew * (0.52 + lookX * 0.20)
                         var py = y + eh * (0.38 + lookY * 0.13)
                         c.globalAlpha = 1
-                        c.fillStyle = "#050408"
+                        var pupilShade = c.createRadialGradient(px, py, ew * 0.006, px, py, ew * 0.095)
+                        pupilShade.addColorStop(0, "#050408")
+                        pupilShade.addColorStop(0.58, "#090408")
+                        pupilShade.addColorStop(1, "#40101a")
+                        c.fillStyle = pupilShade
                         c.beginPath()
                         c.moveTo(px, py - eh * 0.20)
                         c.bezierCurveTo(px + ew * 0.075, py - eh * 0.18, px + ew * 0.075, py + eh * 0.18, px, py + eh * 0.20)
@@ -268,7 +271,14 @@ Window {
                 var opening = h * (talking ? 0.018 + 0.042 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.96)) : 0)
                 var tilt = h * 0.040
                 var left = w * 0.40, right = w * 0.60
-                c.strokeStyle = "#d32334"; c.lineWidth = Math.max(3, h * 0.008)
+                var lipColor = c.createLinearGradient(left, mouthY, right, mouthY)
+                lipColor.addColorStop(0, "#78101e")
+                lipColor.addColorStop(0.25, "#bd1c30")
+                lipColor.addColorStop(0.65, "#e32a40")
+                lipColor.addColorStop(1, "#921324")
+                c.strokeStyle = lipColor; c.lineWidth = Math.max(3, h * 0.008)
+                c.shadowColor = "#a20b24"
+                c.shadowBlur = h * 0.012
                 if (talking) {
                     c.beginPath()
                     c.moveTo(left, mouthY + tilt * 0.5)
@@ -276,8 +286,13 @@ Window {
                     c.quadraticCurveTo(w * 0.58, mouthY - tilt * 0.5 + opening * 0.82, w * 0.50, mouthY + opening * 0.70)
                     c.quadraticCurveTo(w * 0.43, mouthY + tilt * 0.5 + opening * 0.45, left, mouthY + tilt * 0.5)
                     c.closePath()
-                    c.fillStyle = "#f8f8f7"; c.fill()
+                    var mouthShade = c.createLinearGradient(0, mouthY - opening * 0.4, 0, mouthY + opening * 0.8)
+                    mouthShade.addColorStop(0, "#fffdfb")
+                    mouthShade.addColorStop(0.7, "#f8f0f0")
+                    mouthShade.addColorStop(1, "#d59ca5")
+                    c.fillStyle = mouthShade; c.fill()
                     c.stroke()
+                    c.shadowBlur = 0
                     var fangX = right - w * 0.028
                     var fangTop = mouthY - tilt * 0.36 - opening * 0.08
                     c.beginPath()
@@ -293,6 +308,7 @@ Window {
                     c.moveTo(left, mouthY + tilt * 0.5)
                     c.lineTo(right, mouthY - tilt * 0.5)
                     c.stroke()
+                    c.shadowBlur = 0
                 }
             }
         }
