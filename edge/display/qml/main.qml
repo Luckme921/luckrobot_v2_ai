@@ -265,7 +265,7 @@ Window {
                 c.globalAlpha = 1
                 var mouthY = h * 0.79
                 var talking = root.robotState === "speaking"
-                var opening = h * (talking ? 0.010 + 0.038 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.96)) : 0.014)
+                var opening = h * (talking ? 0.018 + 0.042 * (0.5 + 0.5 * Math.sin(root.glowPhase * 0.96)) : 0.028)
                 var tilt = h * 0.040
                 var left = w * 0.40, right = w * 0.60
                 c.beginPath()
