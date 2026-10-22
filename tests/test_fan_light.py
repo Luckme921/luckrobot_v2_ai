@@ -73,6 +73,21 @@ class FanLightTest(unittest.TestCase):
         self.assertEqual(self.port.writes, [b'BRIGHT 20\n',
                                             b'COLOR 255 255 0\n', b'MODE BREATH\n'])
 
+    def test_display_tracks_accepted_light_commands(self):
+        updates = []
+        fan_light_control(self.controller, 'set_light', mode='breath',
+                          red=240, green=30, blue=10, display_light=updates.append)
+        fan_light_control(self.controller, 'light_off', display_light=updates.append)
+        fan_light_control(self.controller, 'light_on', display_light=updates.append)
+        self.assertEqual(updates, [
+            {'on': True, 'mode': 'breath', 'rgb': [240, 30, 10]},
+            {'on': False}, {'on': True},
+        ])
+        self.port.replies = [b'ERR rejected\r\n']
+        with self.assertRaises(RuntimeError):
+            fan_light_control(self.controller, 'light_off', display_light=updates.append)
+        self.assertEqual(len(updates), 3)
+
     def test_model_route_passes_rgb_without_color_name(self):
         route = GLMAgent._parse_turn_route_arguments(json.dumps({
             'action': 'fan_light_control', 'fan_light_action': 'set_light',

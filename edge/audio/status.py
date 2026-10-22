@@ -9,6 +9,7 @@ from edge.display.state import DisplayPublisher
 _logger = None
 _last = None
 _display = DisplayPublisher({"enabled": False})
+_light = {"on": True, "mode": "breath", "rgb": [255, 0, 0]}
 
 
 def configure_display(config):
@@ -31,6 +32,11 @@ def display_music(music, *, playing=None):
     if music is not None and playing is not None:
         music = dict(music, playing=bool(playing))
     _display.publish(music_marker=True, music=music)
+
+
+def display_light(light):
+    _light.update(light)
+    _display.publish(light=dict(_light))
 
 
 def status(value):

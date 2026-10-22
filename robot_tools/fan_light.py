@@ -44,7 +44,8 @@ class FanLightController:
 
 
 def fan_light_control(controller, action, percent=None,
-                      red=None, green=None, blue=None, mode=None):
+                      red=None, green=None, blue=None, mode=None,
+                      display_light=None):
     if action == 'set_speed':
         if type(percent) is not int or not 0 <= percent <= 100:
             return _rejected('请说明 0 到 100 的风扇 PWM 百分比。')
@@ -66,12 +67,19 @@ def fan_light_control(controller, action, percent=None,
                 commands += ('MODE BREATH',)
         for command in commands:
             controller.command(command)
+        if display_light is not None:
+            display_light({"on": True, "mode": mode,
+                           "rgb": [red, green, blue] if mode != 'rainbow' else [255, 0, 0]})
         message = '控制器已接受灯效命令；实体灯光需要现场确认。'
     elif action == 'light_off':
         controller.command('LIGHT OFF')
+        if display_light is not None:
+            display_light({"on": False})
         message = '风扇灯已关闭，风扇转速不变。'
     elif action == 'light_on':
         controller.command('LIGHT ON')
+        if display_light is not None:
+            display_light({"on": True})
         message = '风扇灯已恢复。'
     elif action == 'status':
         return {'ok': True, 'status': 'success', 'executed': True,

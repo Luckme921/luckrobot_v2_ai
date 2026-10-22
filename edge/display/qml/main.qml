@@ -20,6 +20,18 @@ Window {
     property string musicLyricSignature: ""
     property int musicLyricIndex: 0
     property bool blinking: false
+    property real gaze: 0
+    property real glowPhase: 0
+    property var lightInfo: ({"on": true, "mode": "breath", "rgb": [255, 0, 0]})
+    function eyeColor() {
+        if (lightInfo.on === false) return "#3d4652"
+        if (lightInfo.mode === "rainbow") {
+            var palette = ["#ff3048", "#ff9a27", "#f6e34a", "#32ecae", "#36c7ff", "#a371ff"]
+            return palette[Math.floor(glowPhase / 8) % palette.length]
+        }
+        var rgb = lightInfo.rgb || [255, 0, 0]
+        return Qt.rgba(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, 1)
+    }
     property bool connected: true
     property string qqAuthState: "unknown"
     property string qqAuthDetail: ""
@@ -172,11 +184,13 @@ Window {
     }
 
     Text {
+        visible: root.robotState === "music"
         anchors { top: parent.top; right: parent.right; margins: root.height * 0.045 }
         text: root.symbol(); color: root.accent(); font.bold: true
         font.pixelSize: Math.max(30, root.height * 0.075)
     }
     Text {
+        visible: root.robotState === "music"
         anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 20 }
         text: "状态连接中…"; color: "#ffb5b5"; opacity: root.connected ? 0 : 1
         font.pixelSize: Math.max(16, root.height * 0.025)
@@ -188,45 +202,55 @@ Window {
         visible: root.robotState !== "music"
         width: Math.min(root.width * 0.62, root.height * 0.70)
         height: width / 1.45
-        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: root.height * 0.065 }
-        radius: width * 0.22; color: "#d90a1724"
-        border.width: Math.max(3, root.height * 0.0045); border.color: root.accent()
+        anchors.centerIn: parent
+        radius: width * 0.15; color: "#08090e"
+        border.width: 1; border.color: "#25212a"
         opacity: root.robotState === "sleeping" ? 0.63 : 1
         scale: root.robotState === "sleeping" ? 0.96 : 1
         Behavior on border.color { ColorAnimation { duration: 250 } }
         Behavior on opacity { NumberAnimation { duration: 300 } }
         Behavior on scale { NumberAnimation { duration: 300 } }
 
-        Rectangle {
-            id: leftEye
-            width: face.width * 0.25
-            height: root.blinking || root.robotState === "sleeping" ? face.height * 0.025 : face.height * 0.20
-            x: face.width * 0.14
-            y: face.height * (root.robotState === "thinking" ? 0.25 : 0.30)
-            radius: height / 2; color: root.accent()
-            Behavior on height { NumberAnimation { duration: 90 } }
-            Behavior on y { NumberAnimation { duration: 240 } }
-        }
-        Rectangle {
-            id: rightEye
-            width: leftEye.width; height: leftEye.height; x: face.width * 0.61
-            y: face.height * (root.robotState === "thinking" ? 0.36 : 0.30)
-            radius: height / 2; color: root.accent()
-            Behavior on height { NumberAnimation { duration: 90 } }
-            Behavior on y { NumberAnimation { duration: 240 } }
-        }
-        Rectangle {
-            width: face.width * 0.19
-            height: speakingAnimation.running ? face.height * 0.11 : face.height * 0.025
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: face.height * 0.68 }
-            radius: height / 2; color: "transparent"
-            border.width: Math.max(3, face.height * 0.018); border.color: root.accent()
-            SequentialAnimation on scale {
-                id: speakingAnimation
-                running: root.robotState === "speaking"
-                loops: Animation.Infinite
-                NumberAnimation { to: 0.62; duration: 130 }
-                NumberAnimation { to: 1.18; duration: 130 }
+        Canvas {
+            id: demonFace
+            anchors.fill: parent
+            onPaint: {
+                var c = getContext("2d"), w = width, h = height
+                c.clearRect(0, 0, w, h)
+                var color = root.eyeColor()
+                var shut = root.blinking || root.robotState === "sleeping"
+                var pulse = root.lightInfo.mode === "breath" ? 0.65 + 0.25 * Math.sin(root.glowPhase * 0.14) : 0.9
+                if (root.lightInfo.on === false) pulse = 0.25
+                c.globalAlpha = pulse
+                for (var side = 0; side < 2; side++) {
+                    var x = side === 0 ? w * 0.09 : w * 0.55
+                    var y = h * 0.32, ew = w * 0.36, eh = shut ? h * 0.018 : h * 0.18
+                    c.beginPath()
+                    c.moveTo(x, y)
+                    c.quadraticCurveTo(x + ew * 0.42, y + eh * 0.16, x + ew, y - eh * 0.20)
+                    c.quadraticCurveTo(x + ew * 0.76, y + eh * 1.2, x + ew * 0.38, y + eh)
+                    c.quadraticCurveTo(x + ew * 0.08, y + eh * 0.82, x, y)
+                    c.closePath()
+                    c.shadowColor = color; c.shadowBlur = h * 0.085
+                    c.fillStyle = color; c.fill()
+                    c.shadowBlur = h * 0.025
+                    if (!shut) {
+                        var px = x + ew * (0.53 + root.gaze * 0.16)
+                        c.fillStyle = "#09090d"
+                        c.beginPath()
+                        c.moveTo(px, y - eh * 0.08)
+                        c.bezierCurveTo(px + ew * 0.10, y, px + ew * 0.10, y + eh * 0.9, px, y + eh * 0.97)
+                        c.bezierCurveTo(px - ew * 0.10, y + eh * 0.9, px - ew * 0.10, y, px, y - eh * 0.08)
+                        c.fill()
+                    }
+                }
+                c.shadowColor = color; c.shadowBlur = h * 0.055
+                c.strokeStyle = color; c.lineWidth = Math.max(3, h * 0.019)
+                var mouthY = h * 0.72
+                c.beginPath()
+                c.moveTo(w * 0.38, mouthY)
+                c.quadraticCurveTo(w * 0.5, mouthY + (root.robotState === "speaking" ? h * (0.05 + 0.04 * Math.sin(root.glowPhase * 0.7)) : h * 0.025), w * 0.62, mouthY)
+                c.stroke()
             }
         }
     }
@@ -397,7 +421,7 @@ Window {
 
         Text {
             id: stateText
-            visible: root.robotState !== "music"
+            visible: false
             width: parent.width; horizontalAlignment: Text.AlignHCenter
             text: root.stateLabel.toUpperCase(); color: root.accent(); font.bold: true
             font.pixelSize: Math.max(18, root.height * 0.032); font.letterSpacing: 2
@@ -414,7 +438,7 @@ Window {
 
         Item {
             id: dialoguePanel
-            visible: root.robotState !== "music"
+            visible: false
             anchors { top: stateText.bottom; topMargin: root.height * 0.010; left: parent.left; right: parent.right; bottom: parent.bottom }
 
             Text {
@@ -451,6 +475,14 @@ Window {
     }
     Timer { id: closeBlink; interval: 130; onTriggered: root.blinking = false }
     Timer {
+        interval: 50; repeat: true; running: root.robotState !== "music"
+        onTriggered: { root.glowPhase += 1; demonFace.requestPaint() }
+    }
+    Timer {
+        interval: 2300; repeat: true; running: root.robotState !== "sleeping" && root.robotState !== "music"
+        onTriggered: root.gaze = root.gaze > 0 ? -1 : (root.gaze < 0 ? 0 : 1)
+    }
+    Timer {
         interval: 250; repeat: true; running: true; triggeredOnStart: true
         onTriggered: {
             var request = new XMLHttpRequest()
@@ -460,6 +492,7 @@ Window {
                 try {
                     var value = JSON.parse(request.responseText)
                     root.robotState = value.state || "sleeping"
+                    root.lightInfo = value.light || root.lightInfo
                     root.stateLabel = value.label || root.robotState
                     root.userText = value.user_text || ""
                     var nextAssistantText = value.assistant_text || ""
@@ -493,6 +526,7 @@ Window {
 
     Rectangle {
         id: qqLoginButton
+        visible: root.robotState === "music"
         z: 10
         width: Math.max(230, root.width * 0.18)
         height: Math.max(45, root.height * 0.07)

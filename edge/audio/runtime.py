@@ -20,6 +20,7 @@ from edge.audio.status import (
     configure_display,
     display_dialogue,
     display_music,
+    display_light,
     display_state,
     status,
 )
@@ -605,7 +606,7 @@ def main() -> None:
         if fan_light is not None:
             fan_light.close()
         fan_light = None
-    local_tools = build_edge_tools(device_volume, music_tools, fan_light)
+    local_tools = build_edge_tools(device_volume, music_tools, fan_light, display_light)
 
     auth_bridge.QR_IMAGE.unlink(missing_ok=True)
     auth_bridge.BROWSER_IMAGE.unlink(missing_ok=True)
