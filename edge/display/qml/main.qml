@@ -574,7 +574,7 @@ Window {
     NumberAnimation {
         id: wakeTrailExpand
         target: root; property: "wakeTrail"
-        from: 0; to: 1; duration: 1100; easing.type: Easing.Linear
+        from: 0; to: 1; duration: 850; easing.type: Easing.Linear
     }
     Timer {
         interval: 300000
