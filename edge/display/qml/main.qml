@@ -570,10 +570,10 @@ Window {
     NumberAnimation {
         id: wakeFlashDecay
         target: root; property: "wakeFlash"
-        from: 1; to: 0; duration: 1750; easing.type: Easing.InQuad
+        from: 1; to: 0; duration: 1150; easing.type: Easing.InQuad
     }
     Timer { id: wakeOpenDelay; interval: 260; onTriggered: root.eyeOpen = 1 }
-    Timer { id: wakeHoldDone; interval: 2100; onTriggered: root.wakeHolding = false }
+    Timer { id: wakeHoldDone; interval: 1400; onTriggered: root.wakeHolding = false }
     NumberAnimation {
         id: wakeTrailExpand
         target: root; property: "wakeTrail"
