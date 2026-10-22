@@ -25,7 +25,7 @@ Window {
     property bool eyesAsleep: true
     property real eyeOpen: 0
     onEyeOpenChanged: demonFace.requestPaint()
-    Behavior on eyeOpen { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
+    Behavior on eyeOpen { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
     property real wakeFlash: 0
     onWakeFlashChanged: demonFace.requestPaint()
     onRobotStateChanged: {
@@ -245,11 +245,11 @@ Window {
                     if (root.wakeFlash > 0 && root.eyeOpen > 0.05) {
                         for (var trail = 1; trail <= 3; trail++) {
                             var drift = (side === 0 ? -1 : 1) * w *
-                                    (0.018 + trail * 0.014) * (1 - root.wakeFlash)
+                                    (0.015 + trail * 0.025) * (1 - root.wakeFlash)
                             c.beginPath()
                             c.moveTo(x + drift, y + eh * 0.10)
                             c.lineTo(x + ew + drift, y - eh * 0.12)
-                            c.globalAlpha = root.wakeFlash * (0.31 - trail * 0.065)
+                            c.globalAlpha = root.wakeFlash * (0.72 - trail * 0.12)
                             c.lineWidth = Math.max(3, h * (0.007 + trail * 0.003))
                             c.strokeStyle = color
                             c.stroke()
@@ -561,7 +561,7 @@ Window {
     NumberAnimation {
         id: wakeFlashDecay
         target: root; property: "wakeFlash"
-        from: 1; to: 0; duration: 800; easing.type: Easing.OutQuad
+        from: 1; to: 0; duration: 620; easing.type: Easing.Linear
     }
     Timer {
         interval: 300000
