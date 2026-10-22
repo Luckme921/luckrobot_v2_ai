@@ -3,7 +3,7 @@ agent:
   #model: glm-5.3-flash
   #base_url: "https://open.bigmodel.cn/api/paas/v4/"
   provider: bailian
-  model: qwen3.8-flash
+  model: qwen3.8-max
   base_url: "https://ws-slg3l8z4s8d6rd0q.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
   timeout_seconds: 30
   max_retries: 2

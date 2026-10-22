@@ -14,7 +14,7 @@
 
 ## 云端模型配置（2026-10-05）
 
-`configs/agent.yaml` 默认使用北京地域百炼 OpenAI 兼容接口 `qwen3.8-flash`，兼顾普通对话和现有图片输入。密钥只放在设备本地未跟踪的 `.env`：`DASHSCOPE_API_KEY=...`；切勿提交密钥。`agent.enable_thinking: false` 使用百炼参数关闭深度思考，保持语义路由与语音回复速度；原智谱 `thinking` 参数不会发送给百炼。JSON 路由、最终文字流和视觉输入仍需用实际账号验证。
+`configs/agent.yaml` 默认使用北京地域百炼 OpenAI 兼容接口 `qwen3.8-max`，兼顾普通对话和现有图片输入。密钥只放在设备本地未跟踪的 `.env`：`DASHSCOPE_API_KEY=...`；切勿提交密钥。`agent.enable_thinking: false` 使用百炼参数关闭深度思考，保持语义路由与语音回复速度；原智谱 `thinking` 参数不会发送给百炼。JSON 路由、最终文字流和视觉输入仍需用实际账号验证。
 
 现有 `web_search` 工具调用的是独立的智谱搜索接口，默认关闭；天气工具和 QQ 音乐工具不受影响。若仍要使用智谱搜索，设置 `web_search.enabled: true` 并额外提供 `ZAI_API_KEY`。这不是百炼内置联网搜索；未启用时不能宣称已核验实时新闻。改回智谱模型时需同时修改 `agent.provider`、`model`、`base_url` 和对应密钥。
 
