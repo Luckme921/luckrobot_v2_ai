@@ -1,5 +1,9 @@
 # 统一工具接口与音乐 API
 
+2026-10-24：route_turn 新增 tool_batch/actions，最多4项；按资源并发，音乐与音量
+串行，风扇串口操作串行。天气支持region（路由字段weather_region）。详见
+[多工具与唤醒诊断](TOOL_BATCH_AND_WAKE.md)。
+
 ## 风扇和灯效（Jetson 本地）
 
 `robot_tools/fan_light.py` 从 PWLINK2 或 CP2102 的 `/dev/serial/by-id/` 稳定路径中查找唯一设备，先用 `STATUS` 核对 STM32 状态签名，再独占串口按 115200 8N1 逐条发送 ASCII 命令及换行，并检查 STM32 的 `OK` 回复。Jetson 的 Python 环境需安装 `pyserial`：`.venv/bin/python -m pip install pyserial`。接线修正后，启动时依次设 `FAN1 50`、`PIXELS 64`、`BRIGHT 20`、`COLOR 255 0 0`、`MODE BREATH`，最后读 `STATUS`。找不到唯一串口或初始化失败时记录 `[FAN_LIGHT] unavailable`，其余语音功能继续运行，工具报告不可用。
@@ -278,3 +282,8 @@ Display 本机接口：`GET /api/music/auth` 查询状态；`GET /api/music/auth
 网页登录预览在 QML 中交替使用两张 Image，下一帧加载完成才换到前台，避免逐帧白屏。QQ 网页的原始二维码另截成私有 PNG，通过兼容的 `/api/music/auth/qr` 在屏幕左侧以 `smooth: false` 放大显示；不能对浏览器二维码使用 CSS transform 平滑放大，现场测试会破坏扫码识别。网页截图与二维码都仅在 `browser` 会话期间提供，结束后清除。
 
 QQ 搜索页在加载账号时可能先短暂显示“登录”，随后才出现账号头像和歌曲列表。认证检查会等待账号状态稳定，再点击真正的登录入口，避免对已登录账号误开弹窗。
+# 屏幕网络管理（2026-10-25）
+
+网络配置只由用户触摸操作，不是 LLM 工具。独立网络辅助服务不授予模型或显示 API
+任意 shell 权限。后续导航使用脑间有线地址，当前导航仍为 MOCK。
+详见 [NETWORK_CONTROL.md](NETWORK_CONTROL.md)。

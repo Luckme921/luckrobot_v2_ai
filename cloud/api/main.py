@@ -6,6 +6,9 @@ import json
 import uuid
 from fastapi.responses import StreamingResponse
 from shared.timing import trace_id, progress, measure
+from shared.errors import error_info, log_error
+from robot_tools.batch import REMOTE_SCHEMAS, result_message
+from robot_tools.registry import validate
 
 import base64
 import binascii
@@ -24,6 +27,7 @@ from pydantic import (
 from cloud.agent.client import (
     GLMAgent,
     LocalToolRequestRequired,
+    ToolBatchRequired,
     MusicRequestRequired,
     ConversationEndRequired,
     VisionRequestRequired,
@@ -256,6 +260,7 @@ class LocalToolResponse(BaseModel):
     arguments: dict
 
 class ChatResponse(BaseModel):
+    tool_requests: list[LocalToolResponse] = Field(default_factory=list, max_length=4)
     tool_request: LocalToolResponse | None = None
 
     reply: str = ""
@@ -290,6 +295,33 @@ async def health() -> dict:
             "luckrobot-cloud-agent"
         ),
     }
+
+
+class RemoteToolRequest(BaseModel):
+    name: Literal["get_weather", "web_search", "navigate_to"]
+    arguments: dict
+    trace_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
+
+
+@app.post("/tools/execute")
+async def execute_remote_tool(request: RemoteToolRequest):
+    try:
+        validate(request.arguments, REMOTE_SCHEMAS[request.name])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid tool arguments") from exc
+    token = trace_id.set(request.trace_id or uuid.uuid4().hex)
+    try:
+        agent = get_agent()
+        with measure("tool_" + request.name):
+            result = await agent.tool_router.execute(request.name, request.arguments)
+        result["message"] = result_message(result)
+        return result
+    except Exception as exc:
+        log_error(exc, "remote_tool")
+        return {"ok": False, "tool": request.name, "status": "error",
+                "executed": False, "message": "这个查询未完成，请稍后再试。"}
+    finally:
+        trace_id.reset(token)
 
 
 async def _chat(
@@ -355,6 +387,10 @@ async def _chat(
             ),
         )
 
+    except ToolBatchRequired as exc:
+        return ChatResponse(reply="", model=agent.model,
+                            tool_requests=[LocalToolResponse(**item) for item in exc.requests])
+
     except LocalToolRequestRequired as exc:
         return ChatResponse(reply="", model=agent.model,
                             tool_request=LocalToolResponse(name=exc.name, arguments=exc.arguments))
@@ -377,13 +413,8 @@ async def _chat(
         return ChatResponse(reply=exc.reply, model=agent.model, end_conversation=True)
 
     except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"{type(exc).__name__}: "
-                f"{exc}"
-            ),
-        ) from exc
+        info = log_error(exc, "chat")
+        raise HTTPException(status_code=502, detail=info) from exc
 
     return ChatResponse(
         reply=reply,
@@ -416,13 +447,12 @@ async def chat_events(request):
             reply = await _scoped_chat(request, queue.put_nowait)
             await queue.put({"type": "result", "data": reply.model_dump()})
         except Exception as exc:
-            detail = str(exc.detail) if isinstance(exc, HTTPException) else ""
-            reason = ("quota_exhausted" if "1113" in detail or "余额不足" in detail
-                      else "rate_limited" if "RateLimitError" in detail
-                      else "unavailable")
-            print(f"[AGENT_ERROR] type={type(exc).__name__} reason={reason}", flush=True)
-            await queue.put({"type": "error", "error": type(exc).__name__,
-                             "reason": reason})
+            info = error_info(exc)
+            # The wrapper may be HTTPException; retain its original cause.
+            print("[AGENT_ERROR] " + json.dumps(
+                {"trace_id": request.trace_id, "stage": "chat_events", **info}), flush=True)
+            await queue.put({"type": "error", "error": info["type"],
+                             "reason": info["reason"]})
         finally:
             await queue.put(None)
 

@@ -64,6 +64,22 @@ Window {
     property string qqNickname: ""
     property bool qqHasAvatar: false
     property bool qqAuthOpen: false
+    property bool networkOpen: false
+
+    NetworkButton {
+        z: 15
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 20
+        text: "网络设置"
+        onClicked: root.networkOpen = true
+    }
+    NetworkPanel {
+        anchors.fill: parent
+        z: 40
+        visible: root.networkOpen
+        onClosed: root.networkOpen = false
+    }
     property int qqQrRevision: 0
     property int qqAvatarRevision: 0
     property int qqBrowserRevision: 0

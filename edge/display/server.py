@@ -10,6 +10,7 @@ from fastapi import Header, HTTPException
 
 from edge.display.state import DEFAULT_STATE, MUSIC_COVER_IMAGE
 from edge.music import auth_bridge, control_bridge
+from edge.network import bridge as network_bridge
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +20,39 @@ STATE_PATH = Path(os.environ.get(
     str(ROOT / "private/runtime/display_state.json")))
 
 app = FastAPI(title="LuckRobot Display", docs_url=None, redoc_url=None)
+
+
+@app.get("/api/network/status")
+def network_status():
+    return JSONResponse(network_bridge.statuses(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/network/job")
+def network_job():
+    return network_bridge.jobs.status()
+
+
+@app.post("/api/network/action")
+def network_action(payload: dict, x_luckrobot_display: str | None = Header(default=None)):
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    try:
+        action = payload.get("action")
+        if action == "apply" and set(payload) == {"action", "configs"}:
+            return network_bridge.jobs.start(payload["configs"])
+        if action == "scan" and set(payload) == {"action", "target"} and payload["target"] in {"brain", "cerebellum"}:
+            return network_bridge.safe_call(payload["target"], {"action": "scan"})
+        if action in {"confirm", "rollback"} and set(payload) == {"action", "tokens"}:
+            tokens = payload["tokens"]
+            if not isinstance(tokens, dict) or not tokens or set(tokens) - {"brain", "cerebellum"}:
+                raise ValueError("invalid_targets")
+            if any(not isinstance(t, str) or len(t) != 32 for t in tokens.values()):
+                raise ValueError("invalid_token")
+            return {target: network_bridge.safe_call(target, {"action": action, "token": token}) for target, token in tokens.items()}
+        raise ValueError("invalid_action")
+    except ValueError as exc:
+        # Avoid echoing input (including password) in validation responses.
+        raise HTTPException(status_code=422, detail="网络参数无效或存在尚未确认的操作") from exc
 
 
 @app.get("/")

@@ -28,6 +28,8 @@ from edge.audio.status import (
 from edge.display.state import MUSIC_COVER_IMAGE
 from edge.display.rolling_text import SpokenTextScroller
 from edge.audio.conversation_log import ConversationLog
+from robot_tools.batch import execute_plan, needs_semantic_route, result_message, REMOTE_SCHEMAS
+from shared.errors import ERROR_MESSAGES
 from edge.audio.barge_in import speak_with_wake, WakeInterruptMonitor
 from edge.audio.tts.cancellation import SpeechInterrupted
 from edge.audio.tts.streaming_reply import StreamingReplySpeaker
@@ -1715,6 +1717,9 @@ def main() -> None:
                                     )
                                 )
 
+                                if needs_semantic_route(decision.command or ""):
+                                    volume_command = None
+
                                 if (
                                     volume_command
                                     is not None
@@ -2080,7 +2085,11 @@ def main() -> None:
                                                 # satisfy this fast path.
                                                 fast_path_request = None
 
-                                        local_request = music_tools.local_request(command_text)
+                                        compound_request = needs_semantic_route(command_text)
+                                        if compound_request:
+                                            fast_path_request = None
+                                        local_request = (None if compound_request
+                                                         else music_tools.local_request(command_text))
                                         status("本地处理音乐" if local_request is not None else "思考 / 模型处理中")
                                         display_state(
                                             "thinking",
@@ -2262,6 +2271,47 @@ def main() -> None:
                                             f"{agent_seconds:.3f}s",
                                             flush=True,
                                         )
+
+                                        if agent_reply.tool_requests:
+                                            token = turn_monitor.cancellation if turn_monitor else None
+                                            plan = list(agent_reply.tool_requests)
+                                            if token is not None:
+                                                token.check()
+                                            if any(item["name"] == "music_search" for item in plan):
+                                                acknowledgements.on_event(
+                                                    {"type": "tool_start", "action": "play_music"})
+
+                                            def execute_action(name, arguments):
+                                                if name in REMOTE_SCHEMAS:
+                                                    return agent_client.execute_remote_tool(name, arguments, token)
+                                                return local_tools.execute(name, arguments)
+
+                                            results = execute_plan(plan, execute_action, token)
+                                            messages = [result_message(item) for item in results]
+                                            batch_reply = " ".join(messages)
+                                            for item in results:
+                                                if "playing" in item:
+                                                    music_playing = item["playing"]
+                                                if "music" in item:
+                                                    display_music(item["music"], playing=music_playing)
+                                                print("[TOOL_RESULT] " + json.dumps({
+                                                    "tool": item["tool"], "ok": item.get("ok"),
+                                                    "status": item.get("status"), "message": result_message(item)
+                                                }, ensure_ascii=False), flush=True)
+                                            agent_client.record_completed_turn(command_text, batch_reply)
+                                            turn_memory_recorded = True
+                                            agent_reply = AgentReply(text=batch_reply, model="local-tool")
+                                            if token is not None:
+                                                token.check()
+                                            if music_playing:
+                                                conversation_log.write("ASSISTANT", batch_reply, model="local-tool")
+                                                display_dialogue(assistant_text=batch_reply)
+                                                interaction_gate.reset()
+                                                music_tools.clear_pending()
+                                                if wake_kws:
+                                                    wake_stream = wake_kws.create_stream()
+                                                print("[STATE] SLEEPING reason=music_playback", flush=True)
+                                                continue
 
                                         tool_request = agent_reply.tool_request
                                         if agent_reply.music_request is not None:
@@ -2485,11 +2535,9 @@ def main() -> None:
                                             f"{exc}",
                                             flush=True,
                                         )
-                                        failure_reply = (
-                                            "大模型账户余额不足或没有可用资源包，请检查后再试。"
-                                            if "余额不足" in str(exc)
-                                            else "刚才处理请求失败了，请稍后再试。"
-                                        )
+                                        failure_reply = ERROR_MESSAGES.get(
+                                            getattr(exc, "reason", "unavailable"),
+                                            ERROR_MESSAGES["unavailable"])
                                         status("模型服务暂时不可用")
                                         conversation_log.write("ASSISTANT", failure_reply,
                                                                model="local-error")

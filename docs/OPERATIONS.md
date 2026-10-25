@@ -1,5 +1,10 @@
 # Jetson 启动、测试与维护
 
+2026-10-24：Cloud新增本机 /tools/execute，Cloud与Edge须一并部署。测试
+“帮我播放一首歌，并把风扇灯光调为蓝色呼吸灯”，检查source=model_batch的
+两条请求和各自TOOL_RESULT。错误看AGENT_ERROR的stage/reason/code；天气看
+WEATHER_HTTP与WEATHER_ERROR。手动录音与回放步骤见[诊断文档](TOOL_BATCH_AND_WAKE.md)。
+
 风扇灯光：在运行音频进程的 Jetson venv 中安装 `pyserial`，确认 `/dev/serial/by-id/` 下恰好存在一个 PWLINK2 或 CP2102 候选设备，且该用户可访问串口。当前 Jetson 实测 CP2102 对 `STATUS` 返回 STM32 风扇状态；程序也会核对状态签名后才写入默认值。接线修正后，启动状态目标为 `FAN1=50%`、`LIGHT=ON`、`MODE=BREATH`、`RGB=255,0,0`、`BRIGHT=20`。串口只能由音频进程独占，运行期间不要同时使用 `~/stm32_fan_ctl.py`。现场分别说“红色呼吸灯”“关闭风扇灯”“彩虹灯”并观察两只实体灯；状态回复不能代替实物验收。
 
 独立手动调试：先 `sudo systemctl stop luckrobot_run.service`，然后运行 `.venv/bin/python scripts/fan_serial_manual.py status`。可依次运行 `release`、`bright 20`、`color 255 255 0`、`mode breath`、`light off`、`light on`。每次运行都先核对 STM32 的 `STATUS` 签名，输出命令原始回复与执行后状态。PWM 接线故障未排除前不要用 `speed`；若确需诊断，参数 `--allow-pwm speed 50` 必须放在子命令前，且需持续观察风扇是否停转。调试结束用 `sudo systemctl start luckrobot_run.service` 恢复服务。
@@ -193,3 +198,8 @@ PulseAudio 默认设备。手工运行 `systemctl --user` 无法连接时，SSH 
 网页登录预览沿用当前无桌面 `linuxfb` 屏幕：Qt 显示音频进程中 Firefox 的整页截图，屏幕触摸经本机接口映射到 Selenium 网页点击，并非启动另一套独立浏览器。因此不用切到图形桌面，登录后 Cookie 仍保存在同一个专用 profile。登录界面按“关闭”会取消本轮网页操作；超时后可重新打开。QQ 网页的触摸缩放与扫码效果仍需在 Jetson 屏幕现场验收。
 
 扫码界面若能看到网页但二维码较小，屏幕左侧应额外显示一张放大的清晰二维码；网页画面采用前后两帧交替加载，刷新时不应整屏闪白。手机扫码和左侧放大图的现场验收仍需人工完成。保留无桌面模式是当前默认；若以后需要网页键盘输入或任意浏览，需另设图形桌面登录模式，并处理正在使用的 Firefox profile 锁，不能同时以两个进程打开同一配置目录。
+# 双设备网络入口（2026-10-25）
+
+屏幕右上角“网络设置”：扫描、密码、DHCP/静态 IPv4、两台 IP、连接确认及超时回退。
+安装系统辅助服务、配对、权限与测试说明见 [NETWORK_CONTROL.md](NETWORK_CONTROL.md)。
+仅修改 Wi-Fi；保留大脑 10.0.0.50 / 小脑 10.0.0.51 的有线导航通信链路。

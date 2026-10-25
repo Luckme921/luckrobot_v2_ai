@@ -14,6 +14,8 @@ from shared.timing import measure, announce, progress, trace_id
 from robot_tools.catalog import LOCAL_SCHEMAS, WEATHER_SCHEMA
 from robot_tools.music import _extract_music_query, has_explicit_music_intent
 from robot_tools.registry import validate
+from robot_tools.batch import validate_plan
+from shared.errors import log_error
 
 from cloud.agent.tool_router import (
     TOOL_SCHEMAS,
@@ -79,6 +81,12 @@ class LocalToolRequestRequired(RuntimeError):
     def __init__(self, name, arguments):
         self.name, self.arguments = name, arguments
         super().__init__("Local tool execution required")
+
+class ToolBatchRequired(RuntimeError):
+    def __init__(self, requests):
+        self.requests = requests
+        super().__init__("Multiple tool actions required")
+
 
 class GLMAgent:
     def __init__(
@@ -534,6 +542,16 @@ class GLMAgent:
                 "must be an object"
             )
 
+        validate(arguments, TURN_ROUTE_SCHEMA["function"]["parameters"])
+        if arguments["action"] == "tool_batch":
+            actions = arguments.get("actions", [])
+            if not 2 <= len(actions) <= 4:
+                raise ValueError("batch requires two to four actions")
+            return {"action": "tool_batch", "routes": [
+                GLMAgent._parse_turn_route_arguments(json.dumps(item))
+                for item in actions]}
+        if "actions" in arguments:
+            raise ValueError("actions require tool_batch")
         action = str(
             arguments.get(
                 "action",
@@ -641,6 +659,8 @@ class GLMAgent:
 
         if action == "get_weather":
             values = {"city": arguments.get("city", ""), "days": arguments.get("days", 1)}
+            if arguments.get("weather_region"):
+                values["region"] = arguments["weather_region"]
             validate(values, WEATHER_SCHEMA)
             return {"action": action, "tool_name": "get_weather", "tool_arguments": values}
 
@@ -1082,6 +1102,10 @@ class GLMAgent:
                     "必须按 Lucky 理解，不能按垃圾、马蹄等字面含义解释。"
                     "你不负责生成最终聊天回答，"
                     "只负责调用 route_turn 选择 action。"
+                    "用户一句话同时要求多个动作时选择 tool_batch，并在 actions 中完整列出。"
+                    "例如播放歌曲并调蓝色呼吸灯，必须同时选择 play_music 和 fan_light_control。"
+                    "不要因为选择了音乐而遗漏风扇灯光、天气或音量操作。"
+
                     "普通聊天、稳定知识或身份问题"
                     "选择 respond_text。"
                     "必须观察摄像头当前画面才能回答时"
@@ -1092,7 +1116,7 @@ class GLMAgent:
                     "选择 web_search。"
                     "用户明确要求机器人前往某地点"
                     "选择 navigate_to。"
-                    "天气预报选择 get_weather，city 保留城市，days 为今起一到七天；"
+                    "天气预报选择 get_weather，city 只保留城市名，weather_region 填用户提供的省份或国家，days 为今起一到七天；"
                     "未说明城市时 city 留空，不猜地点。天气知识问题仍是 respond_text。"
                     "调节或查询音量选择 volume_control，volume_action 为 get/set/up/down/max，"
                     "set 时 percent 为整数百分比。"
@@ -1263,31 +1287,43 @@ class GLMAgent:
 
     async def _completion(self, *, stage="model_answer", **kwargs):
         with measure(stage):
-            return await self.client.chat.completions.create(**kwargs)
+            try:
+                return await self.client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                log_error(exc, stage)
+                raise
 
     async def _answer_text(self, *, stage="model_answer", **kwargs):
         """Return the final text and optionally publish provider text deltas."""
         if not getattr(self, "stream_text_enabled", False):
             response = await self._completion(stage=stage, **kwargs)
+            if getattr(response.choices[0], "finish_reason", None) == "content_filter":
+                raise RuntimeError("content_filter")
             return (response.choices[0].message.content or "").strip()
 
-        pieces = []
-        with measure(stage):
-            stream = await self.client.chat.completions.create(
-                stream=True, **kwargs)
-            async for chunk in stream:
-                choices = getattr(chunk, "choices", None) or []
-                if not choices:
-                    continue
-                text = getattr(choices[0].delta, "content", None)
-                if not text:
-                    continue
-                pieces.append(text)
-                callback = progress.get()
-                if callback is not None:
-                    callback({"type": "text_delta", "text": text,
-                              "trace_id": trace_id.get()})
-        return "".join(pieces).strip()
+        try:
+            pieces = []
+            with measure(stage):
+                stream = await self.client.chat.completions.create(
+                    stream=True, **kwargs)
+                async for chunk in stream:
+                    choices = getattr(chunk, "choices", None) or []
+                    if not choices:
+                        continue
+                    if getattr(choices[0], "finish_reason", None) == "content_filter":
+                        raise RuntimeError("content_filter")
+                    text = getattr(choices[0].delta, "content", None)
+                    if not text:
+                        continue
+                    pieces.append(text)
+                    callback = progress.get()
+                    if callback is not None:
+                        callback({"type": "text_delta", "text": text,
+                                  "trace_id": trace_id.get()})
+            return "".join(pieces).strip()
+        except Exception as exc:
+            log_error(exc, stage)
+            raise
 
     async def _execute_tool(self, name, arguments, **kwargs):
         announce(name)
@@ -1622,6 +1658,27 @@ class GLMAgent:
                 ),
                 flush=True,
             )
+
+            if action == "tool_batch":
+                requests = []
+                for item in route["routes"]:
+                    if "local_tool" in item:
+                        request = {"name": item["local_tool"], "arguments": item["arguments"]}
+                    elif "tool_name" in item:
+                        request = {"name": item["tool_name"], "arguments": item["tool_arguments"]}
+                    else:
+                        music = item["music_request"]
+                        if music.action in {"play_music", "recommend_music"}:
+                            request = {"name": "music_search", "arguments": {
+                                "query": music.query if music.action == "play_music" else "推荐",
+                                "utterance": text}}
+                        elif music.action == "select_music":
+                            request = {"name": "music_select", "arguments": {"selection": music.query}}
+                        else:
+                            request = {"name": "music_control", "arguments": {"action": music.action}}
+                    requests.append(request)
+                validate_plan(requests)
+                raise ToolBatchRequired(requests)
 
             if action in {"volume_control", "fan_light_control"}:
                 raise LocalToolRequestRequired(route["local_tool"], route["arguments"])

@@ -1,23 +1,38 @@
 """Small allowlisted local dispatcher; no eval, shell strings or arbitrary URLs."""
 from shared.timing import measure
 
-def validate(arguments, schema):
-    if not isinstance(arguments, dict):
-        raise ValueError("arguments must be an object")
-    if set(arguments) - set(schema["properties"]):
-        raise ValueError("unknown argument")
-    if not set(schema.get("required", ())).issubset(arguments):
-        raise ValueError("missing argument")
-    for key, value in arguments.items():
-        spec = schema["properties"][key]
-        kind = spec["type"]
-        if kind == "string" and (not isinstance(value, str) or len(value) > spec.get("maxLength", 4000)):
+def validate(value, schema):
+    """Validate the subset of JSON Schema used by our allowlisted tools."""
+    import math
+    kind = schema.get("type")
+    if kind == "object":
+        if not isinstance(value, dict):
+            raise ValueError("arguments must be an object")
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties", True) is False and set(value) - set(properties):
+            raise ValueError("unknown argument")
+        if not set(schema.get("required", ())).issubset(value):
+            raise ValueError("missing argument")
+        for key, item in value.items():
+            if key in properties:
+                validate(item, properties[key])
+    elif kind == "array":
+        if not isinstance(value, list) or not schema.get("minItems", 0) <= len(value) <= schema.get("maxItems", 100):
+            raise ValueError("invalid array")
+        for item in value:
+            validate(item, schema["items"])
+    elif kind == "string":
+        if not isinstance(value, str) or not schema.get("minLength", 0) <= len(value) <= schema.get("maxLength", 4000):
             raise ValueError("invalid string")
-        if kind == "integer" and (type(value) is not int or
-                not spec.get("minimum", -1e9) <= value <= spec.get("maximum", 1e9)):
-            raise ValueError("invalid integer")
-        if "enum" in spec and value not in spec["enum"]:
-            raise ValueError("invalid enum")
+    elif kind in {"integer", "number"}:
+        if type(value) not in ({int} if kind == "integer" else {int, float}) or not math.isfinite(value):
+            raise ValueError("invalid number")
+        if not schema.get("minimum", -math.inf) <= value <= schema.get("maximum", math.inf):
+            raise ValueError("number outside allowed range")
+    elif kind == "boolean" and type(value) is not bool:
+        raise ValueError("invalid boolean")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError("invalid enum")
 
 class ToolRegistry:
     def __init__(self):

@@ -257,7 +257,8 @@ LOCAL_SCHEMAS = {
 }
 WEATHER_SCHEMA = {"type": "object", "properties": {
     "city": {"type": "string", "maxLength": 80},
-    "days": {"type": "integer", "minimum": 1, "maximum": 7}},
+    "days": {"type": "integer", "minimum": 1, "maximum": 7},
+    "region": {"type": "string", "maxLength": 80}},
     "required": ["city"], "additionalProperties": False}
 TOOL_SCHEMAS.append({"type": "function", "function": {
     "name": "get_weather", "description": "查询指定城市今起最多七天的天气。地点不明确时 city 留空以询问用户。",
@@ -277,6 +278,7 @@ route_props = TURN_ROUTE_SCHEMA["function"]["parameters"]["properties"]
 route_props["action"]["enum"].extend(["get_weather", "volume_control", "select_music", "fan_light_control"])
 route_props.update({
     "city": {"type": "string", "maxLength": 80},
+    "weather_region": {"type": "string", "maxLength": 80},
     "days": {"type": "integer", "minimum": 1, "maximum": 7},
     "volume_action": {"type": "string", "enum": ["get", "set", "up", "down", "max"]},
     "percent": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -288,7 +290,7 @@ route_props.update({
     "fan_light_blue": {"type": "integer", "minimum": 0, "maximum": 255},
 })
 TURN_ROUTE_SCHEMA["function"]["description"] += (
-    "天气选择 get_weather 并给出 city、days；音量选择 volume_control，"
+    "天气选择 get_weather 并给出 city、days；省份或国家放 weather_region，city 只放城市名。音量选择 volume_control，"
     "提供 volume_action 和可选 percent；从刚才音乐候选中选择用 select_music，"
     "在 music_query 中保留编号或歌曲名。")
 TURN_ROUTE_SCHEMA["function"]["description"] += (
@@ -298,3 +300,21 @@ TURN_ROUTE_SCHEMA["function"]["description"] += (
     "(static/breath/rainbow)。静态或呼吸模式由模型判断用户要的颜色，"
     "提供 fan_light_red/green/blue 三个 0..255 整数；rainbow 不带颜色。"
     "颜色无法确定时选择 respond_text 询问，不得改为其他颜色。")
+
+
+# One routing decision may carry several independent actions. Nested plans,
+# vision acquisition and ending a conversation are deliberately excluded.
+from copy import deepcopy
+single_action_schema = deepcopy(TURN_ROUTE_SCHEMA["function"]["parameters"])
+single_action_schema["properties"]["action"]["enum"] = [
+    action for action in single_action_schema["properties"]["action"]["enum"]
+    if action not in {"respond_text", "request_vision", "end_conversation"}
+]
+route_props["action"]["enum"].append("tool_batch")
+route_props["actions"] = {"type": "array", "minItems": 2, "maxItems": 4,
+                         "items": single_action_schema}
+TURN_ROUTE_SCHEMA["function"]["description"] += (
+    "用户同时要求多个独立动作时选择 tool_batch，在 actions 中列出2到4个动作，"
+    "每个动作使用上述单动作字段。例如播放音乐并改为蓝色呼吸灯，应同时包含"
+    "play_music 和 fan_light_control，不能遗漏其中一项。"
+    "同一个播放器的一组相互依赖操作不要合并；不要把普通聊天或结束对话放入批次。")

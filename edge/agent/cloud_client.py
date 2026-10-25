@@ -5,6 +5,8 @@ import json
 from shared.timing import trace_id, measure
 from robot_tools.catalog import LOCAL_SCHEMAS
 from robot_tools.registry import validate
+from robot_tools.batch import validate_plan, REMOTE_SCHEMAS
+from shared.errors import ERROR_MESSAGES
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import (
@@ -23,7 +25,10 @@ from edge.agent.memory_store import (
 
 
 class CloudAgentError(RuntimeError):
-    pass
+    def __init__(self, message, reason="unavailable"):
+        super().__init__(message)
+        self.reason = reason
+
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,7 @@ class AgentReply:
         MusicRequest | None
     ) = None
     end_conversation: bool = False
+    tool_requests: tuple = ()
 
 
 class CloudAgentClient:
@@ -201,10 +207,10 @@ class CloudAgentClient:
                             raise CloudAgentError("Invalid final response")
                         return event["data"]
                     if event.get("type") == "error":
-                        if event.get("reason") == "quota_exhausted":
-                            raise CloudAgentError("GLM 账户余额不足或没有可用资源包")
-                        raise CloudAgentError("Agent failed during progress request: "
-                                              + str(event.get("reason", "unavailable"))[:40])
+                        reason = event.get("reason", "unavailable")
+                        if reason not in ERROR_MESSAGES:
+                            reason = "unavailable"
+                        raise CloudAgentError(ERROR_MESSAGES[reason], reason=reason)
                     if event.get("type") == "timing":
                         print("[REMOTE_TIMING] " + json.dumps(event), flush=True)
                     elif event.get("type") in {"tool_start", "text_delta"} and self.on_event:
@@ -228,6 +234,15 @@ class CloudAgentClient:
         if cancellation is not None:
             cancellation.check()
         raise CloudAgentError("Agent progress stream ended without a final result")
+
+    def execute_remote_tool(self, name, arguments, cancellation=None):
+        if name not in REMOTE_SCHEMAS:
+            raise CloudAgentError("Unsupported remote tool")
+        validate(arguments, REMOTE_SCHEMAS[name])
+        endpoint = self.endpoint.rsplit("/chat", 1)[0] + "/tools/execute"
+        with measure("edge_remote_tool_" + name):
+            return self._post_json(endpoint, {"name": name, "arguments": arguments,
+                                             "trace_id": trace_id.get()}, cancellation)
 
     def _post_json(
         self,
@@ -268,35 +283,27 @@ class CloudAgentClient:
             if cancellation is not None:
                 cancellation.check()
             try:
-                detail = (
-                    exc.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
+                detail = json.loads(exc.read()).get("detail", {})
+                reason = detail.get("reason", "unavailable") if isinstance(detail, dict) else "unavailable"
             except Exception:
-                detail = ""
+                reason = "unavailable"
 
             raise CloudAgentError(
-                "Cloud Agent HTTP error "
-                f"{exc.code}: "
-                f"{detail[:500]}"
+                ERROR_MESSAGES.get(reason, ERROR_MESSAGES["unavailable"]), reason=reason
             ) from exc
 
         except URLError as exc:
             if cancellation is not None:
                 cancellation.check()
             raise CloudAgentError(
-                "Cloud Agent unavailable: "
-                f"{exc.reason}"
+                "Cloud Agent unavailable", reason="network"
             ) from exc
 
         except TimeoutError as exc:
             if cancellation is not None:
                 cancellation.check()
             raise CloudAgentError(
-                "Cloud Agent request timed out"
+                "Cloud Agent request timed out", reason="timeout"
             ) from exc
 
         try:
@@ -705,6 +712,14 @@ class CloudAgentClient:
                 model=model,
                 vision_request=request,
             )
+
+        tool_plan = data.get("tool_requests")
+        if tool_plan:
+            try:
+                validate_plan(tool_plan)
+            except ValueError as exc:
+                raise CloudAgentError("Invalid tool plan", reason="invalid_response") from exc
+            return AgentReply(text="", model=model, tool_requests=tuple(tool_plan))
 
         tool_data = data.get("tool_request")
         if tool_data is not None:

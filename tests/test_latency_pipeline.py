@@ -324,7 +324,7 @@ class EdgeEventsTests(unittest.TestCase):
         stream = io.BytesIO(b'{"type":"error","error":"HTTPException",'
                             b'"reason":"quota_exhausted"}\n')
         with patch("edge.agent.cloud_client.urlopen", return_value=stream):
-            with self.assertRaisesRegex(CloudAgentError, "GLM"):
+            with self.assertRaisesRegex(CloudAgentError, "余额不足"):
                 client._post_chat({})
         client._post_json.assert_not_called()
 
