@@ -62,9 +62,11 @@ def validate_targets(configs):
     normalized = {target: validate_config(config) for target, config in configs.items()}
     if len(normalized) == 2:
         a, b = normalized.values()
-        if a["ssid"] != b["ssid"] or a["security"] != b["security"] or a["password"] != b["password"]:
+        if a["ssid"] != b["ssid"]:
             raise ValueError("same_wifi_required")
-        if a["method"] == b["method"] == "manual" and ipaddress.ip_interface(a["address"]).ip == ipaddress.ip_interface(b["address"]).ip:
+        if "saved_uuid" not in a and "saved_uuid" not in b and (a["security"] != b["security"] or a["password"] != b["password"]):
+            raise ValueError("same_wifi_required")
+        if a.get("method") == b.get("method") == "manual" and ipaddress.ip_interface(a["address"]).ip == ipaddress.ip_interface(b["address"]).ip:
             raise ValueError("duplicate_static_ip")
     return normalized
 

@@ -71,7 +71,22 @@ Window {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 20
-        text: "网络设置"
+        width: 76; height: 64
+        text: ""
+        color: "#23141b"
+        border.color: "#ff455b"
+        Canvas {
+            anchors.fill: parent
+            onPaint: {
+                var c = getContext("2d")
+                c.clearRect(0, 0, width, height)
+                c.strokeStyle = "#ff455b"; c.fillStyle = "#ff455b"; c.lineWidth = 5; c.lineCap = "round"
+                for (var r = 13; r <= 31; r += 9) {
+                    c.beginPath(); c.arc(width/2, height-16, r, Math.PI*1.25, Math.PI*1.75); c.stroke()
+                }
+                c.beginPath(); c.arc(width/2, height-16, 3, 0, Math.PI*2); c.fill()
+            }
+        }
         onClicked: root.networkOpen = true
     }
     NetworkPanel {

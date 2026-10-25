@@ -27,6 +27,14 @@ LIMIT = 8192
 
 
 def validate_config(value):
+    if isinstance(value, dict) and "saved_uuid" in value:
+        if set(value) != {"saved_uuid", "ssid"} or not isinstance(value["ssid"], str):
+            raise ValueError("invalid_saved_profile")
+        try:
+            ident = str(uuid.UUID(value["saved_uuid"]))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("invalid_saved_profile") from None
+        return {"saved_uuid": ident, "ssid": value["ssid"]}
     if not isinstance(value, dict) or set(value) - {"ssid", "password", "security", "method", "address", "gateway", "dns"}:
         raise ValueError("invalid_config")
     c = dict(value)
@@ -135,7 +143,43 @@ class NetworkManager:
         pending = self.active_pending()
         return {"hostname": socket.gethostname(), "wifi_interface": self.interface, "interfaces": interfaces,
                 "connection": nmcli("-g", "GENERAL.CONNECTION", "device", "show", self.interface),
+                "saved": self.saved_profiles(),
                 "pending": {"token": pending["token"], "expires": pending["expires"]} if pending else None}
+
+    def saved_profiles(self, requested=None):
+        store = self.dbus.Interface(self.bus.get_object(NM, NM_PATH + "/Settings"), NM + ".Settings")
+        profiles = []
+        for path in store.ListConnections():
+            obj = self.bus.get_object(NM, path)
+            conn = self.dbus.Interface(obj, NM + ".Settings.Connection")
+            settings = conn.GetSettings()
+            info = settings.get("connection", {})
+            if info.get("type") != "802-11-wireless" or info.get("interface-name", self.interface) != self.interface:
+                continue
+            props = self.dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+            if props.Get(NM + ".Settings.Connection", "Unsaved"):
+                continue
+            ssid = bytes(settings.get("802-11-wireless", {}).get("ssid", [])).decode("utf-8", errors="replace")
+            ident = str(info.get("uuid", ""))
+            if requested and requested["saved_uuid"] == ident and requested["ssid"] == ssid:
+                security = settings.get("802-11-wireless-security")
+                if security is not None:
+                    if security.get("key-mgmt") not in {"wpa-psk", "sae"}:
+                        raise ValueError("unsupported_security")
+                    security.update(conn.GetSecrets("802-11-wireless-security").get("802-11-wireless-security", {}))
+                ipv4 = settings.get("ipv4", {})
+                if ipv4.get("method") not in {"auto", "manual"}:
+                    raise ValueError("invalid_method")
+                for address in ipv4.get("address-data", []):
+                    if ipaddress.ip_network(str(address["address"]) + "/" + str(address["prefix"]), strict=False).overlaps(PROTECTED):
+                        raise ValueError("invalid_address_or_gateway")
+                return settings
+            profiles.append({"uuid": ident, "ssid": ssid, "name": str(info.get("id", ssid)),
+                             "method": str(settings.get("ipv4", {}).get("method", "auto")),
+                             "timestamp": int(info.get("timestamp", 0))})
+        if requested:
+            raise ValueError("saved_profile_not_found")
+        return sorted(profiles, key=lambda p: -p["timestamp"])
 
     def scan(self):
         self.device()
@@ -154,6 +198,7 @@ class NetworkManager:
 
     def apply(self, config):
         c = validate_config(config)
+        saved = self.saved_profiles(c) if "saved_uuid" in c else None
         if self.active_pending():
             raise ValueError("confirmation_pending")
         dbus = self.dbus
@@ -167,12 +212,15 @@ class NetworkManager:
                                "type": "802-11-wireless", "interface-name": self.interface,
                                "autoconnect": False, "autoconnect-priority": dbus.Int32(100)},
                 "802-11-wireless": {"ssid": dbus.ByteArray(c["ssid"].encode()), "mode": "infrastructure"},
-                "ipv4": {"method": c["method"], "route-metric": dbus.Int64(600)},
+                "ipv4": {"method": c.get("method", "auto"), "route-metric": dbus.Int64(600)},
                 "ipv6": {"method": "auto"},
             }
-            if c["security"] != "open":
+            if saved is not None:
+                settings = saved
+                settings["connection"].update({"uuid": ident, "autoconnect": False, "interface-name": self.interface})
+            elif c["security"] != "open":
                 settings["802-11-wireless-security"] = {"key-mgmt": c["security"], "psk": c["password"]}
-            if c["method"] == "manual":
+            if saved is None and c["method"] == "manual":
                 address = ipaddress.IPv4Interface(c["address"])
                 settings["ipv4"].update({
                     "address-data": dbus.Array([dbus.Dictionary({"address": str(address.ip), "prefix": dbus.UInt32(address.network.prefixlen)}, signature="sv")], signature="a{sv}"),

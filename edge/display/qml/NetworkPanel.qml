@@ -84,6 +84,23 @@ Rectangle {
                 method:manual ? "manual" : "auto", address:address,
                 gateway:gateway.text.trim(), dns:dns.text.split(/[,，;；\s]+/).filter(function(x) {return x.length > 0})}
     }
+    function savedFor(target, name) {
+        var saved = devices[target] ? (devices[target].saved || []) : []
+        for (var i = 0; i < saved.length; i++) if (saved[i].ssid === name) return saved[i]
+        return null
+    }
+    function connectSaved(name) {
+        var a = savedFor("brain", name), b = savedFor("cerebellum", name)
+        if (!a || (both && !b)) { message = "部分设备尚未保存此 Wi-Fi，请输入密码连接一次并确认保存。"; return }
+        var configs = {brain:{saved_uuid:a.uuid, ssid:name}}
+        if (both) configs.cerebellum = {saved_uuid:b.uuid, ssid:name}
+        busy = true; editor = null
+        message = "正在使用设备各自保存的密码和 IP 配置连接；成功后请确认保留。"
+        api("action", {action:"apply", configs:configs}, function(ok, data) {
+            if (ok && data && data.id) jobId = data.id
+            else { busy = false; message = "已保存网络连接未提交，请刷新后重试" }
+        })
+    }
     function apply() {
         var configs = {brain:makeConfig(brainStatic, brainAddress.text.trim())}
         if (both) configs.cerebellum = makeConfig(peerStatic, peerAddress.text.trim())
@@ -144,13 +161,20 @@ Rectangle {
                 width:parent.width; height:parent.height - 54; clip:true; spacing:6; model:panel.networks
                 delegate: Rectangle {
                     width:ListView.view.width; height:66; radius:8; color:ssid.text === modelData.ssid ? "#195a55" : "#132c37"
-                    Text { anchors.fill:parent; anchors.margins:10; text:modelData.ssid + "\n" + modelData.security + " · " + modelData.signal + "%"; color:"white"; font.pixelSize:17; elide:Text.ElideRight }
+                    Text { anchors.fill:parent; anchors.rightMargin:140; anchors.margins:10; text:modelData.ssid + "\n" + modelData.security + " · " + modelData.signal + "%"; color:"white"; font.pixelSize:17; elide:Text.ElideRight }
                     MouseArea { anchors.fill:parent; enabled:!busy; onClicked: {
                         if (/802.1X|EAP/.test(modelData.security)) { message = "暂不支持企业认证 Wi-Fi"; return }
                         ssid.text = modelData.ssid
                         security = modelData.security === "--" || !modelData.security ? "open" : (/WPA3/.test(modelData.security) && !/WPA2/.test(modelData.security) ? "sae" : "wpa-psk")
                         password.text = ""
                     } }
+                    NetworkButton {
+                        anchors.right:parent.right; anchors.rightMargin:8; anchors.verticalCenter:parent.verticalCenter
+                        width:126; height:50; text:"已存 · 连接"
+                        visible:panel.savedFor("brain", modelData.ssid) !== null
+                        enabled:!busy && Object.keys(tokens).length === 0
+                        onClicked:panel.connectSaved(modelData.ssid)
+                    }
                 }
             }
         }
@@ -160,7 +184,7 @@ Rectangle {
             Column {
                 id:fields; width:form.width; spacing:8; enabled:!busy
                 NetworkField { id:ssid; width:parent.width; label:"Wi-Fi 名称（可点选左侧）"; onEditing:panel.focusEditor(editor) }
-                NetworkField { id:password; width:parent.width; label:security === "open" ? "开放网络，无需密码" : "Wi-Fi 密码"; secret:true; enabled:security !== "open"; onEditing:panel.focusEditor(editor) }
+                NetworkField { id:password; width:parent.width; label:security === "open" ? "开放网络，无需密码" : "Wi-Fi 密码（明文）"; secret:false; enabled:security !== "open"; onEditing:panel.focusEditor(editor) }
                 NetworkButton { width:parent.width; selected:both; text:both ? "✓ 同时配置小脑" : "仅配置大脑"; onClicked:both = !both }
                 NetworkButton { width:parent.width; text:brainStatic ? "大脑：手动 IPv4" : "大脑：自动 DHCP"; onClicked:brainStatic = !brainStatic }
                 NetworkField { id:brainAddress; width:parent.width; visible:brainStatic; height:visible ? 66 : 0; label:"大脑 IP/前缀，例如 192.168.3.23/24"; onEditing:panel.focusEditor(editor) }
@@ -182,7 +206,7 @@ Rectangle {
         }
     }
     Rectangle {
-        id:keyboard; anchors.bottom:parent.bottom; width:parent.width; height:editor ? Math.min(240, panel.height * 0.32) : 0; visible:height > 0; color:"#0d2631"
+        id:keyboard; anchors.bottom:parent.bottom; anchors.bottomMargin:16; width:parent.width; height:editor ? Math.min(320, panel.height * 0.36) : 0; visible:height > 0; color:"#0d2631"
         Column {
             anchors.fill:parent; anchors.margins:5; spacing:4
             Repeater {

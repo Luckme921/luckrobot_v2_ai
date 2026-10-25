@@ -16,6 +16,13 @@ def config(**kwargs):
 
 
 class NetworkTests(unittest.TestCase):
+    def test_saved_profile_reference_contains_no_password(self):
+        saved = {"ssid":"test", "saved_uuid":"8c05ad99-dcbc-4f9b-a301-c71c16aa0ac1"}
+        self.assertEqual(validate_config(saved), saved)
+        self.assertEqual(len(validate_targets({"brain":saved, "cerebellum":saved})), 2)
+        for bad in [{**saved, "password":"do-not-accept"}, {**saved, "saved_uuid":"--shell"}]:
+            with self.assertRaises(ValueError): validate_config(bad)
+
     def test_dhcp_and_static_validation(self):
         self.assertEqual(validate_config(config())["method"], "auto")
         valid = config(method="manual", address="192.168.3.40/24", gateway="192.168.3.1", dns=["223.5.5.5"])
