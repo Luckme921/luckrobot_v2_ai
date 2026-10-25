@@ -259,8 +259,13 @@ class LocalToolResponse(BaseModel):
     name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control"]
     arguments: dict
 
+class BatchToolResponse(BaseModel):
+    name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control", "get_weather", "web_search", "navigate_to"]
+    arguments: dict
+
+
 class ChatResponse(BaseModel):
-    tool_requests: list[LocalToolResponse] = Field(default_factory=list, max_length=4)
+    tool_requests: list[BatchToolResponse] = Field(default_factory=list, max_length=4)
     tool_request: LocalToolResponse | None = None
 
     reply: str = ""
@@ -388,8 +393,8 @@ async def _chat(
         )
 
     except ToolBatchRequired as exc:
-        return ChatResponse(reply="", model=agent.model,
-                            tool_requests=[LocalToolResponse(**item) for item in exc.requests])
+        return ChatResponse(reply="", model=agent.model, end_conversation=exc.end_conversation,
+                            tool_requests=[BatchToolResponse(**item) for item in exc.requests])
 
     except LocalToolRequestRequired as exc:
         return ChatResponse(reply="", model=agent.model,

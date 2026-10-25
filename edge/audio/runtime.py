@@ -2300,7 +2300,8 @@ def main() -> None:
                                                 }, ensure_ascii=False), flush=True)
                                             agent_client.record_completed_turn(command_text, batch_reply)
                                             turn_memory_recorded = True
-                                            agent_reply = AgentReply(text=batch_reply, model="local-tool")
+                                            agent_reply = AgentReply(text=batch_reply, model="local-tool",
+                                                                     end_conversation=agent_reply.end_conversation)
                                             if token is not None:
                                                 token.check()
                                             if music_playing:

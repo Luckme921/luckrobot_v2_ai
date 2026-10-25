@@ -73,14 +73,14 @@ Window {
         anchors.margins: 20
         width: 76; height: 64
         text: ""
-        color: "#23141b"
-        border.color: "#ff455b"
+        color: "transparent"
+        border.width: 0
         Canvas {
             anchors.fill: parent
             onPaint: {
                 var c = getContext("2d")
                 c.clearRect(0, 0, width, height)
-                c.strokeStyle = "#ff455b"; c.fillStyle = "#ff455b"; c.lineWidth = 5; c.lineCap = "round"
+                c.strokeStyle = "#a34c58"; c.fillStyle = "#a34c58"; c.lineWidth = 5; c.lineCap = "round"
                 for (var r = 13; r <= 31; r += 9) {
                     c.beginPath(); c.arc(width/2, height-16, r, Math.PI*1.25, Math.PI*1.75); c.stroke()
                 }
@@ -216,7 +216,7 @@ Window {
         if (robotState === "thinking") return "✦"
         if (robotState === "speaking") return ")))"
         if (robotState === "interrupted") return "⚡"
-        if (robotState === "music") return "♫"
+        if (robotState === "music") return ""
         return "●"
     }
     function musicTitle() {

@@ -719,7 +719,10 @@ class CloudAgentClient:
                 validate_plan(tool_plan)
             except ValueError as exc:
                 raise CloudAgentError("Invalid tool plan", reason="invalid_response") from exc
-            return AgentReply(text="", model=model, tool_requests=tuple(tool_plan))
+            ending = data.get("end_conversation", False)
+            if type(ending) is not bool:
+                raise CloudAgentError("Invalid conversation end flag")
+            return AgentReply(text="", model=model, tool_requests=tuple(tool_plan), end_conversation=ending)
 
         tool_data = data.get("tool_request")
         if tool_data is not None:

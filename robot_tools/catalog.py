@@ -303,12 +303,12 @@ TURN_ROUTE_SCHEMA["function"]["description"] += (
 
 
 # One routing decision may carry several independent actions. Nested plans,
-# vision acquisition and ending a conversation are deliberately excluded.
+# vision acquisition are excluded; ending is a terminal marker, not a tool.
 from copy import deepcopy
 single_action_schema = deepcopy(TURN_ROUTE_SCHEMA["function"]["parameters"])
 single_action_schema["properties"]["action"]["enum"] = [
     action for action in single_action_schema["properties"]["action"]["enum"]
-    if action not in {"respond_text", "request_vision", "end_conversation"}
+    if action not in {"respond_text", "request_vision"}
 ]
 route_props["action"]["enum"].append("tool_batch")
 route_props["actions"] = {"type": "array", "minItems": 2, "maxItems": 4,
@@ -317,4 +317,6 @@ TURN_ROUTE_SCHEMA["function"]["description"] += (
     "用户同时要求多个独立动作时选择 tool_batch，在 actions 中列出2到4个动作，"
     "每个动作使用上述单动作字段。例如播放音乐并改为蓝色呼吸灯，应同时包含"
     "play_music 和 fan_light_control，不能遗漏其中一项。"
-    "同一个播放器的一组相互依赖操作不要合并；不要把普通聊天或结束对话放入批次。")
+    "同一个播放器的一组相互依赖操作不要合并；不要把普通聊天放入批次。"
+    "用户要求关闭音乐并结束对话时，批次包含 stop_music 和 end_conversation；"
+    "end_conversation 只作为全部工具完成后的收尾标记，不作为并发工具。")

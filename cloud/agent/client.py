@@ -83,8 +83,9 @@ class LocalToolRequestRequired(RuntimeError):
         super().__init__("Local tool execution required")
 
 class ToolBatchRequired(RuntimeError):
-    def __init__(self, requests):
+    def __init__(self, requests, end_conversation=False):
         self.requests = requests
+        self.end_conversation = end_conversation
         super().__init__("Multiple tool actions required")
 
 
@@ -547,9 +548,14 @@ class GLMAgent:
             actions = arguments.get("actions", [])
             if not 2 <= len(actions) <= 4:
                 raise ValueError("batch requires two to four actions")
-            return {"action": "tool_batch", "routes": [
+            routes = [
                 GLMAgent._parse_turn_route_arguments(json.dumps(item))
-                for item in actions]}
+                for item in actions]
+            ending = [r for r in routes if r["action"] == "end_conversation"]
+            tools = [r for r in routes if r["action"] != "end_conversation"]
+            if len(ending) > 1 or not tools:
+                raise ValueError("batch requires tools and at most one end marker")
+            return {"action": "tool_batch", "routes": tools, "end_conversation": bool(ending)}
         if "actions" in arguments:
             raise ValueError("actions require tool_batch")
         action = str(
@@ -1104,6 +1110,7 @@ class GLMAgent:
                     "只负责调用 route_turn 选择 action。"
                     "用户一句话同时要求多个动作时选择 tool_batch，并在 actions 中完整列出。"
                     "例如播放歌曲并调蓝色呼吸灯，必须同时选择 play_music 和 fan_light_control。"
+                    "关闭音乐并结束对话时，选择包含 stop_music、end_conversation 的 tool_batch；先执行工具再结束会话。"
                     "不要因为选择了音乐而遗漏风扇灯光、天气或音量操作。"
 
                     "普通聊天、稳定知识或身份问题"
@@ -1678,7 +1685,7 @@ class GLMAgent:
                             request = {"name": "music_control", "arguments": {"action": music.action}}
                     requests.append(request)
                 validate_plan(requests)
-                raise ToolBatchRequired(requests)
+                raise ToolBatchRequired(requests, end_conversation=route.get("end_conversation", False))
 
             if action in {"volume_control", "fan_light_control"}:
                 raise LocalToolRequestRequired(route["local_tool"], route["arguments"])

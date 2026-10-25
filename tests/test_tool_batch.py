@@ -19,6 +19,21 @@ def action(name, **arguments):
 
 
 class BatchTests(unittest.TestCase):
+    def test_stop_music_then_end_is_a_terminal_flag(self):
+        result = GLMAgent._parse_turn_route_arguments(json.dumps({"action":"tool_batch", "actions":[
+            {"action":"end_conversation"}, {"action":"stop_music"}]}))
+        self.assertTrue(result["end_conversation"])
+        self.assertEqual(len(result["routes"]), 1)
+        self.assertEqual(result["routes"][0]["action"], "stop_music")
+        with self.assertRaises(ValueError):
+            GLMAgent._parse_turn_route_arguments(json.dumps({"action":"tool_batch", "actions":[
+                {"action":"end_conversation"}, {"action":"end_conversation"}]}))
+
+    def test_batch_response_accepts_remote_tools_and_terminal_flag(self):
+        response = api.ChatResponse(model="test", end_conversation=True, tool_requests=[
+            {"name":"get_weather", "arguments":{"city":"广州"}}])
+        self.assertTrue(response.end_conversation)
+        self.assertEqual(response.tool_requests[0].name, "get_weather")
     def test_independent_actions_really_overlap_and_keep_result_order(self):
         barrier = threading.Barrier(2)
         def execute(name, arguments):
@@ -61,7 +76,7 @@ class BatchTests(unittest.TestCase):
         for raw in [
             {"action": "tool_batch", "actions": [{"action": "tool_batch"}, {"action": "stop_music"}]},
             {"action": "tool_batch", "actions": [{"action": "stop_music"}]},
-            {"action": "tool_batch", "actions": [{"action": "end_conversation"}, {"action": "stop_music"}]},
+            {"action": "tool_batch", "actions": [{"action": "respond_text"}, {"action": "stop_music"}]},
         ]:
             with self.assertRaises(ValueError):
                 GLMAgent._parse_turn_route_arguments(json.dumps(raw))
