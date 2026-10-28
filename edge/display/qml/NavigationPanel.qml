@@ -7,23 +7,48 @@ Rectangle {
     property var info: ({})
     property bool busy: false
     property bool polling: false
+    property bool manualRefresh: false
+    property var statusRequest: null
     property bool maintenance: false
     property string selected: ""
     property string selectedLabel: ""
     property string message: "只查询状态，不会自动启动运动。"
 
-    function poll() {
+    function poll(manual) {
+        if (manual) { manualRefresh = true; message = "正在刷新状态。" }
         if (polling) return
         polling = true
         var r = new XMLHttpRequest()
+        statusRequest = r
+        refreshTimeout.restart()
         r.onreadystatechange = function() {
             if (r.readyState !== XMLHttpRequest.DONE) return
             polling = false
-            try { info = r.status === 200 ? JSON.parse(r.responseText) : {} }
+            refreshTimeout.stop()
+            statusRequest = null
+            var ok = false
+            try { info = r.status === 200 ? JSON.parse(r.responseText) : {}; ok = r.status === 200 }
             catch (e) { info = {} }
+            if (manualRefresh) {
+                message = !ok ? "状态查询失败，请检查本机服务。" :
+                    "状态已更新（" + Qt.formatTime(new Date(), "hh:mm:ss") + "）：" +
+                    (info.system && info.system.fresh ? "小脑 " + info.system.state : "未收到小脑新鲜状态")
+                manualRefresh = false
+            }
         }
         r.open("GET", "http://127.0.0.1:8765/api/navigation/status")
         r.send()
+    }
+    Timer {
+        id: refreshTimeout; interval: 5000
+        onTriggered: {
+            var pending = panel.statusRequest
+            panel.statusRequest = null
+            if (pending) pending.abort()
+            panel.polling = false
+            panel.manualRefresh = false
+            panel.message = "状态查询超时，请检查本机服务。"
+        }
     }
     function submit() {
         if (busy || !selected) return
@@ -51,22 +76,22 @@ Rectangle {
     Column {
         id: controls
         x: 45; y: 45; width: parent.width - 90; spacing: 22
-        Text { text: "底盘建图与导航"; font.pixelSize: 32; color: "#ffffff" }
+        Text { text: "底盘建图与导航"; font.pixelSize: 40; color: "#ffffff" }
         Text {
             width: parent.width; wrapMode: Text.Wrap
-            font.pixelSize: 25; color: panel.info.fresh ? "#65dabd" : "#ed9b80"
+            font.pixelSize: 32; color: panel.info.fresh ? "#65dabd" : "#ed9b80"
             text: "小脑软件：" + (panel.info.system ? panel.info.system.state || "未连接" : "未连接") +
                   "  /  " + (panel.info.fresh ? "底盘：" : "底盘未就绪：") + (panel.info.state || "UNAVAILABLE")
         }
         Text {
-            width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 21; color: "#c4d2de"
+            width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 28; color: "#c4d2de"
             text: "原因：" + (panel.info.reason || panel.info.error || "暂无") +
                   "\n地图版本：" + (panel.info.map ? panel.info.map.map_id : "暂无") +
                   "\n导航就绪：" + (panel.info.navigation_ready ? "是（含完整地图）" : "尚未确认") +
                   (panel.info.task ? "\n任务：" + panel.info.task.command + " / " + panel.info.task.status + "  " + panel.info.task.message : "")
         }
         Text {
-            width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 19; color: "#bcc4cf"
+            width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 25; color: "#bcc4cf"
             text: "当前接入 ROS 模式控制，Nav2目标阶段尚未启用。自动建图/恢复探索会运动，确认前请检查现场。暂停不是急停；断网不代表停车。"
         }
         Flow {
@@ -79,12 +104,12 @@ Rectangle {
                     {label: "暂停流程", cmd: "pause"}, {label: "恢复流程", cmd: "resume"},
                     {label: "取消流程", cmd: "cancel"}]
                 delegate: NetworkButton {
-                    width: 165; height: 62
+                    width: 225; height: 76; fontSize: 26
                     text: modelData.label
-                    enabled: !!panel.info.system && panel.info.system.fresh === true && !panel.busy
+                    enabled: modelData.cmd === "status" || (!!panel.info.system && panel.info.system.fresh === true && !panel.busy)
                     selected: panel.selected === modelData.cmd
                     onClicked: {
-                        if (modelData.cmd === "status") { panel.poll(); panel.message = "正在刷新状态。"; return }
+                        if (modelData.cmd === "status") { panel.poll(true); return }
                         panel.selected = modelData.cmd
                         panel.selectedLabel = modelData.label
                         panel.message = modelData.cmd === "resume" ? "恢复建图将开始自动探索；继续手动建图请选择手动建图。" :
@@ -95,8 +120,8 @@ Rectangle {
             }
         }
         Text {
-            text: panel.maintenance ? "收起地图与维护 ▴" : "地图与维护 ▾"; color: "#7e909f"; font.pixelSize: 17
-            height: 38; width: 160; verticalAlignment: Text.AlignVCenter
+            text: panel.maintenance ? "收起地图与维护 ▴" : "地图与维护 ▾"; color: "#7e909f"; font.pixelSize: 24
+            height: 48; width: 230; verticalAlignment: Text.AlignVCenter
             MouseArea { anchors.fill: parent; onClicked: panel.maintenance = !panel.maintenance }
         }
         Flow {
@@ -106,7 +131,7 @@ Rectangle {
                 model: [{label: "完成手动建图", cmd: "finish_mapping"}, {label: "加载已有地图", cmd: "load_latest"}, {label: "重启小脑软件", cmd: "restart"},
                         {label: "已核对未知结果", cmd: "acknowledge_unknown"}]
                 delegate: NetworkButton {
-                    width: 200; height: 52; text: modelData.label
+                    width: 255; height: 70; fontSize: 25; text: modelData.label
                     enabled: !panel.busy
                     onClicked: {
                         panel.selected = modelData.cmd
@@ -118,11 +143,11 @@ Rectangle {
                 }
             }
         }
-        Text { width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 22; color: "#ffffff"; text: panel.message }
+        Text { width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 28; color: "#ffffff"; text: panel.message }
         Row {
             spacing: 20
-            NetworkButton { width: 210; height: 60; text: panel.busy ? "请求处理中" : "确认执行"; enabled: !panel.busy && !!panel.selected && !!panel.info.system && panel.info.system.fresh === true; onClicked: panel.submit() }
-            NetworkButton { width: 160; height: 60; text: "关闭"; onClicked: panel.closed() }
+            NetworkButton { width: 245; height: 76; fontSize: 26; text: panel.busy ? "请求处理中" : "确认执行"; enabled: !panel.busy && !!panel.selected && !!panel.info.system && panel.info.system.fresh === true; onClicked: panel.submit() }
+            NetworkButton { width: 180; height: 76; fontSize: 26; text: "关闭"; onClicked: panel.closed() }
         }
     }
     }

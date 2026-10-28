@@ -625,7 +625,7 @@ Window {
         width: root.width * 0.92
         height: root.height * (root.robotState === "music" ?
             (root.musicLyrics.length ? 0.26 : 0.18) : 0.34)
-        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: root.height * 0.025 }
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 76 }
 
         Text {
             id: stateText
@@ -674,6 +674,31 @@ Window {
             mainFontSize: Math.max(20, root.height * 0.037)
             mainColor: "#f4fff8"
             sideColor: "#8ac5a5"
+        }
+    }
+
+    Row {
+        z: 14
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 22
+        spacing: Math.max(14, root.width * 0.018)
+        visible: !root.qqAuthOpen && !root.networkOpen && !root.navigationOpen
+        Repeater {
+            model: [
+                {state: "sleeping", icon: "○", label: "等待唤醒"},
+                {state: "listening", icon: "◉", label: "正在听"},
+                {state: "transcribing", icon: "···", label: "识别中"},
+                {state: "thinking", icon: "◇", label: "思考中"},
+                {state: "speaking", icon: ")))", label: "回复中"},
+                {state: "interrupted", icon: "Ⅱ", label: "已打断"}]
+            delegate: Row {
+                spacing: 7
+                property bool active: root.connected && (root.voicePlaying ? modelData.state === "speaking" : root.robotState === modelData.state)
+                opacity: active ? 1 : 0.3
+                Text { text: modelData.icon; color: "#c77b80"; font.pixelSize: 23; height: 28; verticalAlignment: Text.AlignVCenter }
+                Text { text: modelData.label; color: "#c77b80"; font.pixelSize: 18; height: 28; verticalAlignment: Text.AlignVCenter; font.bold: parent.active }
+            }
         }
     }
 
