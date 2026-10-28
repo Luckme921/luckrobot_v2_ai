@@ -22,6 +22,30 @@ STATE_PATH = Path(os.environ.get(
 app = FastAPI(title="LuckRobot Display", docs_url=None, redoc_url=None)
 
 
+@app.get("/api/rviz/status")
+def rviz_status():
+    from edge.display.rviz import viewer
+    return JSONResponse(viewer.status(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/rviz/action")
+def rviz_action(payload: dict, x_luckrobot_display: str | None = Header(default=None)):
+    from edge.display.rviz import viewer
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    if (set(payload) != {"action"} or not isinstance(payload["action"], str)
+            or payload["action"] not in {"open", "restart", "close"}):
+        raise HTTPException(status_code=422)
+    return viewer.request(payload["action"])
+
+
+@app.on_event("shutdown")
+def close_rviz_viewer():
+    from edge.display.rviz import viewer
+    if viewer.process is not None and viewer.process.poll() is None:
+        viewer.process.terminate()
+
+
 @app.get("/api/navigation/status")
 def navigation_status():
     from edge.navigation.bridge import status

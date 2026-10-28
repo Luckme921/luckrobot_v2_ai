@@ -60,12 +60,12 @@ class RosStateTests(unittest.TestCase):
         ready(s, mapping="NEW_STATE")
         self.assertIsNotNone(gate("auto_mapping", s.snapshot(), True))
 
-    def test_motion_and_restart_require_confirmation_but_start_does_not(self):
+    def test_explicit_motion_allowed_but_restart_requires_ui_confirmation(self):
         s = RobotState()
         ready(s, system="STOPPED")
         self.assertIsNone(gate("start", s.snapshot()))
-        for command in ("auto_mapping", "resume", "restart"):
-            self.assertIsNotNone(gate(command, s.snapshot()))
+        self.assertIsNotNone(gate("restart", s.snapshot()))
+        self.assertIsNone(gate("auto_mapping", s.snapshot()))
         self.assertIsNone(gate("auto_mapping", s.snapshot(), True))
         self.assertIsNotNone(gate("update_map", s.snapshot(), True))
 
@@ -80,12 +80,10 @@ class RosTaskTests(unittest.TestCase):
             time.sleep(.01)
         self.fail(str(manager.snapshot()))
 
-    def test_construction_has_no_calls_and_voice_cannot_confirm_motion(self):
+    def test_construction_has_no_calls_and_voice_cannot_restart(self):
         state = RobotState(); ready(state)
         call = Mock()
         manager = TaskManager(state, call)
-        self.assertFalse(manager.submit("auto_mapping")["ok"])
-        self.assertFalse(manager.submit("resume")["ok"])
         self.assertFalse(manager.submit("restart")["ok"])
         call.assert_not_called()
 

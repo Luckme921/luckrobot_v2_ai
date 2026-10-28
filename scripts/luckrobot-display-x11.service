@@ -1,0 +1,24 @@
+[Unit]
+Description=LuckRobot fullscreen X11 display and optional RViz
+After=local-fs.target
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=jetson
+Group=jetson
+SupplementaryGroups=video input render tty
+WorkingDirectory=/home/jetson/luckrobot_latency_test
+Environment=HOME=/home/jetson
+TTYPath=/dev/tty1
+StandardInput=tty
+TTYReset=yes
+TTYVHangup=yes
+ExecStartPre=+/usr/bin/bash /home/jetson/luckrobot_latency_test/scripts/manage_fbconsole.sh detach
+ExecStart=/usr/bin/bash /home/jetson/luckrobot_latency_test/scripts/run_display_session.sh
+ExecStopPost=+/usr/bin/bash /home/jetson/luckrobot_latency_test/scripts/manage_fbconsole.sh attach
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

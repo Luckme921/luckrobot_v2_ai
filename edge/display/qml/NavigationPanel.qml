@@ -73,9 +73,9 @@ Rectangle {
             width: parent.width; spacing: 18
             Repeater {
                 model: [
-                    {label: "启动小脑软件", cmd: "start"},
+                    {label: "查询状态", cmd: "status"},
+                    {label: "启动小脑软件", cmd: "start"}, {label: "结束小脑软件", cmd: "stop"},
                     {label: "手动建图", cmd: "manual_mapping"}, {label: "自动建图", cmd: "auto_mapping"},
-                    {label: "完成建图", cmd: "finish_mapping"}, {label: "加载地图", cmd: "load_latest"},
                     {label: "暂停流程", cmd: "pause"}, {label: "恢复流程", cmd: "resume"},
                     {label: "取消流程", cmd: "cancel"}]
                 delegate: NetworkButton {
@@ -84,6 +84,7 @@ Rectangle {
                     enabled: !!panel.info.system && panel.info.system.fresh === true && !panel.busy
                     selected: panel.selected === modelData.cmd
                     onClicked: {
+                        if (modelData.cmd === "status") { panel.poll(); panel.message = "正在刷新状态。"; return }
                         panel.selected = modelData.cmd
                         panel.selectedLabel = modelData.label
                         panel.message = modelData.cmd === "resume" ? "恢复建图将开始自动探索；继续手动建图请选择手动建图。" :
@@ -94,14 +95,15 @@ Rectangle {
             }
         }
         Text {
-            text: panel.maintenance ? "收起维护 ▴" : "维护选项 ▾"; color: "#7e909f"; font.pixelSize: 17
+            text: panel.maintenance ? "收起地图与维护 ▴" : "地图与维护 ▾"; color: "#7e909f"; font.pixelSize: 17
             height: 38; width: 160; verticalAlignment: Text.AlignVCenter
             MouseArea { anchors.fill: parent; onClicked: panel.maintenance = !panel.maintenance }
         }
-        Row {
+        Flow {
+            width: parent.width
             visible: panel.maintenance; spacing: 12
             Repeater {
-                model: [{label: "有序关闭软件", cmd: "stop"}, {label: "重启小脑软件", cmd: "restart"},
+                model: [{label: "完成手动建图", cmd: "finish_mapping"}, {label: "加载已有地图", cmd: "load_latest"}, {label: "重启小脑软件", cmd: "restart"},
                         {label: "已核对未知结果", cmd: "acknowledge_unknown"}]
                 delegate: NetworkButton {
                     width: 200; height: 52; text: modelData.label
@@ -109,7 +111,9 @@ Rectangle {
                     onClicked: {
                         panel.selected = modelData.cmd
                         panel.selectedLabel = modelData.label
-                        panel.message = "确认“" + modelData.label + "”？停止/重启会取消当前任务，需底盘先确认静止；失败不会强杀或恢复运动。核对未知结果不会重发任务。"
+                        panel.message = modelData.cmd === "finish_mapping" ? "仅用于手动建图完成后确认保存；自动建图成功会自动保存并进入定位。" :
+                            modelData.cmd === "load_latest" ? "用于启动后加载已有地图；自动建图成功后不需要再加载，可能需要设置初始位姿。" :
+                            "确认“" + modelData.label + "”？重启不会恢复旧任务。核对未知结果不会重发任务。"
                     }
                 }
             }

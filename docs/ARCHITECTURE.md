@@ -1,3 +1,5 @@
+2026-10-28晚间更新：明确语音导航任务直接执行，屏幕提供完整备用操作；显示改为轻量X11并支持本机RViz监视、刷新和返回。详见 [NAVIGATION.md](NAVIGATION.md)。
+
 # 项目结构与运行链路
 
 更新：2026-09-19。主要测试目录：/home/jetson/luckrobot_latency_test。

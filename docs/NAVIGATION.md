@@ -20,7 +20,7 @@ Domain100、rmw_fastrtps_cpp、ROS_LOCALHOST_ONLY=0。保留现有有线地址
 - `edge/navigation/ros_bridge.py`：rclpy异步服务和订阅、进程独占锁。
 - `edge/navigation/manager.py`：单任务编排、启动等待、受理/完成/未知结果区分。
 - `edge/navigation/bridge.py`：本地Unix socket和状态文件。远端业务链路始终是ROS。
-- `robot_tools/navigation.py`：模型工具，不能设置运动确认、重启或任意服务名。
+- `robot_tools/navigation.py`：模型工具按明确语音任务直接执行；重启仅维护区，不能传任意服务名。
 - `edge/display/qml/NavigationPanel.qml`：状态和确认操作；维护区折叠显示。
 
 本地IPC是 `private/runtime/navigation/control.sock`（0600），状态快照
@@ -38,8 +38,9 @@ route_turn采用action=navigation_control、navigation_command=对应值。
 STOPPED，可请求start一次并等待RUNNING、manager_fresh及两次有效模式心跳后再发模式。
 启动失败或超时不会继续。start只启动固定idle栈，不代表定位/导航就绪。
 
-自动建图、resume可能启动运动，语音请求只提示到屏幕确认。屏幕选定后“确认执行”
-才授权本次动作。restart仅维护区提供并需确认；以底盘已有有序stop/restart服务
+按用户最新要求，明确的语音任务可直接请求自动建图和resume，不要求再点屏幕。
+语义含糊仍需询问，状态门控/单任务/超时不重发保留。触摸操作选定后确认，防止误触。
+restart仅维护区提供并需确认；以底盘已有有序stop/restart服务
 处理，不用SSH/systemctl/kill关闭运动进程，不传路径、PID、shell等参数。
 维护区“已核对未知结果”只解除本地待核对标记，绝不重发旧指令。
 
@@ -76,7 +77,7 @@ tail -F logs/navigation-latency.log logs/audio-latency.log
 ```
 
 CLI默认只读。语音可问“小脑现在什么状态”，或明确请求启动小脑软件。
-自动建图、恢复探索请到屏幕确认。先按底盘手册进行无运动的启动→手动模式→暂停→关闭
+自动建图和恢复探索可由明确语音任务直接请求，或在屏幕操作。先按底盘手册进行无运动的启动→手动模式→暂停→关闭
 验收，再由现场操作者决定运动测试。不要把这些命令整段依次执行。
 状态API：GET /navigation/status（本机8000）或 /api/navigation/status（显示8765）。
 日志[NAVIGATION]包含本地task_id、命令和结果；Trigger不携带去重ID，本地ID不代表远端幂等。
@@ -102,3 +103,25 @@ CLI默认只读。语音可问“小脑现在什么状态”，或明确请求�
 - 初始化发现ROS setup脚本不兼容bash nounset，已在source期间临时关闭-u并恢复。
   修复后实际桥接启动正常；旧日志中的启动错误为此前记录。
 - 用户暂不方便现场试听，音乐唤醒暂停/屏幕触摸仍待现场验收，已通过后台逻辑回归。
+
+## 屏幕备用控制台与 RViz（2026-10-28 晚间更新）
+
+Nav2入口缩小为左下角21像素低饱和红色文字。主区包含查询状态、启动/结束小脑软件、
+手动/自动建图、暂停、恢复、取消。“地图与维护”保留完成手动建图、加载已有地图、
+重启、核对未知结果。所有语音支持的指令均有触摸入口。
+自动建图完成会自动保存并切定位，不用再点完成/加载；手动建图完成和启动后加载旧图
+仍需这两个指令，因此移入次要区域而非删除。
+
+左上角RViz入口使用本机原生OpenGL窗口；顶部提供重新打开/刷新及返回机器人。
+刷新/关闭仅管理本进程拥有的RViz，不调用ROS模式服务，也不重启小脑。
+实际配置已从小脑指定安装目录复制到大脑 `~/luckrobot_rviz/navigation.rviz`，不修改原件。
+每次打开生成 `private/runtime/rviz-monitor.rviz` 副本，保留地图/路径等显示，移除目标、
+初始位姿和Nav2控制面板，避免监视界面成为第二个运动指令来源。窗口按实际X11分辨率
+布局，顶部预留70像素控制栏。模型mesh资源仍需大脑安装对应描述包才能解析。
+
+RViz不能在linuxfb软件渲染界面中直接运行，因此显示服务切为最小X11+Openbox会话，
+没有完整桌面面板，仍默认全屏机器人。依赖xinit/xauth/openbox/wmctrl/unclutter。
+服务模板 `scripts/luckrobot-display-x11.service`；原framebuffer服务部署前保留备份。
+新入口为 `scripts/run_display_session.sh`，X11禁止TCP监听、使用0600私有Xauthority。
+大脑重启不自动打开RViz。显示诊断看journalctl -u luckrobot-display.service，
+RViz诊断看logs/rviz.log。回退时恢复原显示service并daemon-reload/restart即可。

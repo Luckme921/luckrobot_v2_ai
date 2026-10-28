@@ -66,6 +66,60 @@ Window {
     property bool qqAuthOpen: false
     property bool networkOpen: false
     property bool navigationOpen: false
+    property string rvizState: "closed"
+    property string rvizMessage: ""
+    property bool rvizPolling: false
+    function rvizAction(action) {
+        var request = new XMLHttpRequest()
+        request.open("POST", "http://127.0.0.1:8765/api/rviz/action")
+        request.setRequestHeader("Content-Type", "application/json")
+        request.setRequestHeader("X-LuckRobot-Display", "1")
+        request.send(JSON.stringify({action: action}))
+    }
+    Timer {
+        interval: 750; running: true; repeat: true
+        onTriggered: {
+            if (root.rvizPolling) return
+            root.rvizPolling = true
+            var r = new XMLHttpRequest()
+            r.onreadystatechange = function() {
+                if (r.readyState !== XMLHttpRequest.DONE) return
+                root.rvizPolling = false
+                try {
+                    var info = JSON.parse(r.responseText)
+                    root.rvizState = info.state || "closed"
+                    root.rvizMessage = info.message || ""
+                } catch(e) { root.rvizState = "closed" }
+                root.visibility = root.rvizState === "running" ? Window.Hidden : Window.FullScreen
+            }
+            r.open("GET", "http://127.0.0.1:8765/api/rviz/status")
+            r.send()
+        }
+    }
+    Item {
+        z: 16; x: 20; y: 82; width: 100; height: 48
+        Text { anchors.centerIn: parent; text: "RViz"; font.pixelSize: 21; color: "#86515a" }
+        MouseArea { anchors.fill: parent; onClicked: root.rvizAction("open") }
+    }
+    Text {
+        z: 16; x: 130; y: 96; width: parent.width - 260
+        font.pixelSize: 17; color: "#bc838a"; wrapMode: Text.Wrap
+        text: root.rvizState === "starting" ? "正在打开 RViz…" : root.rvizMessage
+    }
+    Window {
+        id: rvizBar
+        transientParent: null
+        visible: root.rvizState === "running"
+        flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        x: 0; y: 0; width: root.width; height: 70
+        color: "#101c25"
+        Row {
+            anchors.verticalCenter: parent.verticalCenter; x: 20; spacing: 20
+            Text { text: "RViz 地图监视"; color: "#afbdc8"; font.pixelSize: 22; height: 50; verticalAlignment: Text.AlignVCenter }
+            NetworkButton { text: "重新打开 / 刷新"; width: 180; height: 50; onClicked: root.rvizAction("restart") }
+            NetworkButton { text: "返回机器人"; width: 170; height: 50; onClicked: root.rvizAction("close") }
+        }
+    }
 
     Item {
         z: 15
@@ -77,9 +131,9 @@ Window {
         Text {
             anchors.centerIn: parent
             text: "Nav2"
-            font.pixelSize: 32
-            font.weight: Font.DemiBold
-            color: "#a34c58"
+            font.pixelSize: 21
+            font.weight: Font.Normal
+            color: "#86515a"
         }
         MouseArea { anchors.fill: parent; onClicked: root.navigationOpen = true }
     }

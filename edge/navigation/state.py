@@ -76,8 +76,6 @@ def gate(command, snapshot, confirmed=False):
     """Return a user-visible rejection; None permits this explicit request."""
     if command not in SERVICES:
         return "不支持此导航指令。"
-    if command in MOTION and not confirmed:
-        return "该操作可能使机器人运动，请到屏幕导航页现场确认。"
     if command == "restart" and not confirmed:
         return "重启需在屏幕维护区确认，不通过语音自动执行。"
     system = snapshot["system"]

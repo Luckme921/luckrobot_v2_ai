@@ -1,3 +1,5 @@
+2026-10-28晚间更新：明确语音导航任务直接执行，屏幕提供完整备用操作；显示改为轻量X11并支持本机RViz监视、刷新和返回。详见 [NAVIGATION.md](NAVIGATION.md)。
+
 # 统一工具接口与音乐 API
 
 2026-10-24：route_turn 新增 tool_batch/actions，最多4项；按资源并发，音乐与音量
