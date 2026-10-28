@@ -1,10 +1,19 @@
+from edge.navigation.state import TOOL_COMMANDS as NAVIGATION_COMMANDS
+NAVIGATION_SCHEMA = {"type": "object", "properties": {
+    "command": {"type": "string", "enum": list(NAVIGATION_COMMANDS)}},
+    "required": ["command"], "additionalProperties": False}
+
 TOOL_SCHEMAS = [
+    {"type": "function", "function": {
+        "name": "navigation_control",
+        "description": "查询底盘状态(status)，启动/关闭软件栈(start/stop)，或根据用户明确指令进行手动建图(manual_mapping)、自动建图(auto_mapping，会运动)、确认建图完成(finish_mapping)、加载最新地图(load_latest，不发送目标)、暂停(pause)、恢复(resume)、取消(cancel)。暂停不能代替急停；受理不代表完成。不得因聊天、开机或重连自动运动。",
+        "parameters": NAVIGATION_SCHEMA}},
     {
         "type": "function",
         "function": {
             "name": "navigate_to",
             "description": (
-                "请求 LuckRobot 前往一个已知地点。"
+                "当前尚未启用 Nav2 目标阶段与语义地点配置。此工具只返回未支持的说明，不会移动。"
                 "只有用户明确要求机器人前往、带路、导航到"
                 "某个地点时才调用。"
             ),
@@ -275,8 +284,9 @@ TOOL_SCHEMAS.append({"type": "function", "function": {
     "description": "仅在用户明确说出音乐别名，或联网搜索结果明确证明同一歌手/歌曲的中英文名、口语别称时，记录短别名供以后 QQ 音乐匹配。不得猜测；Live/Mix 是版本标记，不应把不同版本误写为别名。先完成搜索再提供来源摘要。",
     "parameters": MUSIC_ALIAS_SCHEMA}})
 route_props = TURN_ROUTE_SCHEMA["function"]["parameters"]["properties"]
-route_props["action"]["enum"].extend(["get_weather", "volume_control", "select_music", "fan_light_control"])
+route_props["action"]["enum"].extend(["navigation_control", "get_weather", "volume_control", "select_music", "fan_light_control"])
 route_props.update({
+    "navigation_command": {"type": "string", "enum": list(NAVIGATION_COMMANDS)},
     "city": {"type": "string", "maxLength": 80},
     "weather_region": {"type": "string", "maxLength": 80},
     "days": {"type": "integer", "minimum": 1, "maximum": 7},

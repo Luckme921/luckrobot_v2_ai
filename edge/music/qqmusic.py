@@ -1674,35 +1674,36 @@ class QQMusicController:
         return track
 
     @_driver_locked
-    def pause(
-        self,
-    ) -> str:
-        button = self._play_button()
-
-        if self._is_playing(
-            button
-        ):
-            self._require_driver().execute_script(
-                "arguments[0].click();",
-                button,
-            )
-
-            try:
-                self._wait().until(
-                    lambda d:
-                    not self._is_playing(
-                        d.find_element(
-                            By.CSS_SELECTOR,
-                            ".btn_big_play",
-                        )
-                    )
-                )
-            except TimeoutException as exc:
-                raise QQMusicError(
-                    "QQ Music did not pause"
-                ) from exc
-
-        return self.current_track()
+    def pause(self) -> str:
+        if not self.running:
+            return ""
+        driver = self._require_driver()
+        original = driver.current_window_handle
+        checked = 0
+        try:
+            for handle in list(driver.window_handles):
+                try:
+                    driver.switch_to.window(handle)
+                    if self.PLAYER_PATH not in driver.current_url:
+                        continue
+                    button = driver.find_element(By.CSS_SELECTOR, ".btn_big_play")
+                    if self._is_playing(button):
+                        driver.execute_script("arguments[0].click();", button)
+                    driver.execute_script(
+                        "document.querySelectorAll('audio, video').forEach(m => m.pause());")
+                    self._wait().until(lambda d: not self._is_playing(
+                        d.find_element(By.CSS_SELECTOR, ".btn_big_play")) and
+                        d.execute_script("return Array.from(document.querySelectorAll('audio,video')).every(m => m.paused);"))
+                    checked += 1
+                except NoSuchWindowException:
+                    continue
+        except (TimeoutException, NoSuchElementException) as exc:
+            raise QQMusicError("QQ Music pause was not confirmed") from exc
+        finally:
+            if original in driver.window_handles:
+                driver.switch_to.window(original)
+        print(f"[MUSIC] PAUSE_CONFIRMED tabs={checked}", flush=True)
+        return ""
 
     @_driver_locked
     def resume(

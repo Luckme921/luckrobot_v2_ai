@@ -22,6 +22,26 @@ STATE_PATH = Path(os.environ.get(
 app = FastAPI(title="LuckRobot Display", docs_url=None, redoc_url=None)
 
 
+@app.get("/api/navigation/status")
+def navigation_status():
+    from edge.navigation.bridge import status
+    return JSONResponse(status(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/navigation/command")
+def navigation_command(payload: dict, x_luckrobot_display: str | None = Header(default=None)):
+    from edge.navigation.bridge import request
+    from edge.navigation.state import SERVICES
+    if x_luckrobot_display != "1":
+        raise HTTPException(status_code=403)
+    if (set(payload) - {"command", "confirmed"} or
+            not isinstance(payload.get("command"), str) or
+            payload["command"] not in {*SERVICES, "status", "acknowledge_unknown"} or
+            type(payload.get("confirmed", False)) is not bool):
+        raise HTTPException(status_code=422, detail="Invalid navigation command")
+    return request(payload["command"], payload.get("confirmed", False))
+
+
 @app.get("/api/network/status")
 def network_status():
     return JSONResponse(network_bridge.statuses(), headers={"Cache-Control": "no-store"})

@@ -188,6 +188,7 @@ class GLMAgent:
             "route_turn 的 action=respond_text 表示普通聊天；"
             "action=request_vision 表示需要当前或最近视觉证据；"
             "action=web_search 表示需要实时互联网信息；"
+            "建图、加载地图、暂停/恢复/取消底盘流程、查询底盘状态选择 navigation_control，navigation_command 为 status/start/stop/manual_mapping/auto_mapping/finish_mapping/load_latest/pause/resume/cancel。只能按用户明确指令执行；含糊的走吧、继续不等于恢复运动，需要询问。manual_mapping 需用户通过RViz发点，auto_mapping会自主运动。load_latest只加载地图，绝不能冒充前往地点；Nav2目标功能尚未启用。自动探索和恢复探索需要现场在屏幕确认，不得声称语音已启动运动。start只启动小脑软件到idle，重启仅屏幕维护区提供。resume在mapping模式恢复自动探索，不用于恢复手动建图；用户要求继续手动建图应选manual_mapping。受理不代表完成或到达，pause不是物理急停，以实时状态为准。"
             "action=navigate_to 表示明确导航请求；"
             "action=play_music、recommend_music、pause_music、resume_music、"
             "next_music、previous_music、stop_music "
@@ -640,6 +641,12 @@ class GLMAgent:
                     "recency": recency,
                 },
             }
+
+        if action == "navigation_control":
+            from robot_tools.catalog import NAVIGATION_SCHEMA
+            values = {"command": arguments.get("navigation_command")}
+            validate(values, NAVIGATION_SCHEMA)
+            return {"action": action, "tool_name": "navigation_control", "tool_arguments": values}
 
         if action == "navigate_to":
             location = str(
@@ -1121,6 +1128,7 @@ class GLMAgent:
                     "刚才动作或最近变化使用 recent。"
                     "需要最新或实时互联网信息"
                     "选择 web_search。"
+                    "建图、加载地图、暂停/恢复/取消底盘流程、查询底盘状态选择 navigation_control，navigation_command 为 status/start/stop/manual_mapping/auto_mapping/finish_mapping/load_latest/pause/resume/cancel。只能按用户明确指令执行；含糊的走吧、继续不等于恢复运动，需要询问。manual_mapping 需用户通过RViz发点，auto_mapping会自主运动。load_latest只加载地图，绝不能冒充前往地点；Nav2目标功能尚未启用。自动探索和恢复探索需要现场在屏幕确认，不得声称语音已启动运动。start只启动小脑软件到idle，重启仅屏幕维护区提供。resume在mapping模式恢复自动探索，不用于恢复手动建图；用户要求继续手动建图应选manual_mapping。受理不代表完成或到达，pause不是物理急停，以实时状态为准。"
                     "用户明确要求机器人前往某地点"
                     "选择 navigate_to。"
                     "天气预报选择 get_weather，city 只保留城市名，weather_region 填用户提供的省份或国家，days 为今起一到七天；"

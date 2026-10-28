@@ -8,7 +8,8 @@ from edge.audio.tts.cancellation import SpeechCancellation
 
 class WakeInterruptMonitor:
     """Keep only Lucky KWS active while the normal capture loop is stopped."""
-    def __init__(self, capture, kws):
+    def __init__(self, capture, kws, on_wake=None):
+        self._on_wake = on_wake
         self.cancellation = SpeechCancellation()
         self._done = threading.Event()
         self._ready = threading.Event()
@@ -75,6 +76,8 @@ class WakeInterruptMonitor:
                             flush=True,
                         )
                         self.cancellation.cancel()
+                        if self._on_wake is not None:
+                            self._on_wake()
                         return
                 if not self._done.is_set():
                     raise PulseCaptureError("wake monitor stream ended")

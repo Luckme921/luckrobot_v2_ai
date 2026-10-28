@@ -52,6 +52,24 @@ app = FastAPI(
 _agent: GLMAgent | None = None
 
 
+@app.get("/navigation/status")
+def navigation_status():
+    from edge.navigation.bridge import status
+    return status()
+
+
+@app.post("/navigation/command")
+async def navigation_command(payload: dict):
+    from robot_tools.catalog import NAVIGATION_SCHEMA
+    from robot_tools.navigation import navigation_control
+    try:
+        validate(payload, NAVIGATION_SCHEMA)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid navigation command") from exc
+    return await asyncio.to_thread(navigation_control, payload)
+
+
+
 class ChatMessage(BaseModel):
     role: Literal[
         "user",
@@ -260,7 +278,7 @@ class LocalToolResponse(BaseModel):
     arguments: dict
 
 class BatchToolResponse(BaseModel):
-    name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control", "get_weather", "web_search", "navigate_to"]
+    name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control", "get_weather", "web_search", "navigate_to", "navigation_control"]
     arguments: dict
 
 
@@ -303,7 +321,7 @@ async def health() -> dict:
 
 
 class RemoteToolRequest(BaseModel):
-    name: Literal["get_weather", "web_search", "navigate_to"]
+    name: Literal["get_weather", "web_search", "navigate_to", "navigation_control"]
     arguments: dict
     trace_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
 

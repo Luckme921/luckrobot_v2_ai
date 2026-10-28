@@ -11,7 +11,7 @@ from cloud.agent.web_search import (
 
 from robot_tools.catalog import TOOL_SCHEMAS, TURN_ROUTE_SCHEMA
 from robot_tools.weather import get_weather
-from robot_tools.navigation import navigate_to
+from robot_tools.navigation import navigate_to, navigation_control
 from robot_tools.music_aliases import add_alias
 from robot_tools.catalog import MUSIC_ALIAS_SCHEMA
 from robot_tools.registry import validate
@@ -53,6 +53,9 @@ class ToolRouter:
                             "status": "rejected", "reason": "per_turn_budget_exceeded"}
                 budget.weather_remaining -= 1
             return await asyncio.to_thread(get_weather, **arguments)
+
+        if name == "navigation_control":
+            return await asyncio.to_thread(navigation_control, arguments)
 
         if name == "navigate_to":
             return self._navigate_to(

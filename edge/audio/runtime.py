@@ -948,6 +948,20 @@ def main() -> None:
                        if tts_cfg.get("dynamic_music_acknowledgement_enabled", True) else None),
         dynamic_wait_seconds=float(tts_cfg.get("dynamic_music_acknowledgement_wait_seconds", 1.5)))
     music_tools.before_playback = acknowledgements.finish
+
+    def pause_music_for_conversation(reason):
+        nonlocal music_playing
+        try:
+            paused = music_tools.pause_for_conversation()
+            music_playing = paused["playing"]
+            display_music(paused.get("music"), playing=music_playing)
+            print(f"[MUSIC] WAKE_PAUSED reason={reason}", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[MUSIC] WAKE_PAUSE_FAILED reason={reason} type={type(exc).__name__}", flush=True)
+            display_state("error", "音乐未能暂停，请先手动暂停音乐")
+            return False
+
     if agent_client is not None:
         agent_client.on_event = acknowledgements.on_event
 
@@ -1150,7 +1164,7 @@ def main() -> None:
                 track, cover_revision = music_controller.current_track_snapshot(MUSIC_COVER_IMAGE)
                 advanced = music_tools.advance_playlist_if_needed(track)
                 if advanced is not None:
-                    display_music(advanced.get("music"))
+                    display_music(advanced.get("music"), playing=music_tools.playing)
                     continue
                 current = music_tools.refresh_current_track(track)
                 if cover_revision and music_tools.current_song is not None:
@@ -1164,7 +1178,7 @@ def main() -> None:
                         music_tools.current_song.update(lyrics)
                         current = dict(music_tools.current_song)
                 if current is not None:
-                    display_music(current)
+                    display_music(current, playing=music_tools.playing)
             except Exception as exc:
                 print(f"[MUSIC] TRACK_POLL_FAILED error={type(exc).__name__}", flush=True)
     if music_controller is not None:
@@ -1439,9 +1453,7 @@ def main() -> None:
                             if keyword:
                                 conversation_log.write("KWS", keyword, state="sleeping")
                                 wake_reply_sent = False
-                                if music_playing:
-                                    paused = local_tools.execute("music_control", {"action": "pause_music"})
-                                    music_playing = paused.get("playing", music_playing)
+                                pause_music_for_conversation("kws")
 
                                 if (
                                     agent_client
@@ -1619,6 +1631,8 @@ def main() -> None:
                                 decision.action
                                 == "awake"
                             ):
+                                if not pause_music_for_conversation("wake_reply"):
+                                    continue
                                 if not wake_reply_sent:
                                     wake_reply_sent = True
                                     names = list(WAKE_PHRASES)
@@ -1693,6 +1707,8 @@ def main() -> None:
                                 decision.action
                                 == "command"
                             ):
+                                if not pause_music_for_conversation("command"):
+                                    continue
                                 conversation_log.write("USER", decision.command)
                                 display_dialogue(
                                     user_text=decision.command,
@@ -1916,7 +1932,10 @@ def main() -> None:
                                     turn_display_reply = ""
                                     if wake_kws and wake_cfg.get("barge_in_enabled", False):
                                         try:
-                                            turn_monitor = WakeInterruptMonitor(capture, wake_kws).start()
+                                            turn_monitor = WakeInterruptMonitor(
+                                                capture, wake_kws,
+                                                on_wake=lambda: pause_music_for_conversation("monitor")
+                                            ).start()
                                         except Exception as exc:
                                             print(f"[BARGE_IN] UNAVAILABLE error={type(exc).__name__}", flush=True)
 
@@ -2358,6 +2377,8 @@ def main() -> None:
                                             if tool_name == "music_search":
                                                 acknowledgements.on_event({"type": "tool_start", "action": "play_music"})
                                             tool_result = local_tools.execute(tool_name, tool_request["arguments"])
+                                            if turn_monitor is not None:
+                                                turn_monitor.cancellation.check()
                                             music_playing = tool_result.get("playing", music_playing)
                                             if "music" in tool_result:
                                                 display_music(tool_result.get("music"),
@@ -2559,6 +2580,7 @@ def main() -> None:
                                                 print(f"[TTS] ERROR fallback={type(tts_exc).__name__}", flush=True)
 
                                     except SpeechInterrupted:
+                                        pause_music_for_conversation("barge_in")
                                         if (
                                             wake_cfg.get("record_interrupted_turns", True)
                                             and not turn_memory_recorded

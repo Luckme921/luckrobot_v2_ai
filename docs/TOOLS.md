@@ -41,7 +41,7 @@ robot_tools/catalog.py 定义云端和端侧工具参数 schema；registry.py �
 - weather.py:get_weather(city, days=1)：Open-Meteo 地名查询和天气查询；城市歧义时澄清，网络失败不编造数据。
 - volume.py:volume_control(controller, action, percent=None)：音量查询、设置与调整。
 - music.py:MusicTools.search / select / control：搜索、候选选择、播放控制。
-- navigation.py:navigate_to(arguments)：MOCK 导航接口，实际运动接入前必须单独实现和验证。
+- navigation.py:navigation_control(arguments)：ROS 2监督/模式控制；navigate_to(arguments) 语义地点尚未支持，返回 unsupported。详见 NAVIGATION.md。
 
 模型只能选择注册工具并提交符合 schema 的参数。新增工具需同时更新 schema、路由、执行注册、失败反馈与测试。端侧执行结果返回 ok/status/executed/message 等字段；模型不能直接传 shell 或任意播放地址。
 
@@ -285,5 +285,5 @@ QQ 搜索页在加载账号时可能先短暂显示“登录”，随后才出�
 # 屏幕网络管理（2026-10-25）
 
 网络配置只由用户触摸操作，不是 LLM 工具。独立网络辅助服务不授予模型或显示 API
-任意 shell 权限。后续导航使用脑间有线地址，当前导航仍为 MOCK。
+任意 shell 权限。后续导航使用脑间有线地址，导航模式使用脑间有线ROS 2 Domain100，非TCP网关，不通过SSH下发运动；见 NAVIGATION.md。
 详见 [NETWORK_CONTROL.md](NETWORK_CONTROL.md)。

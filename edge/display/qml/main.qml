@@ -65,6 +65,24 @@ Window {
     property bool qqHasAvatar: false
     property bool qqAuthOpen: false
     property bool networkOpen: false
+    property bool navigationOpen: false
+
+    NetworkButton {
+        z: 15
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.topMargin: 95
+        anchors.rightMargin: 20
+        width: 90; height: 52
+        text: "导航"
+        onClicked: root.navigationOpen = true
+    }
+    NavigationPanel {
+        anchors.fill: parent
+        z: 41
+        visible: root.navigationOpen
+        onClosed: root.navigationOpen = false
+    }
 
     NetworkButton {
         z: 15

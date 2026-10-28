@@ -28,7 +28,7 @@ cloud 与 audio 是独立进程；模型/工具进度通过 /chat/events 的 NDJ
 
 单轮主流程的 ASR、路由、工具结果处理、最终 TTS 仍有前后依赖。事件流不等于逐 token 文本流，也不等于逐句合成：不能把当前实现描述成完整流式语音对话。继续优化应使用 trace_id 分开比较 VAD 尾停顿、ASR、路由、工具、回复生成、TTS 首音等耗时。
 
-导航 navigate_to 当前是 MOCK，只返回接收结果，不向机器人底盘发送运动指令。
+导航模式 navigation_control 经本地Unix IPC接入独立rclpy桥接，ROS 2订阅监督/模式状态并调用固定Trigger。开机只订阅，显式任务可启动小脑idle栈；运动需屏幕确认。navigate_to目标阶段返回unsupported。协议、界面、CLI 和限制见 NAVIGATION.md。
 
 
 声源方向接口 edge/audio/direction.py：音频进程内独立线程读取 USB DOA/VAD，提供 print 日志与 latest() 快照；与 ASR/LLM/TTS 并行，仅遥测，未接入导航。

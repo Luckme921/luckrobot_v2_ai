@@ -82,6 +82,11 @@ def main():
             print(f"[SUPERVISOR] {name} pid={process.pid} log={log.name}", flush=True)
             return process
         try:
+            nav_config = yaml.safe_load((ROOT/"configs/navigation.yaml").read_text(encoding="utf-8"))
+            if nav_config.get("enabled", False) and Path("/opt/ros/humble/setup.bash").exists():
+                start("navigation")  # ROS status subscriptions only; never startup motion.
+            else:
+                print("[SUPERVISOR] navigation unavailable: disabled or ROS Humble missing", flush=True)
             cloud = start("cloud")
             deadline = time.monotonic() + 30
             ready = False

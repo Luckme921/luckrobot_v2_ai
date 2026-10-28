@@ -7,6 +7,8 @@ import shutil
 import signal
 import subprocess
 import time
+import threading
+from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlsplit
@@ -600,8 +602,17 @@ class DirectAudioPlayer:
         self.process = None
         self.paused = False
 
+def _playback_locked(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._playback_lock:
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 class MusicTools:
     def __init__(self, config, controller=None, library=None, player=None, clock=time.monotonic, before_playback=None):
+        self._playback_lock = threading.RLock()
         self.config, self.controller, self.library = config, controller, library
         self.clock = clock
         http_config = config.get("http", {})
@@ -1052,6 +1063,7 @@ class MusicTools:
         return result("这个歌单里的歌曲暂时无法播放，请稍后再试。",
                       ok=False, status="unavailable")
 
+    @_playback_locked
     def advance_playlist_if_needed(self, observed_track):
         """Follow the cached playlist when QQ's browser advances or stops."""
         if self.playlist_name is None or not self.playing:
@@ -1358,6 +1370,7 @@ class MusicTools:
                       "。你想听哪一首？可以直接说歌名、歌手或版本，也可以说随便一首。")
         return result(prompt, status="needs_selection", executed=True, candidates=public)
 
+    @_playback_locked
     def select(self, selection):
         if not self.has_pending:
             return result("歌曲列表已过期或已取消，请重新搜索。", ok=False, status="expired")
@@ -1506,6 +1519,20 @@ class MusicTools:
         return result("正在播放" + self.current_song["title"] + "。", executed=True, playing=True,
                       music=self.current_song)
 
+    @_playback_locked
+    def pause_for_conversation(self):
+        """Pause the actual backend even if runtime bookkeeping says not playing."""
+        if not self.config.get("enabled", False):
+            return result("", playing=False, music=self.current_song)
+        if self.config.get("provider", "qqmusic") == "http":
+            if self.player is not None and self.player.active:
+                self.player.pause()
+        elif self.controller is not None and self.controller.running:
+            self.controller.pause()
+        self.playing = False  # Only mark paused after backend succeeds.
+        return result("已暂停音乐。", executed=True, playing=False, music=self.current_song)
+
+    @_playback_locked
     def control(self, action):
         if action == "stop_music":
             self.clear_pending()

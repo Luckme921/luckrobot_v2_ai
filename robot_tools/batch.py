@@ -9,13 +9,14 @@ from robot_tools.registry import validate
 
 REMOTE_SCHEMAS = {t["function"]["name"]: t["function"]["parameters"]
                   for t in TOOL_SCHEMAS
-                  if t["function"]["name"] in {"get_weather", "web_search", "navigate_to"}}
+                  if t["function"]["name"] in {"get_weather", "web_search", "navigate_to", "navigation_control"}}
 BATCH_SCHEMAS = {**LOCAL_SCHEMAS, **REMOTE_SCHEMAS}
 
 
 def needs_semantic_route(text):
     # Only bypass local shortcuts; the model still decides whether/how to act.
     domains = (
+        r"导航|建图|底盘|探索|地图",
         r"风扇|灯光|灯效|呼吸灯|彩虹灯",
         r"音乐|歌曲|播放|放一首|想听|换歌|暂停",
         r"音量|大声|小声",
@@ -31,6 +32,7 @@ def validate_plan(requests):
         raise ValueError("tool plan must contain one to four actions")
     seen = set()
     music_count = 0
+    navigation_count = 0
     for request in requests:
         if not isinstance(request, dict) or set(request) != {"name", "arguments"}:
             raise ValueError("invalid tool plan entry")
@@ -56,6 +58,9 @@ def validate_plan(requests):
             raise ValueError("duplicate tool action")
         seen.add(fingerprint)
         music_count += name.startswith("music_")
+        navigation_count += name in {"navigation_control", "navigate_to"}
+    if navigation_count > 1:
+        raise ValueError("navigation mode changes require separate confirmed turns")
     if music_count > 1:
         raise ValueError("dependent/conflicting music actions need separate turns")
 
@@ -110,5 +115,5 @@ def result_message(result):
         titles = [str(x.get("title", "")) for x in result.get("results", [])[:3]]
         return "搜索结果：" + "；".join(x for x in titles if x) if any(titles) else "没有找到相关搜索结果。"
     if name == "navigate_to":
-        return "导航目前是模拟功能，尚未实际移动机器人。"
+        return "当前接口不支持前往语义地点，未移动机器人。"
     return "这个操作未完成，请稍后再试。"

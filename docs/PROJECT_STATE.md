@@ -1,3 +1,7 @@
+# 2026-10-28 更新：唤醒暂停音乐与底盘模式接口
+
+已实现与验收边界见 [NAVIGATION.md](NAVIGATION.md)。旧阶段的 MOCK/暂缓导航记录保留作为历史，当前支持 ROS 2监督/模式桥接，语义地点和坐标目标仍未支持。开机只查询状态，不启动运动。
+
 # LuckRobot AI - Project State
 
 Last updated: 2026-09-23

@@ -40,7 +40,7 @@ agent_bridge.progress_enabled: true 让 Edge 使用 /chat/events（NDJSON）。
 工具确认后发送 tool_start；查询同时进行，不等待音频播完。
 Edge 播放启动时缓存的短语，最多每轮一次：
 搜索“我帮你查一下”、视觉“我看一下”、找音乐“我帮你找一下音乐”、
-导航“我检查一下导航请求”。目前导航仍是 MOCK，过渡语不宣称执行成功。
+导航“我检查一下导航请求”。导航模式已接入 ROS 2桥接，过渡语不宣称任务已完成，语义地点目标尚未支持。
 普通聊天、音量、快速暂停/继续等不播放固定“思考”语。
 
 tts.acknowledgement_delay_seconds: 0.35 为播放启动延迟。
