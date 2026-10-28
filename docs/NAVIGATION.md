@@ -125,3 +125,10 @@ RViz不能在linuxfb软件渲染界面中直接运行，因此显示服务切为
 新入口为 `scripts/run_display_session.sh`，X11禁止TCP监听、使用0600私有Xauthority。
 大脑重启不自动打开RViz。显示诊断看journalctl -u luckrobot-display.service，
 RViz诊断看logs/rviz.log。回退时恢复原显示service并daemon-reload/restart即可。
+
+### 2026-10-28 RViz 实机部署记录
+- 小脑原始配置复制到大脑 `~/luckrobot_rviz/navigation.rviz`；运行副本保留显示项，去掉目标/初始位姿工具和 Nav2 控制面板。
+- 显示服务使用轻量 X11/Openbox，无完整桌面；HDMI 选用 1920×1080，失败则保留可用模式。需要 xinit、openbox、wmctrl、unclutter、ros-humble-nav2-rviz-plugins。
+- Qt 5.15 顶部独立工具栏提供刷新和返回；窗口发现排除 RViz splash，只操作本程序拥有的主窗口。刷新不调用底盘服务。
+- Windows 400 项测试通过（跳过 1）；Jetson 400 项测试通过。实机已验证 OpenGL、窗口适配、打开和刷新。
+- 当前小脑监督状态在小脑本地为 STOPPED；大脑订阅仍 waiting_for_ros，RViz 缺少 map TF。地图/跨机状态链路尚未验收，不应宣称导航可用；未为测试启动底盘运动。

@@ -13,7 +13,7 @@ def prepare_profile(source, target):
     profile = yaml.safe_load(source.read_text(encoding="utf-8"))
     manager = profile.setdefault("Visualization Manager", {})
     profile["Panels"] = [panel for panel in profile.get("Panels", [])
-                         if panel.get("Class") != "nav2_rviz_plugins/Navigation 2"]
+                         if panel.get("Class") == "rviz_common/Displays"]
     # Monitoring does not grant a second motion writer (RViz goals/initial pose).
     manager["Tools"] = [{"Class": "rviz_default_plugins/Interact"},
                         {"Class": "rviz_default_plugins/MoveCamera"},
@@ -87,7 +87,8 @@ class RvizViewer:
                                          text=True, timeout=3).stdout.splitlines()
                 for line in windows:
                     fields = line.split(None, 4)
-                    if len(fields) >= 3 and fields[2] == str(self.process.pid):
+                    if (len(fields) >= 5 and fields[2] == str(self.process.pid)
+                            and " - RViz" in fields[4]):
                         window = fields[0]
                         break
                 if window:
@@ -95,14 +96,18 @@ class RvizViewer:
                 threading.Event().wait(.25)
             if not window:
                 raise RuntimeError("未找到 RViz 窗口，请重新打开监视画面。")
+            # RViz restores saved geometry after mapping its native window.
+            threading.Event().wait(1)
             for args in (["xprop", "-id", window, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "2, 0, 0, 0, 0"],
-                         ["wmctrl", "-ir", window, "-b", "remove,maximized_vert,maximized_horz,fullscreen"],
+                         ["wmctrl", "-ir", window, "-b", "remove,maximized_vert,maximized_horz"],
+                         ["wmctrl", "-ir", window, "-b", "remove,fullscreen"],
                          ["wmctrl", "-ir", window, "-e", f"0,0,70,{width},{max(200,height-70)}"],
                          ["wmctrl", "-ia", window]):
                 subprocess.run(args, env=env, timeout=3, check=True, capture_output=True)
             with self.lock:
                 self.state, self.message = "running", ""
         except Exception as exc:
+            print(f"[RVIZ] {type(exc).__name__}: {exc}", flush=True)
             if self.process is not None and self.process.poll() is None:
                 self.process.terminate()
             with self.lock:

@@ -12,6 +12,8 @@ WorkingDirectory=/home/jetson/luckrobot_latency_test
 Environment=HOME=/home/jetson
 TTYPath=/dev/tty1
 StandardInput=tty
+StandardOutput=journal
+StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
 ExecStartPre=+/usr/bin/bash /home/jetson/luckrobot_latency_test/scripts/manage_fbconsole.sh detach

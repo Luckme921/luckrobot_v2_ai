@@ -1,5 +1,5 @@
 import QtQuick 2.12
-import QtQuick.Window 2.12
+import QtQuick.Window 2.15
 
 Window {
     id: root
@@ -111,7 +111,7 @@ Window {
         transientParent: null
         visible: root.rvizState === "running"
         flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        x: 0; y: 0; width: root.width; height: 70
+        x: 0; y: 0; width: Screen.width; height: 70
         color: "#101c25"
         Row {
             anchors.verticalCenter: parent.verticalCenter; x: 20; spacing: 20
