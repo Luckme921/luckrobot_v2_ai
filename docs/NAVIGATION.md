@@ -132,3 +132,5 @@ RViz诊断看logs/rviz.log。回退时恢复原显示service并daemon-reload/res
 - Qt 5.15 顶部独立工具栏提供刷新和返回；窗口发现排除 RViz splash，只操作本程序拥有的主窗口。刷新不调用底盘服务。
 - Windows 400 项测试通过（跳过 1）；Jetson 400 项测试通过。实机已验证 OpenGL、窗口适配、打开和刷新。
 - 当前小脑监督状态在小脑本地为 STOPPED；大脑订阅仍 waiting_for_ros，RViz 缺少 map TF。地图/跨机状态链路尚未验收，不应宣称导航可用；未为测试启动底盘运动。
+
+后续排查：仅重启处于 STOPPED 且 stack_alive=false 的小脑监督进程后，大脑立即收到新鲜监督状态；初始进程很可能在有线网络就绪前初始化 DDS。已在小脑用户服务安装 network.conf 前置检查（模板 `deploy/systemd/luckrobot-supervisor-network.conf`），等待 enP8p1s0 的 10.0.0.51 地址和载波，再初始化 DDS。当前大脑 connected=true，监督 STOPPED；mapping 未启动时 navigation_ready=false 属于预期。重启开机验证及实际地图/运动验收仍未执行。RViz 关闭返回机器人已通过接口验证；物理触摸仍需用户验收。
