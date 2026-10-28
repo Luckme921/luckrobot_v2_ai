@@ -89,3 +89,16 @@ CLI默认只读。语音可问“小脑现在什么状态”，或明确请求�
 浏览器在途操作可能仍需等待驱动锁，因此不是零延迟。不会说完话自动恢复音乐。
 验收：播放歌曲→喊Lucky→音乐暂停→回复不混音→说继续播放或点击按钮恢复。
 日志看PAUSE_CONFIRMED、WAKE_PAUSED、WAKE_PAUSE_FAILED。
+
+## 本次验收记录（2026-10-28）
+
+- Windows：398项单测通过（1项平台相关跳过）；Jetson：398项通过。
+- 大脑Humble/FastDDS/Domain100实际发现小脑监督节点；只读订阅302秒收到303次
+  system/status，均为STOPPED；最大间隔1.00090秒，p95为1.00044秒，无超过3秒断流。
+  此项仅验证监督心跳，未验证运行栈启动后的mapping话题。
+- Jetson Qt offscreen加载5秒未出现QML解析错误；已部署并启动显示及机器人服务。
+- 新ROS桥接进程唯一，屏幕API和CLI真实返回监督fresh=true、STOPPED、stack_alive=false。
+  没有发送start/建图/恢复/目标等真实操作，不以通信成功代替运动安全验收。
+- 初始化发现ROS setup脚本不兼容bash nounset，已在source期间临时关闭-u并恢复。
+  修复后实际桥接启动正常；旧日志中的启动错误为此前记录。
+- 用户暂不方便现场试听，音乐唤醒暂停/屏幕触摸仍待现场验收，已通过后台逻辑回归。
