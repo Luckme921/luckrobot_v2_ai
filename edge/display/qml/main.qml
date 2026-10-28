@@ -67,15 +67,21 @@ Window {
     property bool networkOpen: false
     property bool navigationOpen: false
 
-    NetworkButton {
+    Item {
         z: 15
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.topMargin: 95
-        anchors.rightMargin: 20
-        width: 90; height: 52
-        text: "导航"
-        onClicked: root.navigationOpen = true
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 20
+        anchors.bottomMargin: 16
+        width: 106; height: 62
+        Text {
+            anchors.centerIn: parent
+            text: "Nav2"
+            font.pixelSize: 32
+            font.weight: Font.DemiBold
+            color: "#a34c58"
+        }
+        MouseArea { anchors.fill: parent; onClicked: root.navigationOpen = true }
     }
     NavigationPanel {
         anchors.fill: parent
