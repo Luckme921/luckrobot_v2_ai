@@ -1185,6 +1185,8 @@ def main() -> None:
         threading.Thread(target=watch_qq_track, name="qq-track-display", daemon=True).start()
 
     state = None
+    from edge.navigation.feedback import FeedbackSpeech
+    navigation_feedback = FeedbackSpeech()
 
     try:
         if audio_cfg.get("sound_direction", {}).get("enabled", False):
@@ -1330,6 +1332,21 @@ def main() -> None:
                         vad.window_size
                     ):
                         poll_music_login()
+                        notice = navigation_feedback.take(
+                            ready=interaction_gate.state == InteractionGate.SLEEPING and not music_playing)
+                        if notice:
+                            capture.stop()
+                            try:
+                                print(f"[NAVIGATION_FEEDBACK] {notice}", flush=True)
+                                display_state("speaking", notice)
+                                acknowledgements.finish()
+                                tts.speak(notice, speaker)
+                            except Exception as exc:
+                                print(f"[NAVIGATION_FEEDBACK] failed={type(exc).__name__}", flush=True)
+                            finally:
+                                display_state("sleeping", "等待 Lucky")
+                                capture.start()
+                            continue
                         control_request = control_bridge.read_json(control_bridge.REQUEST)
                         control_id = control_request.get("id", "")
                         if control_id and control_id != music_control_request_id:

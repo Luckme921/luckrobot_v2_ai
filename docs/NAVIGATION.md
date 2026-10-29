@@ -137,3 +137,6 @@ RViz诊断看logs/rviz.log。回退时恢复原显示service并daemon-reload/res
 
 ### 2026-10-28 Nav2 可读性与状态提示
 Nav2 面板正文增至 25–32px，按钮文字 25–26px，按钮触摸区域同步扩大，内容可上下滚动；RViz 缩放不变。手动查询完成后显示更新时间和小脑状态，失败或 5 秒超时给出提示；断线时仍可点击查询。主页面下方新增淡红色状态标识：等待唤醒、正在听、识别中、思考中、回复中、已打断，按实际发布状态高亮；歌词区域为其预留空间。
+
+### 2026-10-29 小脑反馈语音接入
+新增订阅 /robot/feedback/events（Reliable/Volatile/depth20）及 /robot/feedback/status（Reliable/TransientLocal/depth1）。仅 events 写入单槽最新候选，连续事件合并；status 仅供显示，3秒未更新标记离线。事件按 ID 去重、TTL 最长10秒、全局播报至少间隔8秒，未知 code 不播报。需两机时钟同步。当前仅在休眠且未播放音乐时播报，采集暂停避免播报回灌；忙碌期间事件可过期丢弃，这是尽力反馈，不代替安全联锁。固定中文措辞保留证据边界，不从障碍推断人员/方向，不触发任何运动或恢复。当前接口未定义建图完成事件，不伪造语义地图完成通知。相关代码 edge/navigation/feedback.py、ros_bridge.py、edge/audio/runtime.py。

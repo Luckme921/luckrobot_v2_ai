@@ -25,12 +25,36 @@ def main():
     rclpy.init()
     node = Node("luckrobot_brain_bridge")
     state = RobotState()
+    from edge.navigation.feedback import EVENT
+    EVENT.unlink(missing_ok=True)  # Never replay a previous bridge's event.
+    feedback_status = {}
+    feedback_received = [0.0]
+    def receive_feedback(msg, event=False):
+        try:
+            value = json.loads(msg.data)
+            if not isinstance(value, dict) or value.get("schema") != 1:
+                return
+            if event:
+                temp = EVENT.with_suffix('.tmp')
+                temp.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+                temp.replace(EVENT)
+            else:
+                feedback_status.clear()
+                feedback_status.update(value)
+                feedback_received[0] = time.monotonic()
+        except (ValueError, OSError):
+            pass
     qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
     subscriptions = [node.create_subscription(String, topic,
         lambda msg, kind=kind: state.receive(kind, msg.data), qos)
         for kind, topic in (("system", "/robot/system/status"), ("mapping", "/mapping/status"))]
     clients = {command: node.create_client(Trigger, service) for command, service in SERVICES.items()}
+    subscriptions.extend([
+        node.create_subscription(String, '/robot/feedback/events',
+            lambda msg: receive_feedback(msg, True), QoSProfile(depth=20,
+                reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)),
+        node.create_subscription(String, '/robot/feedback/status', receive_feedback, qos)])
     executor = SingleThreadedExecutor()
     executor.add_node(node)
     spinner = threading.Thread(target=executor.spin, name="navigation-ros", daemon=True)
@@ -85,6 +109,8 @@ def main():
         while not stop.wait(.2):
             manager.observe()
             snapshot = manager.snapshot()
+            snapshot['feedback'] = dict(feedback_status) if time.monotonic()-feedback_received[0] <= 3 else {}
+            snapshot['feedback_online'] = bool(snapshot['feedback'])
             snapshot["published_monotonic"] = time.monotonic()
             temp = STATUS.with_suffix(".tmp")
             temp.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
