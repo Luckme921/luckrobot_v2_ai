@@ -2328,17 +2328,43 @@ def main() -> None:
                                                 # Validate the complete batch before any side effects.
                                                 from robot_tools.batch import validate_plan
                                                 validate_plan(plan)
-                                                results = execute_plan(other_plan, execute_action, token)
-                                                spoken = " ".join(result_message(item) for item in results)
-                                                if token is not None:
-                                                    token.check()
-                                                acknowledgements.finish()
-                                                display_dialogue(assistant_text=spoken)
-                                                display_state("speaking", "文字转声音 / speak")
-                                                tts.speak(spoken, speaker)
-                                                if token is not None:
-                                                    token.check()
-                                                results += execute_plan(music_plan, execute_action, token)
+                                                from concurrent.futures import ThreadPoolExecutor
+                                                from contextvars import copy_context
+                                                playback_ready = threading.Event()
+                                                speech_completed = [False]
+                                                previous_before_playback = music_tools.before_playback
+                                                def wait_for_batch_speech():
+                                                    while not playback_ready.wait(.1):
+                                                        if token is not None:
+                                                            token.check()
+                                                    if not speech_completed[0]:
+                                                        raise RuntimeError("batch speech incomplete; music cancelled")
+                                                    if token is not None:
+                                                        token.check()
+                                                    if previous_before_playback:
+                                                        previous_before_playback()
+                                                music_tools.before_playback = wait_for_batch_speech
+                                                try:
+                                                    with ThreadPoolExecutor(max_workers=1) as music_worker:
+                                                        music_future = music_worker.submit(copy_context().run,
+                                                            execute_plan, music_plan, execute_action, token)
+                                                        try:
+                                                            results = execute_plan(other_plan, execute_action, token)
+                                                            spoken = " ".join(result_message(item) for item in results)
+                                                            if token is not None:
+                                                                token.check()
+                                                            acknowledgements.finish()
+                                                            display_dialogue(assistant_text=spoken)
+                                                            display_state("speaking", "文字转声音 / speak")
+                                                            tts.speak(spoken, speaker)
+                                                            if token is not None:
+                                                                token.check()
+                                                            speech_completed[0] = True
+                                                        finally:
+                                                            playback_ready.set()
+                                                        results += music_future.result()
+                                                finally:
+                                                    music_tools.before_playback = previous_before_playback
                                             else:
                                                 results = execute_plan(plan, execute_action, token)
                                             messages = [result_message(item) for item in results]
