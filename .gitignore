@@ -31,3 +31,6 @@ venv/
 # OS
 .DS_Store
 private/
+
+# special example
+wangye.html

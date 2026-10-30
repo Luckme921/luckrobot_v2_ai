@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from typing import Iterator
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -61,13 +63,14 @@ class ConversationMemory:
 
         self._init_db()
 
-    def _connect(
-        self,
-    ) -> sqlite3.Connection:
-        return sqlite3.connect(
-            self.db_path,
-            timeout=5.0,
-        )
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.db_path, timeout=5.0)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(
         self,

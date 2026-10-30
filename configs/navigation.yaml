@@ -1,0 +1,5 @@
+# ROS 2 bridge uses system Python; cloud/audio keep their virtual environment.
+enabled: true
+# scripts/run_navigation.sh uses Humble, Domain 100, Fast DDS, existing wired link.
+# No startup service calls. Motion is confirmed only on the local screen.
+# /mapping/update_map, initial pose and Nav2 goals remain disabled in phase 1.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 
 
@@ -25,6 +26,14 @@ class GateDecision:
     mode: str
     reason: str
 
+    @property
+    def command_for_model(self) -> str | None:
+        if self.command is None:
+            return None
+        if self.wake_detected:
+            return f"Lucky，{self.command}"
+        return self.command
+
 
 class InteractionGate:
     SLEEPING = "sleeping"
@@ -47,11 +56,14 @@ class InteractionGate:
         chat_mode_triggers: list[str],
         sleep_phrases: list[str],
         emergency_stop_phrases: list[str],
+        post_kws_transcript_aliases: list[str] | None = None,
+        include_pre_wake_speech: bool = False,
         enabled: bool = True,
     ) -> None:
         self.enabled = bool(
             enabled
         )
+        self.include_pre_wake_speech = bool(include_pre_wake_speech)
 
         self.wake_command_timeout_seconds = (
             float(
@@ -77,6 +89,12 @@ class InteractionGate:
             item.strip()
             for item
             in transcript_exact_aliases
+            if item.strip()
+        ]
+
+        self.post_kws_transcript_aliases = [
+            item.strip()
+            for item in (post_kws_transcript_aliases or [])
             if item.strip()
         ]
 
@@ -152,6 +170,14 @@ class InteractionGate:
 
         return False
 
+    def note_speech_activity(self, now: float) -> None:
+        """Keep the wake/follow-up window open until VAD finishes the utterance."""
+        if self.enabled and self.state != self.SLEEPING:
+            timeout = (self.wake_command_timeout_seconds
+                       if self.state == self.AWAKE_WAIT_COMMAND
+                       else self._active_timeout())
+            self.deadline = max(self.deadline, now + timeout)
+
     def _is_chat_command(
         self,
         text: str,
@@ -166,11 +192,20 @@ class InteractionGate:
         self,
         text: str,
     ) -> bool:
-        return any(
-            phrase in text
-            for phrase
-            in self.sleep_phrases
-        )
+        # Match a complete command, not a quoted phrase or a negated request.
+        compact = re.sub(r"[\s，。！？,.!?、；;：:]+", "", text.casefold())
+        phrases = set(self.sleep_phrases) | {
+            "结束对话", "结束聊天", "停止对话", "停止聊天",
+            "退出对话", "退出聊天", "关闭对话", "取消对话",
+            "不用回答了", "不要再回答了",
+        }
+        for phrase in phrases:
+            pattern = (r"(?:(?:请|麻烦你|帮我|现在|我们|先))*"
+                       + re.escape(phrase.casefold())
+                       + r"(?:吧|了|谢谢|好吗|可以吗)*")
+            if re.fullmatch(pattern, compact):
+                return True
+        return False
 
     def _is_emergency_stop(
         self,
@@ -216,6 +251,8 @@ class InteractionGate:
     def _strip_wake_echo(
         self,
         text: str,
+        *,
+        after_kws: bool = False,
     ) -> str:
         """
         Clean SenseVoice's transcription of the
@@ -247,10 +284,20 @@ class InteractionGate:
                 return ""
 
         aliases = sorted(
-            self.transcript_aliases,
+            self.transcript_aliases
+            + (self.post_kws_transcript_aliases if after_kws else []),
             key=len,
             reverse=True,
         )
+
+        if after_kws and not self.include_pre_wake_speech:
+            # The VAD segment may start before KWS fires. Only an actual ASR
+            # wake alias provides a safe boundary within that segment.
+            positions = [(folded.find(alias.casefold()), alias) for alias in aliases]
+            positions = [(position, alias) for position, alias in positions if position > 0]
+            if positions:
+                position, alias = min(positions, key=lambda item: item[0])
+                return self._clean(cleaned[position + len(alias):])
 
         for alias in aliases:
             alias_folded = (
@@ -303,6 +350,8 @@ class InteractionGate:
         self,
         text: str,
         now: float | None = None,
+        *,
+        defer_timeout: bool = False,
     ) -> GateDecision:
         if now is None:
             now = time.monotonic()
@@ -320,6 +369,13 @@ class InteractionGate:
                 mode=self.mode,
                 reason="empty",
             )
+
+        if (self.enabled and self.state != self.SLEEPING
+                and self._is_sleep_request(self._strip_wake_echo(text))):
+            self.reset()
+            return GateDecision(
+                action="sleep", command=None, wake_detected=False,
+                state=self.state, mode=self.mode, reason="user_sleep_request")
 
         if self._is_emergency_stop(
             text
@@ -348,9 +404,8 @@ class InteractionGate:
                 reason="gate_disabled",
             )
 
-        self.expire_if_needed(
-            now
-        )
+        if not defer_timeout:
+            self.expire_if_needed(now)
 
         if self.state == self.SLEEPING:
             return GateDecision(
@@ -362,40 +417,45 @@ class InteractionGate:
                 reason="sleeping",
             )
 
-        if self._is_sleep_request(
-            text
-        ):
-            self.reset()
-
-            return GateDecision(
-                action="sleep",
-                command=None,
-                wake_detected=False,
-                state=self.state,
-                mode=self.mode,
-                reason="user_sleep_request",
-            )
-
         if (
             self.state
             == self.AWAKE_WAIT_COMMAND
         ):
             command = self._clean(
                 self._strip_wake_echo(
-                    text
+                    text,
+                    after_kws=True,
                 )
             )
 
+            wake_echo_detected = command != text
+
             # The VAD/ASR segment contained only
             # the wake word. Keep waiting.
-            if not command:
+            greeting = re.sub(r"[\s，。！？,.!?]+", "", command).casefold()
+            wake_aliases = {alias.casefold() for alias in (
+                self.transcript_aliases + self.post_kws_transcript_aliases)}
+            if (not command or greeting in wake_aliases or
+                    greeting in {"你好", "你好呀", "你好啊", "嗨", "hello", "hi", "在吗", "你在吗"}):
                 return GateDecision(
                     action="awake",
                     command=None,
-                    wake_detected=False,
+                    wake_detected=wake_echo_detected,
                     state=self.state,
                     mode=self.mode,
-                    reason="wake_echo_only",
+                    reason="wake_greeting" if command else "wake_echo_only",
+                )
+
+            compact_command = re.sub(r"[\s\W_]+", "", command, flags=re.UNICODE)
+            repeated_echo = (len(compact_command) in {4, 6}
+                             and compact_command[:len(compact_command)//2]
+                             == compact_command[len(compact_command)//2:]
+                             and compact_command[:len(compact_command)//2]
+                             in {"拉铁", "拉克", "拉可", "拉去", "拉圾", "拉客", "垃圾", "拉uck"})
+            if len(compact_command) < 3 or repeated_echo:
+                return GateDecision(
+                    action="ignore", command=None, wake_detected=wake_echo_detected,
+                    state=self.state, mode=self.mode, reason="wake_echo_fragment",
                 )
 
             self._activate(
@@ -406,7 +466,7 @@ class InteractionGate:
             return GateDecision(
                 action="command",
                 command=command,
-                wake_detected=False,
+                wake_detected=wake_echo_detected,
                 state=self.state,
                 mode=self.mode,
                 reason="command_after_kws",
@@ -436,6 +496,12 @@ class InteractionGate:
                     state=self.state,
                     mode=self.mode,
                     reason="active_wake_echo_only",
+                )
+
+            if len(re.sub(r"[\s\W_]+", "", command, flags=re.UNICODE)) < 2:
+                return GateDecision(
+                    action="ignore", command=None, wake_detected=False,
+                    state=self.state, mode=self.mode, reason="short_active_fragment",
                 )
 
             self._activate(

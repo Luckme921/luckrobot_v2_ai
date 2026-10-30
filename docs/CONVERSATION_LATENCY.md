@@ -1,0 +1,187 @@
+# 对话延迟改进
+
+2026-10-24：复合工具请求由模型返回完整批次，端侧按资源并发；快工具不再等待
+慢工具才开始。整批完成后统一记忆，仍需等在途调用返回才能结束本轮，尚不是
+可撤销的工具执行。详见TOOL_BATCH_AND_WAKE.md。
+
+2026-10-01：音乐语句“找一些其他音乐”不再直接以整句搜索 QQ，转交模型决定找一首或列几首。工具过渡语为多个缓存短句轮换，与工具执行仍按原有延时并行。结束会话可由模型路由 `end_conversation`，短句仍由本地会话门控处理。流式事件、文本流式输出与 TTS 分段合成是三种不同能力；本次没有改变这些流式机制。
+
+唤醒检测 KWS 直接消费音频，不依赖 ASR。KWS 后的语音仍要等 VAD 断句才转写；
+首段中只有唤醒词或不足三个有效字符的残留不交给模型，活动会话中的单字残片也忽略。
+首段识别到的唤醒词别名先剔除，确实伴随完整指令时传给模型的前缀统一为 `Lucky`。
+
+此分支以 Jetson release 源码快照为基础，保留音乐、音量和视觉功能。
+没有替换设备上的生产目录。完整文本回答仍在生成完成后交给 TTS；
+本次 /chat/events 只传进度和最终结果，不是正文 token 流。
+
+## 路由
+
+configs/agent.yaml 的 agent.route_protocol: json 使用 JSON object 输出。
+程序校验 action、字段类型、范围、长度、完成状态，再复用现有动作解析。
+非法或截断 JSON、接口不支持 JSON 时最多回退一次旧的强制工具路由；
+网络和认证错误不触发协议回退。SDK 原有重试策略保持不变。
+路由本身不执行动作；失败时不把原始模型输出当回答或动作使用。
+
+route_protocol: tool 可以恢复旧路由。多模态已附图的快速路径、
+本地身份权威回复、每轮最多一次联网搜索保持原有规则。
+
+## 工具过渡语
+
+2026-10-03：音乐、视觉、天气和网页搜索各有多个晓晓缓存短句，轮次间按动作轮换。日志 `[ACK] SELECT` 表示选中，`[ACK] PLAY` 表示实际启动；如果工具在 `tts.acknowledgement_delay_seconds` 内完成，未开始的过渡语会取消。视觉增加“我来仔细看看”“让我看看你说的是什么”。当用户明确说“有没有张学友的歌”等时，可选的动态音乐模板把缓存的“你想听”与“的歌呀，我帮你找一下”夹住在线合成的歌手名，拼成一条 24 kHz PCM 后播放。合成与路由并行，超过 `tts.dynamic_music_acknowledgement_wait_seconds`、音频格式不符或网络失败则退回固定短句；现场仍需试听拼接处是否自然。普通回复的文本流、TTS 分段合成不受此过渡语试验影响。
+
+会话超时现在由 VAD 的 `is_speech_detected` 延长；完整 VAD 片段已经就绪时先做 ASR，再判断会话状态。KWS 首段中的短重复唤醒残片（如“拉铁拉铁”）不会交给模型。模型选择 `end_conversation` 时先生成自然告别正文，Edge 播完后才休眠；若播报期间被 Lucky 打断，仍进入新唤醒回合。
+VAD 断句静音阈值现为 0.4 秒。候选播报被 Lucky 打断后保留选歌上下文，避免下一句选“第一首”重新触发歌曲搜索；会话真正结束时仍清除候选。
+
+agent_bridge.progress_enabled: true 让 Edge 使用 /chat/events（NDJSON）。
+旧 /chat 保留；只有新端点返回 404/405 时，Edge 才重试旧端点。
+流中断、工具失败等不重放请求，避免重复动作。
+客户端断开会取消服务端协程；已在线程中开始的底层网络请求仍受自身超时控制。
+
+工具确认后发送 tool_start；查询同时进行，不等待音频播完。
+Edge 播放启动时缓存的短语，最多每轮一次：
+搜索“我帮你查一下”、视觉“我看一下”、找音乐“我帮你找一下音乐”、
+导航“我检查一下导航请求”。导航模式已接入 ROS 2桥接，过渡语不宣称任务已完成，语义地点目标尚未支持。
+普通聊天、音量、快速暂停/继续等不播放固定“思考”语。
+
+tts.acknowledgement_delay_seconds: 0.35 为播放启动延迟。
+结果先到则取消尚未开始的播报；已开始的短语在正式 TTS 前结束，
+最多等待 4 秒后终止异常播放器。异常退出也会清理播放器。
+tts.acknowledgement_enabled: false 可以完全关闭过渡语。
+缓存音频生成发生在启动阶段，会增加首次启动时间，不增加每轮合成时间。
+缓存音频与普通回复均使用 PulseAudio 当前设备音量。
+
+## 计时
+
+[TIMING] 是 JSON，含 trace_id、stage、seconds、可选 status。
+[REMOTE_TIMING] 在 Edge 转发同一条 Cloud 记录，汇总时不要重复计算。
+一个已识别回合中的视觉补图请求共用 trace_id。
+
+- vad_buffer_after_segment：音频采样时钟上，已收到音频超出 VAD 语段末尾的长度。
+- asr、capture_stop、vision_snapshot、identity、vision_select。
+- memory_compact、memory_context、edge_http_chat。
+- model_route_json / model_route_tool、model_answer / model_multimodal。
+- tool_web_search / tool_navigate_to、tool_music、model_memory_compact。
+- cloud_total、ack_drain、tts_first_callback、tts_total。
+- turn_to_first_generated_audio：从 ASR 开始前到首批 TTS 音频生成。
+- turn_until_reply_finished：从上述起点到普通 Agent 回合播报完成/错误清理。
+
+各阶段存在包含和并行关系，不能直接相加。首批音频不等于扬声器实际出声；
+这些指标也不包含精确声学断句时间。过渡语不算正式回答的首批音频。
+原有 [LATENCY] 日志保留，但它的 agent_to_voice 不是完整端到端延迟。
+本次未改变 VAD 参数，也未将人脸识别或记忆压缩移出同步路径，先通过计时评估。
+
+## 验证与使用
+
+Windows 本地回归：.venv\Scripts\python.exe -B -m unittest discover -s tests -q。
+Jetson 回归：python -B -m unittest discover -s tests -q。
+路由实测：python -m scripts.benchmark_routing --runs 3；
+可加 --quick 只测普通问句。该脚本会调用付费模型 API，
+但只返回路由、不执行查询、播放或导航、不写对话记忆。
+
+设备验证请使用独立工作目录，配好模型、.venv、.env、private/faces；
+不要覆盖带未提交修改的现有 release。确认测试与配置后再选择切换运行版本。
+真实麦克风到扬声器的端到端延迟和音乐共存听感仍需设备验收。
+
+## 本轮验证结果（2026-09-18）
+
+- Windows Python 3.11：157 项 unittest 通过。
+- 62 个 Python 文件通过 Python 3.10 语法检查；git diff --check 通过。
+- Jetson Python 3.10：将本分支路由代码加载到独立进程内存中，
+  使用设备原有配置与 API Key 测试；未写设备文件，未执行所选工具。
+- 六个路由样例覆盖普通聊天、知识、天气、视觉、音乐、导航，两种协议均 6/6 正确。
+  工具路由中位数 3.996 秒，JSON 路由中位数 0.909 秒。
+- 同一普通问句交替各测三次：
+  工具路由 4.1000 / 3.8312 / 3.8045 秒；
+  JSON 路由 0.9199 / 0.9703 / 0.9545 秒。
+  中位数从 3.8312 秒降至 0.9545 秒，减少约 75%。
+- 这些是小样本路由测试，不代表完整声学端到端延迟。
+  生产程序尚未切换，也未实测新的过渡语扬声器听感。
+- 顺带修复 SQLite 连接只提交事务、不确定性关闭的问题；
+  Windows 临时数据库清理和原有记忆回归测试已通过。
+
+## 2026-09-19 状态日志与首音等待修复
+
+音乐开始播放后 finally 根据 InteractionGate 实际状态输出日志，休眠时不再打印 LISTENING，而是 Waiting for "Lucky"。用户结束对话后也补充唤醒等待提示。
+
+实测音乐候选回合：ack_drain=1.2669 秒，tts_first_callback=1.879 秒；旧链路先等待过渡语结束再合成，文本返回后额外串行等待约 3.15 秒。现在 TTS 在主线程合成，播放线程先等待过渡语结束，再提交正式音频，因此等待可重叠；不是强行截断过渡语或混音。收益需现场复测，不宣称固定降低到某个数值。
+
+新增 tts_first_pcm_submit：从播放阶段初始化到首次向 pacat 提交 PCM 的时间，含过渡语等待；它不是扬声器声学首音，也不同于 tts_first_callback（合成开始至首次音频回调）。线程继承 trace_id，使两个指标可对应同一回合。
+
+现有 Kokoro 样例 generation=7.988 秒、audio=7.503 秒，生成速度略慢于实时，可能导致供音不足的停顿。更换云端流式 TTS 可同时评估首音延迟与表现力，但网络延迟、音色和指令控制需要同文本试听；尚未更换默认引擎。
+
+在线候选：阿里云 Qwen3-TTS-Instruct-Flash-Realtime，支持流式输入输出和指令控制。文档：https://help.aliyun.com/zh/model-studio/realtime-tts-user-guide 。开源候选：FunAudioLLM/CosyVoice，https://github.com/FunAudioLLM/CosyVoice 。不应把发布方服务器延迟当成 Jetson 8GB 实测性能。下一步在线对照需在设备 .env 配置对应服务的 Key，密钥不要发到聊天。
+
+## Edge 晓晓主力与 Kokoro 回退
+
+configs/audio.yaml: tts.provider=edge，edge_voice=zh-CN-XiaoxiaoNeural。改回 provider=kokoro 可恢复原离线路径。Kokoro 仍在启动时加载并生成工具过渡语缓存；正常回答由 Edge 提供，所以过渡语和最终回复可能音色不同。
+
+edge_online.py 管理流式播放与回退；edge_worker.py 使用独立 Python 环境的 edge-tts 7.3.1，把 MP3 经 GStreamer 解码为 24kHz 单声道 s16le PCM；主进程持续写入 pacat，不等完整文件下载。edge_python 当前为 private/tts-eval-venv/bin/python，设备已有该环境；迁移设备须创建独立环境并安装 edge-tts==7.3.1，准备 gst-launch-1.0 的 mpegaudioparse、mpg123audiodec、audioconvert、audioresample、fdsrc/fdsink 和 pacat。旧版 7.2.8 在 2026-10 的 Jetson 上出现 WebSocket HTTP 403，在线合成失败会直接回退 Kokoro；这种失败无法通过增大等待阈值修复。
+
+首批解码 PCM 超时默认 8 秒，后续无数据默认 10 秒，总轮次上限 120 秒（检查点限制）。未向播放器提交 PCM 时失败才转 Kokoro；一旦尝试提交就禁止整句重播，避免重复讲话。回退会增加首音等待。网络合成在子进程进行，可与过渡语等待重叠；正式 PCM 提交前仍等待过渡语结束。
+
+计时 edge_first_decoded_pcm 包含进程启动、在线请求和解码；tts_first_pcm_submit 是向播放器提交首批 PCM 前的时刻，不是声学首音。Edge TtsResult 的 generation_seconds 包含网络与播放反压，不应把其 RTF 与离线纯推理 RTF 比较。当前不单独统计网络首包。
+
+在线失败日志只显示异常类型，不写回复内容或带参数的音频地址。运行 Edge 时回复文本会发给微软在线语音服务。历史对话不会整批发送。
+
+## 固定短句音色统一（2026-09-20）
+
+工具过渡语和简单唤醒回应改为优先使用预先生成的 Edge 晓晓 WAV 缓存；准备脚本及验收见 OPERATIONS.md。缓存有效时现场没有合成/下载等待。缺失缓存只在启动阶段使用 Kokoro 兜底，日志可区分。普通回复仍采用 Edge 流式与 Kokoro 回退，尚未切换端到端语音模型。
+
+
+## Lucky 伪全双工试用（2026-09-21）
+
+最初版本只覆盖最终回复 TTS；2026-09-22 已由下一节所述的 THINKING 到 SPEAKING 全回合监测取代。普通 ASR 仍不并行，也不保证保留紧跟 Lucky 的命令；这不属于带 AEC 的真正全双工。
+
+## 思考打断与正文流式 TTS（2026-09-22）
+
+Lucky KWS 监测范围扩展为身份处理、Cloud 请求、正文流式合成和最终播报。检测到 Lucky 会关闭 Edge 当前 HTTP 响应、触发 Cloud `/chat/events` 断连取消并丢弃未完成结果；已经开始的外部工具副作用不能撤销，因此本地工具执行前会再次检查取消状态。`interaction.wake.record_interrupted_turns` 默认 true：只有 Cloud 尚未返回完整回复、记忆尚未落库时，保存用户输入和“输出被 Lucky 打断”的标记；关闭后不记录该回合。完整回复已返回后再打断播报，保留原完整回复，不另写中断标记。
+
+回合监测线程必须收到首个麦克风音频块后才报告 `MONITOR_READY`。独立 PulseAudio 采集异常时最多自动重建三次并打印 `MONITOR_RETRY`；识别到唤醒词打印 `KWS_DETECTED`。连续失败打印 `MONITOR_ERROR`，本轮会明确退回不可打断模式，便于区分 KWS 未命中和采集链路故障。
+
+取消令牌会主动关闭 Cloud 的事件流。底层 `readline()` 在并发关闭时偶尔抛出
+`AttributeError`（例如 `NoneType.peek`）；若此时取消令牌已触发，应按 Lucky 主动打断
+归档，而不是当作模型故障。流式 TTS 已成功播完时也不再误记“speaker unavailable”。
+
+`agent.stream_text_enabled` 让 GLM 最终文本回答使用供应商流式接口，并通过 `/chat/events` 发送 `text_delta`；JSON 路由仍等待完整 JSON。`agent_bridge.stream_text_to_tts` 让 Edge 按逗号、顿号、分号、句号、问号、感叹号及英文对应符号切分，依次提交给晓晓。两项均默认 true，可分别回退。普通文字回答和工具执行后的最终文字支持该链路；多模态首轮可能包含工具调用，仍采用完整响应。分段会更早出声，但每段单独建立 Edge TTS 请求，停顿和整体韵律需设备实测。
+
+2026-09-24 起，数字两侧的英文句点和逗号不作为 TTS 分段边界。流式数据暂时停在
+`23.` 时会等待下一批字符：下一字符为数字就合并为 `23.5`，否则再按句号切段。因此小数、
+版本号和 IP 地址不会被拆开；中文句号、逗号等原有边界不受影响。
+
+## 流式语音并发预合成（2026-09-23）
+
+此前的正文流式 TTS 虽然按标点尽早分段，但单个工作线程会依次执行“合成、播放”，
+下一段必须等上一段播放结束后才开始请求 Edge TTS。现在每个完整标点段会立即提交
+预合成，默认最多 3 个并发任务；播放线程仍严格按原文顺序播放。配置项为
+`tts.stream_prefetch_workers`。Edge 在线失败时仍回退 Kokoro；Kokoro 的驻留模型用锁
+串行生成，避免并发访问底层模型。
+
+`[STREAM_TTS]` 日志用于定位停顿：
+
+- `model_gap`：模型产生相邻完整标点段的间隔
+- `synth`：该段在线合成和解码耗时
+- `queue_wait`：该段从接收到开始播放的时间
+- `playback_gap`：上段 pacat 结束到本段开始提交播放的进程间隔
+- `leading_silence` / `trailing_silence`：PCM 首尾近静音长度（阈值为绝对幅值 200）
+
+这一版仍为每段建立独立 Edge 请求和 pacat 进程。若 `playback_gap` 很小但现场仍听到
+明显断句，优先检查首尾静音；若 `playback_gap` 大而下一段尚未 `prepared`，看 `synth`
+和 `model_gap` 哪一项超过了前一段音频时长。进一步消除进程切换缝隙需要常驻播放队列，
+应在 Jetson 试听数据确认后实施。
+
+## KWS 后的唤醒词归一化（2026-09-29）
+
+KWS 已经确认 Lucky 后，首个 VAD/ASR 片段会使用
+`interaction.wake.post_kws_transcript_aliases` 处理容易混淆的转写，例如
+“拉uck”“拉圾”“垃圾”“马蹄”。片段只有这些唤醒变体时，不请求大模型，
+只播放本地唤醒回应并继续等待命令。唤醒词和后续指令位于同一片段时，
+本地快捷路由使用剥离唤醒词后的正文；发给 Cloud Agent 的文本统一为
+`Lucky，后续指令`，避免模型把误转写按字面理解。该组歧义别名只在 KWS
+后的首段生效，活跃对话中的“垃圾分类”等普通表达不会被改写。
+# Edge 分段首音与提前备用（2026-10-01）
+
+普通未分段的 `EdgeOnlineTts.speak()` 原本就逐批读取解码 PCM，并在首批到达时启动 `pacat`，不等待整句下载完成。此前正文 `StreamingReplySpeaker` 却对每个标点段调用 `prepare()`，等整段下载完才播放。
+
+现在正文第一段直接走 Edge 在线 PCM 实时播放，后续段仍在文本到达时并发准备并按文本顺序播出。每段同时提交 Kokoro 备用生成（共用单个 Kokoro 工作线程，避免并发调用驻留模型）。前一段播放结束后，若下一段 Edge 尚未完成，最多再等 `tts.stream_fallback_grace_seconds`（默认 2.0 秒）；备用已就绪则播备用，若双方都未就绪则取先完成且成功的一方。未选中的在线请求在其检查点取消。在线 PCM 一旦已提交播放器，失败时不重播整段，避免重复声音。首段的离线备用同样从文本段到达时准备，但仅在首批在线音频提交前失败时使用。
+
+`text_delta`、标点分段、在线音频 PCM 流和工具进度事件仍是不同层次。后续每段虽然提前合成，仍需完整段准备好才开始播放；本次没有实现跨段共用同一个 Edge 请求。现场需要测首音、段间 `playback_gap`、在线/本地交替的音色、Lucky 打断后子进程回收与 Kokoro 对 ASR 的资源竞争。可将 `stream_fallback_grace_seconds` 调大以偏向晓晓音色，调小以偏向无等待；音色切换会更频繁。

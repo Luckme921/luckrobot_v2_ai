@@ -1,4 +1,10 @@
 audio:
+  sound_direction:
+    log_samples: false
+    enabled: true
+    interval_seconds: 1.0
+    front_offset_deg: null  # Calibrate sensor angle facing robot front first.
+    clockwise: true
   sample_rate: 16000
   channels: 1
   format: s16le
@@ -18,6 +24,9 @@ audio:
     - reSpeaker_XVF3800_4-Mic_Array
     - Seeed_Studio_reSpeaker
     - XVF3800
+display:
+  enabled: true
+  state_path: private/runtime/display_state.json
 vad:
   model: ~/luckrobot_ai/models/vad/silero_vad.onnx
   threshold: 0.5
@@ -35,8 +44,18 @@ asr:
   context_pre_seconds: 0.3
   context_post_seconds: 0.2
 interaction:
-  debug_log_transcript: false
+  # Prints ASR text to the main process log while diagnostics are enabled.
+  debug_log_transcript: true
+  conversation_log:
+    enabled: true
+    path: logs/conversation.log
+    max_text_chars: 12000
+    # Diagnostic only: never wakes the robot from an ASR transcript.
+    log_sleeping_asr: true
   wake:
+    barge_in_enabled: true
+    # Store the user text with an interruption marker when Lucky cancels a turn.
+    record_interrupted_turns: true
     enabled: true
     keyword: LUCKY
     model_dir: ~/luckrobot_ai/models/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
@@ -44,7 +63,7 @@ interaction:
     encoder: encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx
     decoder: decoder-epoch-13-avg-2-chunk-16-left-64.onnx
     joiner: joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx
-    keywords_file: ~/luckrobot_ai/configs/keywords_lucky.txt
+    keywords_file: configs/keywords_lucky.txt
     provider: cpu
     num_threads: 1
     feature_dim: 80
@@ -53,7 +72,10 @@ interaction:
     keywords_threshold: 0.2
     num_trailing_blanks: 1
     wake_command_timeout_seconds: 8.0
+    include_pre_wake_speech: false
     transcript_aliases:
+    - luckylucky
+    - luckylu
     - lucky
     - luck
     - luckake
@@ -70,6 +92,13 @@ interaction:
     - 老uck克
     - 老克
     - 拉卡
+    # Ambiguous ASR forms are aliases only for the first segment after KWS.
+    # They remain ordinary words during an active conversation.
+    post_kws_transcript_aliases:
+    - 拉uck
+    - 拉圾
+    - 垃圾
+    - 马蹄
     transcript_exact_aliases:
     - 拉
     - 拉克
@@ -84,6 +113,8 @@ interaction:
     - 那克
     - 拉卡
     - 拉开
+    - 拉y
+    - 挖皮
   followup:
     normal_timeout_seconds: 12.0
     chat_timeout_seconds: 20.0
@@ -96,6 +127,10 @@ interaction:
   - 陪陪我
   - 跟我聊
   sleep_phrases:
+  - 结束对话
+  - 结束聊天
+  - 停止对话
+  - 退出聊天
   - 不聊了
   - 先这样吧
   - 你休息吧
@@ -110,6 +145,9 @@ interaction:
   - 停下来
   - 别动
 agent_bridge:
+  progress_enabled: true
+  # Consume streamed answer text and send punctuation-delimited chunks to TTS.
+  stream_text_to_tts: true
   enabled: true
   endpoint: http://127.0.0.1:8000/chat
   timeout_seconds: 35.0
@@ -117,9 +155,36 @@ agent_bridge:
   memory_db_path: private/memory/conversation.sqlite3
   compact_batch_turns: 100
   archive_retrieval_limit: 6
-tts:
+music:
   enabled: true
-  provider: kokoro
+  provider: qqmusic
+  # Only names in curated preferences or the cached personal QQ library take
+  # the local search shortcut. Unknown/descriptive requests go to the model.
+  catalog_route_enabled: true
+  profile_path: private/qqmusic-firefox
+  firefox_binary: /usr/bin/firefox
+  timeout_seconds: 30.0
+  prewarm: true
+  headless: true
+  # Keep the first QQ rollout responsive; enable after playlist refresh is timed.
+  library_refresh_enabled: false
+  # Refresh the private personal-library cache after a successful login/check.
+  library_refresh_on_login: true
+tts:
+  # Prepare several streamed clauses concurrently, then play them in text order.
+  stream_prefetch_workers: 3
+  # After a segment ends, briefly wait for Edge before using ready Kokoro audio.
+  stream_fallback_grace_seconds: 2.0
+  acknowledgement_enabled: true
+  acknowledgement_delay_seconds: 0.35
+  dynamic_music_acknowledgement_enabled: true
+  dynamic_music_acknowledgement_wait_seconds: 1.5
+  enabled: true
+  provider: edge
+  edge_voice: zh-CN-YunxiNeural
+  edge_python: private/tts-eval-venv/bin/python
+  edge_first_audio_timeout_seconds: 8
+  edge_idle_timeout_seconds: 10
   model_dir: ~/luckrobot_ai/models/tts/kokoro-multi-lang-v1_0
   speaker_id: 50
   num_threads: 6

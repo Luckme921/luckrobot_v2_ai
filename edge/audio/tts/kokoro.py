@@ -1,20 +1,34 @@
 from __future__ import annotations
 
+import contextvars
 import queue
 import subprocess
 import tempfile
 import threading
 import time
+from shared.timing import record, turn_started, trace_id
 import wave
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import sherpa_onnx
 
 from edge.audio.tts.text import (
     normalize_for_speech,
 )
+from edge.audio.tts.prepared import prepared_audio
+
+
+_sherpa_module = None
+
+
+def _sherpa():
+    """Load the hardware runtime only when Kokoro is actually constructed/used."""
+    global _sherpa_module
+    if _sherpa_module is None:
+        import sherpa_onnx
+        _sherpa_module = sherpa_onnx
+    return _sherpa_module
 
 
 class TtsError(RuntimeError):
@@ -87,6 +101,8 @@ class KokoroTts:
                 ),
             ),
         )
+        # sherpa OfflineTts is kept resident and is not assumed thread-safe.
+        self._generation_lock = threading.Lock()
 
         required = [
             "model.onnx",
@@ -113,7 +129,7 @@ class KokoroTts:
                 )
 
         kokoro_config = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTtsKokoroModelConfig(
                 model=str(
                     self.model_dir
@@ -139,7 +155,7 @@ class KokoroTts:
         )
 
         model_config = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTtsModelConfig(
                 kokoro=kokoro_config,
                 provider="cpu",
@@ -151,7 +167,7 @@ class KokoroTts:
         )
 
         tts_config = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTtsConfig(
                 model=model_config,
                 rule_fsts=(
@@ -170,7 +186,7 @@ class KokoroTts:
             )
 
         self._tts = (
-            sherpa_onnx
+            _sherpa()
             .OfflineTts(
                 tts_config
             )
@@ -181,7 +197,7 @@ class KokoroTts:
         text: str,
     ) -> _GeneratedChunk:
         generation_config = (
-            sherpa_onnx
+            _sherpa()
             .GenerationConfig()
         )
 
@@ -282,17 +298,6 @@ class KokoroTts:
                 check=True,
             )
 
-            subprocess.run(
-                [
-                    "pactl",
-                    "set-sink-volume",
-                    sink,
-                    (
-                        f"{self.volume_percent}%"
-                    ),
-                ],
-                check=True,
-            )
 
         except (
             OSError,
@@ -359,6 +364,9 @@ class KokoroTts:
         self,
         text: str,
         sink: str,
+        *,
+        before_playback=None,
+        cancellation=None,
     ) -> TtsResult:
         # Keep the reply as one logical utterance.
         # Kokoro sees the complete text so its
@@ -412,6 +420,9 @@ class KokoroTts:
                 f"{exc}"
             ) from exc
 
+        if cancellation is not None:
+            cancellation.register(player)
+
         if player.stdin is None:
             player.terminate()
 
@@ -427,14 +438,29 @@ class KokoroTts:
             BaseException
         ] = []
 
+        playback_context = contextvars.copy_context()
+        playback_started = time.monotonic()
+
         def playback_worker() -> None:
+            first_write = True
             try:
+                # Drain any acknowledgement while synthesis runs on the caller.
+                if before_playback is not None:
+                    before_playback()
                 while True:
                     data = audio_queue.get()
 
+                    if cancellation is not None:
+                        cancellation.check()
                     if data is None:
                         break
 
+                    if first_write:
+                        record("tts_first_pcm_submit", time.monotonic() - playback_started)
+                        observer = getattr(self, "playback_observer", None)
+                        if observer is not None:
+                            observer(True)
+                        first_write = False
                     player.stdin.write(
                         data
                     )
@@ -451,7 +477,7 @@ class KokoroTts:
                     pass
 
         worker = threading.Thread(
-            target=playback_worker,
+            target=lambda: playback_context.run(playback_worker),
             name="luckrobot-tts-playback",
             daemon=True,
         )
@@ -459,7 +485,7 @@ class KokoroTts:
         worker.start()
 
         generation_config = (
-            sherpa_onnx.GenerationConfig()
+            _sherpa().GenerationConfig()
         )
 
         generation_config.sid = (
@@ -475,6 +501,15 @@ class KokoroTts:
         )
 
         started = time.monotonic()
+        turn_origin = turn_started.get()
+        current_trace = trace_id.get()
+
+        def report_first_audio():
+            record("tts_first_callback", time.monotonic() - started,
+                   trace_id=current_trace)
+            if turn_origin is not None:
+                record("turn_to_first_generated_audio", time.monotonic() - turn_origin,
+                       trace_id=current_trace)
 
         first_audio_latency = None
         callback_batches = 0
@@ -485,6 +520,8 @@ class KokoroTts:
         ):
             nonlocal first_audio_latency
             nonlocal callback_batches
+            if cancellation is not None and cancellation.event.is_set():
+                return 0
 
             array = np.asarray(
                 samples,
@@ -499,6 +536,7 @@ class KokoroTts:
                     time.monotonic()
                     - started
                 )
+                report_first_audio()
 
             pcm = (
                 np.clip(
@@ -539,7 +577,8 @@ class KokoroTts:
             # invokes the callback, play the returned
             # complete waveform once.
             if (
-                callback_batches == 0
+                (cancellation is None or not cancellation.event.is_set())
+                and callback_batches == 0
                 and len(audio.samples) > 0
             ):
                 array = np.asarray(
@@ -552,6 +591,7 @@ class KokoroTts:
                         time.monotonic()
                         - started
                     )
+                    report_first_audio()
 
                 pcm = (
                     np.clip(
@@ -584,6 +624,9 @@ class KokoroTts:
                 )
             except Exception:
                 pass
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
 
             raise TtsError(
                 "Kokoro streaming synthesis "
@@ -598,7 +641,15 @@ class KokoroTts:
 
         worker.join()
 
-        return_code = player.wait()
+        try:
+            return_code = player.wait()
+        finally:
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
+
+        if cancellation is not None:
+            cancellation.check()
 
         if playback_errors:
             raise TtsError(
@@ -656,3 +707,59 @@ class KokoroTts:
             # application-level text chunks.
             chunks=1,
         )
+    def prepare(self, text, cancellation=None):
+        if cancellation is not None:
+            cancellation.check()
+        text = normalize_for_speech(text)
+        started = time.monotonic()
+        with self._generation_lock:
+            chunk = self._generate(text)
+        pcm = (
+            np.clip(chunk.samples, -1.0, 1.0) * 32767.0
+        ).astype(np.int16).tobytes()
+        if cancellation is not None:
+            cancellation.check()
+        return prepared_audio(
+            pcm, chunk.sample_rate, time.monotonic() - started,
+            chunk.generation_seconds)
+
+    def play_prepared(self, audio, sink, *, before_playback=None, cancellation=None):
+        self._prepare_sink(sink)
+        started = time.monotonic()
+        if before_playback is not None:
+            before_playback()
+        player = subprocess.Popen(
+            ["pacat", "--playback", "--raw", f"--device={sink}",
+             "--format=s16le", f"--rate={audio.sample_rate}", "--channels=1"],
+            stdin=subprocess.PIPE, bufsize=0)
+        if cancellation is not None:
+            cancellation.register(player)
+            cancellation.check()
+        try:
+            view = memoryview(audio.pcm)
+            playback_started = False
+            while view:
+                if not playback_started:
+                    observer = getattr(self, "playback_observer", None)
+                    if observer is not None:
+                        observer(True)
+                    playback_started = True
+                written = player.stdin.write(view)
+                if not written:
+                    raise TtsError("Prepared player closed its input")
+                view = view[written:]
+            player.stdin.close()
+            if player.wait(timeout=max(10, audio.audio_seconds + 5)) != 0:
+                raise TtsError("Prepared player failed")
+        finally:
+            if player.poll() is None:
+                player.kill()
+                player.wait()
+            if player.stdin and not player.stdin.closed:
+                player.stdin.close()
+            observer = getattr(self, "playback_observer", None)
+            if observer is not None:
+                observer(False)
+        return TtsResult(
+            audio.generation_seconds, audio.audio_seconds, audio.sample_rate,
+            audio.first_audio_latency_seconds, time.monotonic() - started, 1)

@@ -75,3 +75,9 @@ AI Jetson **绝不能直接发布原始 `/cmd_vel`**。
 [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md)
 
 该文件是项目持续开发时的详细状态源，README 只保留最新总体概览。
+
+## 运行与维护文档
+
+- [项目结构与并行关系](docs/ARCHITECTURE.md)
+- [统一工具与音乐 API](docs/TOOLS.md)
+- [Jetson 统一启动与验收](docs/OPERATIONS.md)

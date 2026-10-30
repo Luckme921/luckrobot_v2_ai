@@ -11,6 +11,8 @@ def create_gate() -> InteractionGate:
         normal_timeout_seconds=12.0,
         chat_timeout_seconds=20.0,
         transcript_aliases=[
+            "luckylucky",
+            "luckylu",
             "lucky",
             "luck",
             "拉可",
@@ -33,11 +35,13 @@ def create_gate() -> InteractionGate:
             "那可以",
             "拉uck克",
             "那uck克",
+            "马蹄",
             "拉ucky",
             "老uck克",
             "老克",
             "拉客",
             "那克",
+            "拉y",
         ],
         chat_mode_triggers=[
             "陪我聊",
@@ -53,12 +57,55 @@ def create_gate() -> InteractionGate:
             "停止",
             "别动",
         ],
+        post_kws_transcript_aliases=[
+            "拉uck",
+            "拉圾",
+            "垃圾",
+            "马蹄",
+        ],
     )
 
 
 class InteractionGateTest(
     unittest.TestCase
 ):
+    def test_longer_wake_echoes_wait_or_forward_only_following_command(self):
+        for wake in ("Lucky", "LuckyLu", "LuckyLucky"):
+            with self.subTest(wake=wake):
+                gate = create_gate()
+                gate.on_wake(0.0)
+                self.assertEqual(gate.process(wake, now=1.0).action, "awake")
+                decision = gate.process(f"{wake}，帮我查天气", now=2.0)
+                self.assertEqual(decision.action, "command")
+                self.assertEqual(decision.command, "帮我查天气")
+
+    def test_speech_activity_defers_timeout_until_segment_is_processed(self):
+        gate = create_gate()
+        gate.on_wake(0.0)
+        gate.note_speech_activity(7.9)
+        self.assertFalse(gate.expire_if_needed(9.0))
+        result = gate.process("帮我看看天气", now=18.0, defer_timeout=True)
+        self.assertEqual(result.action, "command")
+        self.assertEqual(gate.state, gate.ACTIVE)
+
+    def test_repeated_wake_echo_does_not_start_model_turn(self):
+        gate = create_gate()
+        gate.on_wake(0.0)
+        result = gate.process("拉铁拉铁", now=1.0)
+        self.assertEqual(result.action, "ignore")
+        self.assertEqual(gate.state, gate.AWAKE_WAIT_COMMAND)
+
+    def test_pre_wake_speech_is_optional(self):
+        gate = create_gate()
+        gate.on_wake(0.0)
+        result = gate.process("今天天气怎么样，Lucky，告诉我气温", now=1.0)
+        self.assertEqual(result.command, "告诉我气温")
+        gate = create_gate()
+        gate.include_pre_wake_speech = True
+        gate.on_wake(0.0)
+        result = gate.process("今天天气怎么样，Lucky，告诉我气温", now=1.0)
+        self.assertEqual(result.command, "今天天气怎么样，Lucky，告诉我气温")
+
     def test_sleeping_ignores_text(self):
         gate = create_gate()
 
@@ -131,8 +178,8 @@ class InteractionGateTest(
         )
 
         self.assertEqual(
-            result.command,
-            "你在吗",
+            result.action,
+            "awake",
         )
 
     def test_followup_no_wake(self):
@@ -253,6 +300,9 @@ class InteractionGateTest(
             "拉uckK。",
             "拉ucky。",
             "拉。",
+            "马蹄。",
+            "拉圾。",
+            "拉y。",
         ]
 
         for variant in variants:
@@ -279,6 +329,27 @@ class InteractionGateTest(
                     result.command
                 )
 
+    def test_wake_alias_with_command_is_normalized_only_for_model(self):
+        gate = create_gate()
+        gate.on_wake(now=0.0)
+
+        result = gate.process("拉圾，帮我看看天气", now=1.0)
+
+        self.assertEqual(result.action, "command")
+        self.assertEqual(result.command, "帮我看看天气")
+        self.assertTrue(result.wake_detected)
+        self.assertEqual(result.command_for_model, "Lucky，帮我看看天气")
+
+    def test_ambiguous_post_kws_alias_remains_normal_during_active_turn(self):
+        gate = create_gate()
+        gate.on_wake(now=0.0)
+        gate.process("你是谁", now=1.0)
+
+        result = gate.process("垃圾分类怎么做", now=2.0)
+
+        self.assertEqual(result.command, "垃圾分类怎么做")
+        self.assertFalse(result.wake_detected)
+
     def test_observed_mixed_wake_command(self):
         gate = create_gate()
 
@@ -292,8 +363,8 @@ class InteractionGateTest(
         )
 
         self.assertEqual(
-            result.command,
-            "你在吗",
+            result.action,
+            "awake",
         )
 
     def test_real_command_starting_with_la(self):
@@ -366,6 +437,19 @@ class InteractionGateTest(
         self.assertIsNone(
             result.command
         )
+
+    def test_short_fragments_after_wake_never_reach_model(self):
+        gate = create_gate()
+        gate.on_wake(now=0.0)
+        echo = gate.process("拉y。", now=1.0)
+        self.assertEqual(echo.action, "awake")
+        self.assertIsNone(echo.command_for_model)
+        fragment = gate.process("体。", now=2.0)
+        self.assertEqual(fragment.action, "ignore")
+        self.assertEqual(gate.state, gate.AWAKE_WAIT_COMMAND)
+        command = gate.process("帮我查天气", now=3.0)
+        self.assertEqual(command.action, "command")
+        self.assertEqual(command.command_for_model, "帮我查天气")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,296 @@
+2026-10-28晚间更新：明确语音导航任务直接执行，屏幕提供完整备用操作；显示改为轻量X11并支持本机RViz监视、刷新和返回。详见 [NAVIGATION.md](NAVIGATION.md)。
+
+# 统一工具接口与音乐 API
+
+2026-10-24：route_turn 新增 tool_batch/actions，最多4项；按资源并发，音乐与音量
+串行，风扇串口操作串行。天气支持region（路由字段weather_region）。详见
+[多工具与唤醒诊断](TOOL_BATCH_AND_WAKE.md)。
+
+## 风扇和灯效（Jetson 本地）
+
+`robot_tools/fan_light.py` 从 PWLINK2 或 CP2102 的 `/dev/serial/by-id/` 稳定路径中查找唯一设备，先用 `STATUS` 核对 STM32 状态签名，再独占串口按 115200 8N1 逐条发送 ASCII 命令及换行，并检查 STM32 的 `OK` 回复。Jetson 的 Python 环境需安装 `pyserial`：`.venv/bin/python -m pip install pyserial`。接线修正后，启动时依次设 `FAN1 50`、`PIXELS 64`、`BRIGHT 20`、`COLOR 255 0 0`、`MODE BREATH`，最后读 `STATUS`。找不到唯一串口或初始化失败时记录 `[FAN_LIGHT] unavailable`，其余语音功能继续运行，工具报告不可用。
+
+模型只可调用 `fan_light_control` 的 `set_speed`、`set_light`、`light_off`、`light_on`、`status`。风扇和灯效语音请求都经云端 `route_turn`：模型判断用户想要的颜色并提交 `red/green/blue` 三个 0–255 整数，以及 `static`、`breath` 或 `rainbow` 模式。执行层只验证参数、按顺序发送固件命令，不再保存颜色名表或使用本地颜色快捷路由。亮度固定在已验证的 20%。`COLOR` 会切回静态，因此呼吸灯先发颜色再发模式。两只实体风扇共用 `FAN1`；`STATUS` 是控制器目标状态，不是 RPM 测量。工具回复仅代表控制器接受命令。`PIXELS 64` 是当前工作设置，仍待确认实际灯珠连线和数量。
+
+显示屏的音乐按钮使用独立的本机控制入口 `/api/music/control`，只接受 `pause_music`、`resume_music`、`previous_music`、`next_music` 四种固定动作。请求通过 `private/runtime/qqmusic-control-request.json` 传给音频进程，并调用现有 `MusicTools.control`；不接受 URL 或命令字符串。`GET /api/music/control` 返回最近一次执行结果，供触屏按钮避免重复提交。语音工具 `music_control` 的 schema 和处理函数保持原样。
+
+2026-10-17：`private/qqmusic-library.json` 与 `configs/music_preferences.yaml` 共同作为选曲来源。“推荐几首”从个人曲库和偏好曲目各取候选，并避开本进程最近推荐/播放过的歌曲；“从我的歌单推荐三首”只从个人曲库取；“播放我喜欢歌单”按该歌单缓存顺序逐首播放，开始位置跳过最近播放的曲目。QQ 网页自动换曲或停止后，后台曲目监控用缓存中的下一首 MID 再次经 QQ 搜索校验并播放；无法校验时跳过有限候选，歌单结束时停止。点“下一首”跳到缓存队列下一首，停止播放或发起新搜索会清除队列。个人缓存仍只在 `private/`，不得提交；歌单播放和自动接续需要 Jetson 现场验收。
+
+2026-10-05《跳楼机》排查：`[TOOL_REQUEST] source=model name=music_search query=跳楼机` 证明模型曾正确请求搜索，但个人歌单缓存的宽松模糊结果把《九张机》等误当候选，未进入 QQ 网页搜索。现在单独歌名的缓存结果先核对标题或歌手，不匹配就读 QQ 网页更多候选；最终候选也会过滤明显不相关结果，不会让用户在错误列表中反复选择。另一次模型已给出 `DJ阿哲 跳楼机`，端侧却因原话只有“搜一下”而拒绝；现在带歌手与歌名的明确查找句可通过该门槛。仍要以 QQ 实际搜索与播放结果为准，模型文字不得冒充已播放。
+
+## 云端模型配置（2026-10-05）
+
+`configs/agent.yaml` 默认使用北京地域百炼 OpenAI 兼容接口 `qwen3.8-max`，兼顾普通对话和现有图片输入。密钥只放在设备本地未跟踪的 `.env`：`DASHSCOPE_API_KEY=...`；切勿提交密钥。`agent.enable_thinking: false` 使用百炼参数关闭深度思考，保持语义路由与语音回复速度；原智谱 `thinking` 参数不会发送给百炼。JSON 路由、最终文字流和视觉输入仍需用实际账号验证。
+
+现有 `web_search` 工具调用的是独立的智谱搜索接口，默认关闭；天气工具和 QQ 音乐工具不受影响。若仍要使用智谱搜索，设置 `web_search.enabled: true` 并额外提供 `ZAI_API_KEY`。这不是百炼内置联网搜索；未启用时不能宣称已核验实时新闻。改回智谱模型时需同时修改 `agent.provider`、`model`、`base_url` 和对应密钥。
+
+2026-10-05：`music.catalog_route_enabled` 默认在 `configs/audio.yaml` 开启。明确点歌时，端侧只把在 `configs/music_preferences.yaml` 的 `known_artists` / `known_titles`、偏好曲目或 `private/qqmusic-library.json` 缓存中出现的名字走本地 QQ 搜索；歌手表与歌名表独立，不要求缓存中存在该组合。QQ 搜索后的实际歌曲仍须校验。“好听的歌”“震撼全场的歌”等未命中名字的描述交给模型判断，不能把整句直接当歌名。随机播放、单首换歌、候选选择、暂停/停止仍按原有快捷路径。`library_refresh_on_login: true` 让 QQ 登录或启动时检查已登录状态成功后，在后台同步个人歌单，更新设备私有曲库缓存；退出/切换账号时清除旧缓存。该缓存会自动补充运行时的歌手/歌名词表，不改写受 Git 管理的 `music_preferences.yaml`，避免提交私人歌单。`library_refresh_enabled: false` 仍表示不做每小时周期刷新。浏览器由共享 Selenium 控制，歌单同步期间搜索可能短暂等待；同步失败时保留上一次可用缓存（主动切换账号时例外）。
+
+2026-10-01 更新：本地仅直接处理明确点歌、单首换歌和播放控制；“找一些其他音乐”“刚才的歌”等交给模型理解上下文。模型 `play_music` 表示找一首，未知歌名时以 `music_query=随便` 使用配置歌单；`recommend_music` 表示推荐几首供选择，使用 `music.preferences.preferred_tracks` 暂存候选，选定后由 QQ 搜索核实播放。当前未接入 QQ 官方推荐榜单。`end_conversation` 是会话路由动作。schema 在 `robot_tools/catalog.py`，执行在 `edge/audio/runtime.py`。QQ 播放器自动换曲由后台每三秒读取当前曲目，变化时更新屏幕并打印 `[MUSIC] TRACK_CHANGED`；仍需现场核对网页元数据与实际声音。
+
+2026-10-03 更新：`end_conversation` 不再借用音乐请求返回。Cloud Agent 先根据当前语句和对话历史生成自然告别回复，`ChatResponse.end_conversation=true` 随最终正文返回；Edge 播完该正文后清空候选并回到等待 Lucky，且把用户与回复一起写入记忆。完整的短句“结束对话”等仍在本地门控处理，使用缓存告别语。音乐的动态过渡语只在识别到“张学友的歌”这类明确歌手时尝试；不能在线准备音频时回退到固定缓存短句，不影响音乐工具执行。
+
+2026-10-03 选歌修复：播报候选列表时用户用 Lucky 打断，候选列表继续保留至原有有效期、明确结束会话或新搜索；“我要听第一首”“上一次找到的第一首”优先从候选中本地选歌，不把“第一首”当 QQ 搜索词。真正播放仍只由 `music_select` 工具调用 QQ 完成；模型的普通文字回复不是播放动作。
+
+2026-10-03 再次修复：最近一次明确选中的歌名和歌手单独记录，用于“再播放一次”“播放刚才那首歌”等指代；该记录不是待选候选列表。模型若把明确播放请求误路由成 `respond_text`，Cloud 只会转为真实 `play_music` 请求（能提取具体歌名时）或明确说明尚未播放，不能以文字声称播放成功。QQ 返回的实际曲名与选中标题不符时，立即停止播放器并报告失败。QQ 搜索结果中 `《...》` 后的影视说明不再被当作歌曲主标题参与自动匹配。
+
+更新：2026-09-19。
+
+## 文件职责
+
+robot_tools/catalog.py 定义云端和端侧工具参数 schema；registry.py 校验参数并计时；cloud.py 执行云端查询；edge.py 注册端侧函数。旧 cloud/agent/tool_router.py 保留兼容导入。
+
+- weather.py:get_weather(city, days=1)：Open-Meteo 地名查询和天气查询；城市歧义时澄清，网络失败不编造数据。
+- volume.py:volume_control(controller, action, percent=None)：音量查询、设置与调整。
+- music.py:MusicTools.search / select / control：搜索、候选选择、播放控制。
+- navigation.py:navigation_control(arguments)：ROS 2监督/模式控制；navigate_to(arguments) 语义地点尚未支持，返回 unsupported。详见 NAVIGATION.md。
+
+模型只能选择注册工具并提交符合 schema 的参数。新增工具需同时更新 schema、路由、执行注册、失败反馈与测试。端侧执行结果返回 ok/status/executed/message 等字段；模型不能直接传 shell 或任意播放地址。
+
+## 用户网页中的音乐接口
+
+来源：用户提供的 wangye.html（只提取 API 协议，不执行网页脚本）。网页包含 QQ、网易云、咪咕、酷我四组接口。当前接入 QQ 的 Tang 适配器，保留原通用 HTTP 和 QQ 浏览器后端。
+
+搜索：GET https://tang.api.s01s.cn/music_open_api.php?msg=歌曲关键词&type=json
+
+返回数组，或 data 数组，字段 song_mid、song_title、singer_name。搜索结果不包含播放地址。
+
+详情：同一接口传 msg、type=json、mid=选定歌曲的 song_mid。校验返回 song_mid 与候选一致，从 song_play_url_standard/hq 等字段取得地址；不自动选伴奏字段。歌曲元数据和播放地址只来自接口，不由大模型编造。
+
+流程：用户点歌 → 最多三个候选 → 用户说第一首或完整歌名 → 用缓存 ID 查询详情 → GStreamer 播放。只在选择后请求详情，避免提前查询三个地址造成等待；有直接 URL 的通用后端直接用缓存 URL。候选 120 秒过期，结束对话/会话超时清除候选；重名时要求编号。
+
+HTTP 备用后端由 configs/tools.yaml 的 music_http.adapter=fallback 和 search_url 配置；设 configs/audio.yaml 的 music.provider=http、music.enabled=true 时启用。音频播放需要 gst-launch-1.0 和 PulseAudio。HTTP 后端支持暂停、恢复、停止，下一首/上一首尚无播放队列。
+
+2026-09-19 Jetson 实测：QQ、网易云搜索返回 JSON，QQ 详情返回 stream.qqmusic.qq.com 音频地址；酷我证书过期，未关闭 TLS 校验。外部接口是否长期可用无法由一次测试保证。实测没有自动播放声音。
+
+天气接口文档：https://open-meteo.com/en/docs 与 https://open-meteo.com/en/docs/geocoding-api 。
+
+## 音乐请求修复（2026-09-19）
+
+日志确认“播放一首稻香”已正确路由，但因音乐开关关闭而拒绝。现已启用 HTTP 后端。adapter=fallback 优先 QQ；搜索空列表或请求失败时尝试网页中的网易云接口。候选仍最多三首，播报歌名及歌手，用户选择后按来源解析地址；不会在选定歌曲失败后偷偷换成另一来源的同名歌曲。
+
+网易云搜索：https://api.vkeys.cn/v2/music/netease ，参数 word/page/num；详情：https://api.qijieya.cn/meting/ ，参数 type=song/id。返回歌曲名称须与候选一致，地址限 HTTP(S)。两家搜索都出错会返回工具失败反馈。
+
+QQ 对同一关键词曾临时返回空列表，稍后恢复；备用源用于降低这种故障影响。真实 QQ 音频已通过 GStreamer fakesink 完整解码（exit 0），未向音箱播放。此验证不证明现场音量和声学效果；网易云备用播放仍需独立验证。
+
+## 可选自动播放（2026-09-20）
+
+music_http.auto_play_enabled 默认 false，只有明确配置 true 才开启；auto_play_threshold 默认 90，auto_play_gap 默认 20。自动播放比较全部已返回候选并排序，不假定 API 顺序。要求 query 明确匹配歌手和完整歌名（如“周杰伦的稻香”），仅歌名继续询问。存在同名候选，或未指定版本却出现同曲不同版本时，也继续选择。分数是启发式匹配分，不是概率；供应商只返回部分搜索结果，因此不能证明全曲库唯一。
+
+阈值有效范围 (0,100]，差值范围 [0,100]；无效范围不自动播放。复杂描述无法精确核实时保留候选交互。HTTP、QQ 的自动播放与手动选择都在实际播放前调用 before_playback 收尾过渡语；HTTP 地址解析仍与过渡语并行。该回调在 runtime 中连接 acknowledgements.finish。
+
+## 本地点歌体验更新（2026-09-21，覆盖前述自动播放规则）
+
+本地先匹配明确播放/暂停/继续和候选选择短句，命中时不调用 LLM。否定、解释性问句不在本地执行。匹配在现有 ASR/身份处理之后，因此不是完全零等待。
+
+“搜一下邓紫棋的歌”“邓紫棋的歌”会直接按歌手搜索；“换歌”“再找一首歌曲”
+和“下一首”在 HTTP 后端没有播放队列时按随机偏好重新搜索并直接播放。上述短句不会
+先交给模型，也不会再落入缺少音乐提示词的保护回复。
+
+“播放一首歌”“随便放一首”“放点音乐”“每日推荐”属于通用随机请求，成功后直接
+播放，失败明确反馈并清空候选，不反复让用户选择。`music_http.random_queries` 现在只
+是偏好文件没有可用配置时的兼容后备项，不是平台每日推荐接口。
+
+2026-09-24 起，随机音乐优先读取 `configs/music_preferences.yaml`。其中
+`preferred_tracks` 配置常听的歌手和歌曲；只有未配置任何曲目时才使用
+`preferred_artists` 做兼容搜索。已配置曲目全部失败时直接报告失败，避免宽泛的歌手
+搜索混入听书章节。`search_attempts` 限制不同偏好搜索次数，`candidate_play_attempts` 限制同一
+搜索结果的播放尝试。完整随机请求会清除上一轮候选并直接播放，不进入选择流程。
+音乐上下文中的“再找一点其他的”“再换一首歌”等也按换歌处理，不把“其他的”
+或“再换一首”当作歌名交给 QQ 搜索。
+“不是说歌名叫再换一首，而是让你再找一首歌”一类纠正句同样按换歌处理。
+“放吧，你随便放一首音乐”这类带口语前缀的随机请求仍走偏好歌单；
+工具也检查原始话语，避免错误截取的 `query` 被当作 QQ 搜索词。
+已经覆盖现场 ASR 文本“放一首音乐，随便播放一首就可以”和
+“随便播放一首歌就可以”。用户只回答“随便/都行”时，仍表示从当前候选中任选一首。
+
+已开启 auto_play_enabled。明确歌手+歌名时，比较返回的全部候选：歌手须匹配，歌名完全匹配或至少三字且相似度>=0.85；最佳候选与次佳相似度差小于0.1时仍询问。单独歌名/歌手继续选择，同名不同歌手时询问“你想听周杰伦，还是邓紫棋的呀？”。用户可说歌手、“第一首”或“随便”；单个候选也可说“好的”。原 auto_play_threshold/gap 是旧打分配置，新明确匹配规则不使用它们。
+
+选择与自动播放均在实际播放前等待过渡语结束。2026-09-24 已部署到
+`/home/jetson/luckrobot_latency_test`，设备端单元测试和音频运行时启动通过；随机播放的
+实际听感仍由现场语音请求验收。
+
+
+新增 interaction.wake.barge_in_enabled 开关：最终回复合成/播报时允许 Lucky 打断，默认开启；打断清除待选歌曲、不撤销已执行工具。适用范围与现场验收见 OPERATIONS.md 的“Lucky 伪全双工试用”。
+
+## 音乐并发搜索与模糊直播放（2026-09-22）
+
+`music_http.adapter=fallback` 现在并发请求 Tang/QQ 与网易云两个已接入接口，而不是第一个有结果就停止。`search_limit` 控制每个接口最多候选数，默认 10；合并后 `pending_limit` 默认展示 5 首。接口失败彼此隔离，全部失败才返回服务不可用。仍不接受模型或用户直接提供的播放 URL。
+
+## wangye.html 中的公开音乐接口
+
+页面包含四组搜索/详情调用。这些均为第三方公开接口，项目无法保证长期稳定性、服务
+条款或曲目授权，生产逻辑只能把它们当作可替换的数据源。
+
+- 咪咕搜索：`GET https://api.xcvts.cn/api/music/migu?gm=<关键词>&n=&num=<数量>&type=json`。
+  返回 `code=200` 和 `data[]`；播放详情继续请求同一地址，把 `n` 设置为搜索结果序号，
+  读取 `music_url`、`lrc_url`、`cover`。当前机器人尚未接入此来源。
+- 网易云搜索：`GET https://api.vkeys.cn/v2/music/netease?word=<关键词>&page=1&num=<数量>`，
+  从 `data[]` 读取 `id/song/singer/album/cover`。播放详情调用
+  `GET https://api.qijieya.cn/meting/?type=song&id=<歌曲ID>`，读取数组首项的
+  `url/name/artist/pic`；歌词调用 vkeys 的 `/v2/music/netease/lyric?id=<歌曲ID>`。
+  当前机器人已接入搜索和播放详情，没有在语音流程中使用歌词。
+- QQ 搜索：`GET https://tang.api.s01s.cn/music_open_api.php?msg=<关键词>&type=json`，
+  返回数组或 `{data: [...]}`，主要字段为 `song_mid/song_title/singer_name`。详情在同一
+  请求上增加 `mid=<song_mid>`，读取 `song_play_url_standard`、`song_play_url_hq`、
+  `song_play_url` 等。当前机器人已接入，并校验详情返回的 `song_mid` 必须与选择一致。
+- 酷我搜索：`GET https://kw-api.cenguigui.cn/?name=<关键词>&page=1&limit=<数量>`，
+  读取 `data[].rid/name/artist/album/pic`。详情请求增加
+  `id=<rid>&type=song&level=zp&format=json`，播放地址位于 `data.url`。当前机器人尚未
+  接入此来源。
+
+只读通断检查：
+
+```bash
+.venv/bin/python scripts/check_music_apis.py
+.venv/bin/python scripts/check_music_apis.py "宋冬野 安河桥" --limit 10
+```
+
+脚本只检查搜索、JSON 结构、详情和播放地址是否存在，不下载或播放音频，并列出各来源返回的
+歌曲 ID、歌名和歌手；不会打印播放地址。结果中的
+`reachable=true` 表示本次调用成功，不代表以后持续可用。
+
+2026-09-24 在 Jetson 以“周杰伦 晴天”探测：网易云搜索、详情与歌词可用，QQ 搜索与
+详情可用；咪咕能建立 HTTP 请求但返回结构不符合页面约定，酷我因服务端证书过期而
+无法建立可信 TLS 连接。机器人当前使用的网易云和 QQ 两个来源均通过本次探测。
+
+明确包含歌手和歌名的请求会计算歌手与标题综合分并直接播放最高分；支持歌手简称，如“杰伦的龙卷风”。标题比较会忽略 Live、Mix、Remix、现场、版本、伴奏、DJ 等版本词，因此允许直接选择最相近版本。`fuzzy_auto_play_score` 默认 0.62，可提高以减少误播。只说歌名或歌手时仍保留候选选择，随机播放逻辑不变。
+
+## 自然点歌与候选选择（2026-09-24）
+
+现场日志中的“我想听我想听宋冬野的安河桥”由本地规则处理，不调用 LLM。重复的请求前缀
+会先清理，“某某的某某歌”拆为“歌手 歌名”，再提交给 QQ/Tang 与网易云并发搜索；
+“你可以放一首歌吗”也直接
+进入随机播放，不再让模型搜索字面歌曲《一首歌》。多来源结果按歌手、歌名相关度统一
+排序，不能再由网络返回先后决定前五项。
+
+候选提示使用“歌手的《歌名/版本》”自然描述，不要求用户记编号；“第三首”仍兼容。
+等待选择期间，候选歌手、完整歌名、去版本歌名和“吉他版/DJ版/翻唱”等版本词用于本地
+上下文匹配。SenseVoice 的 sherpa-onnx SenseVoice 接口没有动态 hotword 参数，因此这是
+ASR 文本后的候选上下文校正，不应写成修改了声学模型词表；本地仍无法唯一对应时才交给
+LLM 路由。
+
+2026-09-24 的“第三首”失败为 `ValueError`：网易云搜索标题可能是
+“莉莉安(翻自宋冬野)”，详情标题只有“莉莉安”，旧代码要求两个字符串完全相同而拒绝
+播放。现在对同一数字歌曲 ID 允许去掉翻唱/版本标注后的标题匹配；真正不相关的标题仍
+拒绝。地址解析或播放器失败会记录 `MUSIC RESOLVE_FAILED/PLAY_FAILED` 的来源、歌曲和
+原因，并向用户说明是哪首歌暂时拿不到地址，而不是统一返回“操作没有完成”。
+
+旧版 `luckrobot_release/edge/music/qqmusic.py` 使用 Selenium、Firefox 和已登录的持久化
+profile 打开 QQ 音乐网页搜索/播放器；它不是 H5 OpenID API。设备上旧 profile 位于
+`/home/jetson/luckrobot_release/private/qqmusic-firefox`，Firefox 与 geckodriver 仍存在，
+但 profile/cookie 属于 private 数据，禁止复制进 Git。
+
+2026-09-30 在测试目录 `/home/jetson/luckrobot_latency_test/private/qqmusic-firefox`
+新建独立 Firefox profile，用户在 Jetson 图形桌面完成 QQ 音乐登录。无桌面 Selenium
+随后搜索“邓紫棋”返回 5 首候选；按歌曲 ID 打开并播放《泡沫》，播放器及音频路由完成，
+测试后已停止。因此 `configs/audio.yaml` 在测试分支改用 `music.provider: qqmusic`。
+这是控制已登录的 QQ 音乐网页，仍不是 QPlay/OpenAPI；手机会员权益是否覆盖所有指定歌曲，
+需按曲目现场验证。首次启用时暂关个人歌单后台刷新，以免它占用浏览器锁影响点歌延迟。
+网页后端失效时可把 `music.provider` 改回 `http` 并重启机器人。
+图形桌面退出或 Firefox 崩溃后，Selenium 可能保留已失效的 session ID；下一次
+`search_candidates` / `play` 遇到该错误，或 geckodriver 本地连接断开时，会关闭旧
+WebDriver、重建浏览器并重试一次，
+日志记录 `[MUSIC] QQ_SESSION_RESTART`。连续失败仍向用户明确报错，不会无限重试。
+QQ 网页搜索候选同时提取歌曲行中的歌手，用于偏好歌单的“歌手 + 歌名”校验；
+单独按歌手搜索时接受 QQ 页面显示名中的前后缀（例如 `G.E.M.邓紫棋`），并在音频日志打印最多 12 条候选的歌名、歌手，供排查“搜索有结果却被判不相关”。日志不包含歌曲链接或登录凭据。
+
+音乐别名配置在 `configs/music_aliases.yaml`，`artists` 和 `songs` 分开维护；如“邓紫棋/G.E.M.邓紫棋”“乃万/乃万NINEONE”。QQ 搜索后的候选校验、歌手加歌名的明确点歌共用这些等价关系；歌曲标题附加的 Live/Mix 等版本字样仍按原有版本规则处理，不把不同版本自动写成同一首歌。云端 `music_alias_add(kind, canonical, alias, evidence)` 只接受歌手或歌曲短别名，保存到未跟踪的 `private/runtime/music_aliases.learned.json`，保留依据供人工复核，拒绝冲突别名。JSON 路由的音乐联网搜索成功后，模型最多有一次补充别名机会，且两种名称须能在本轮用户话语或真实搜索结果中找到；普通播放不增加这一步。新增别名不赋予模型直接构造播放 URL 或命令的权限，歌曲仍需 QQ 实际搜索和匹配。
+
+排查《泡沫》失败的实际案例：2026-10-17 21:20 的 ASR 正确，模型却把 `music_search.query` 填成 `邓紫棋的泡沫`；QQ 已返回《泡沫》/`G.E.M.邓紫棋`，但旧代码把整串当作单一歌名过滤，45 秒后误报“不相关”。现在只在前半段命中已知歌手或配置别名时，把“歌手的歌名”规范成“歌手 歌名”，避免把普通歌名中的“的”误拆。日志 `[MUSIC] SEARCH_TIMING` 区分个人曲库与 QQ 网页耗时；`[MUSIC] QQ_CANDIDATES` 展示实际候选；`[MUSIC] NOW_PLAYING` 才表示已核验播放。现场检查可用 `tail -F logs/conversation.log logs/audio-latency.log`，先找同一请求的 `[USER]`/`[ASR_TEXT]`，再比对 `[TOOL_REQUEST]`、`QQ_CANDIDATES`、`SEARCH_TIMING`、`AUTO_PLAY`/`NOW_PLAYING` 和最终 `[ASSISTANT]`。
+
+2026-10-17 的“找找最近有什么好听的歌曲”连败是协议漏项：云端合法返回 `music_request.action=recommend_music`，端侧旧校验却只允许播放、切歌等动作，抛出 `Cloud Agent returned invalid music action`。端侧现接受该动作，随后交给已有 `music_search(query="推荐")` 路径；`model_route_json` 当时约 1 秒成功，不能把这类错误误报为 API Key 失效。
+
+同日晚间《红豆》播放失败发生在选歌后：个人曲库或推荐条目保存的 QQ MID 不再出现在当前网页搜索结果中，播放器抛出 `QQMusicSelectionExpired`。现在只在这种明确的旧 MID 错误下，重新读取 QQ 当前候选；要求歌名主体和歌手均与原选择一致，才用新 MID 重试一次，日志记为 `[MUSIC] QQ_MID_RETRY`。找不到可信候选则停止，不会因为标题相同就播放其他歌手的版本；`[MUSIC] NOW_PLAYING` 仍是成功依据。
+否则随机播放会因所有候选歌手为空而全部被过滤。
+语音点歌识别包含“我想要听 / 想要听”。针对实际出现的“孙冬野南河桥”误识别，
+仅在明确点歌句式中将其纠正为“宋冬野 安和桥”；单独说出该短语不会触发点歌。
+“宋冬野的安河桥”等已知同音误识别也会在 QQ 搜索前改为正式歌名“安和桥”，
+避免误选《安河桥（伴奏）》。随机点歌在当前进程内避开最近四首已播的配置曲目；
+重启后此记录清空。音量控制支持“我想加大点音量”，pactl 调用最多等待 3 秒，
+超时返回工具错误。休眠状态仍须先唤醒 Lucky 才处理音量命令。
+明确点歌优先在本地解析“歌手 + 歌名”，把常见 ASR 误识别（宋东野、松农野、
+安河桥）规范为 QQ 可搜索的“宋冬野 安和桥”，再搜索、校验歌手与歌名并播放。
+QQ 返回了不相关列表时不再读出候选；只有没有明确点歌结构的语句才走模型路由。
+模型不能只口头承诺播放：真正播放必须由 music_search 工具成功返回。
+QQ 播放器会暂停所有旧播放页；PulseAudio sink-input 短暂消失时重新枚举再迁移。
+QQ 播放器切换下一首或上一首时，工具用播放器返回的实际曲目信息更新
+`current_song` 和屏幕，不再沿用最初点播歌曲的标题；日志打印
+`[MUSIC] NOW_PLAYING`，可对照 QQ 实际播放与屏幕显示。若播放器没有返回曲目信息，
+切歌后清空旧歌名，避免错误显示。
+若最终仍未确认播放，停止播放器、清除候选并记录 QQ_PLAY_FAILED 的异常原因。
+“关闭音乐 / 停止播放 / 关掉音乐 / 别放了”等短句优先映射到
+`music_control(action=stop_music)`，即使正在等待选歌也不当歌名搜索。
+播放音乐时仍处于唤醒等待状态，先喊 Lucky，再说停止命令。
+“有什么推荐的歌曲吗”现在从 `configs/music_preferences.yaml` 给出三首熟悉曲目，
+不把“有什么推荐”送到 QQ 当歌名搜索。用户选中其中一首后才用其歌手和歌名
+搜索 QQ 并校验匹配；“上次搜到的某歌手那首”优先匹配当前候选，避免重搜。
+未过期的候选列表会以编号、歌名和歌手作为本轮临时上下文传给语义路由器；
+本地无法识别的“奶袜的那首”等说法应路由到 `select_music`，由端侧按编号从原候选
+中播放，不重新用误识别的词搜索 QQ。日志的 `[MUSIC] ROUTE_CANDIDATES` 可核对
+这次实际给模型的列表；候选过期或会话结束后清空。换歌或“再找点其他歌”走随机
+歌单，不能将“随便”作为 QQ 歌名搜索。
+当模型回复“我找到了某人的《歌名》”时，端侧暂存其歌手和歌名为**未验证推荐**；
+用户点选时才用 QQ 搜索并校验歌手/歌名，不能把模型文字当作已经找到的可播放曲目。
+长句中的唯一歌名或“从头再来《知青家庭》电视剧主题曲”这类带注释标题可直接指向
+当前候选，避免把整句当新搜索。没有匹配时仍询问，不播放任意结果。
+QQ 在无头窗口点击搜索结果前先滚动到目标行；日志中的
+`MoveTargetOutOfBoundsException` 来自 Selenium 指针移动，并非歌曲未找到。
+明确歌手和歌名、常见点歌句式优先本地解析；本地不认识的表达才走模型路由。
+目前 QQ 搜索无可信候选时由工具返回未找到，**尚未**自动让模型改写歌名再搜索。
+没有可用候选且用户只记得歌词、部分描述或“上次搜到的那首”时，
+本地不凭这些词直接搜索 QQ，而交给模型结合对话上下文判断；模型只能提交
+音乐搜索请求，不能仅用自然语言宣称播放成功。
+
+QQ 音乐开发者平台的 H5 接入属于 QPlay Auth 登录鉴权：需要先注册应用取得 appId/appKey、
+配置 callback，通过授权得到 openID/openToken，再申请相应 OpenAPI 权限。扫码/H5 授权本身
+不等于获得曲库搜索、VIP 播放地址或规避版权限制，不能直接替换当前播放器。接入前还需
+确认应用审核、设备形态、允许的播放能力和 token 存储方式；密钥与 token 只进入设备私有
+配置。
+
+`music_http.log_candidates=true` 时，运行日志会增加 `[MUSIC] SEARCH_RESULTS`，记录每个来源
+实际收到的组合查询词及候选元数据，不记录播放 URL。`[TOOL_REQUEST]` 同时记录请求来自
+`local` 本地规则还是 `model` 模型路由，以及传给音乐工具的参数。当前音乐路由使用单一
+`music_query`，没有独立的“歌手”和“歌名”API 字段；例如“我想听宋冬野的安河桥”由本地
+规则整理为 `query="宋冬野 安河桥"`，再把同一查询词交给各搜索源。模型无法被本地规则匹配
+时，云端日志的 `[ROUTE] action=play_music music_query=...` 会保留模型实际生成的查询词。
+
+Tang/QQ 第三方端点对中文组合关键词有额外兼容处理：本地意图及排序仍使用“宋冬野 安河桥”，
+实际提交给该端点的 `msg` 会压缩为“宋冬野安河桥”。2026-09-24 实测紧凑形式返回了宋冬野的
+《安和桥》，而带空格形式曾返回空列表；网易源继续使用带空格形式。接口返回标题与用户说法有
+一字差异时仍需同时匹配歌手和模糊标题，不能仅凭标题直接播放。
+
+2026-09-24 Jetson 现场复测“宋冬野 安河桥”：Tang/QQ 公共接口本次返回空列表，网易云公开
+搜索只返回翻唱、DJ 或其他版本，没有返回宋冬野原唱。这只能说明当前第三方接口在本次请求中
+没有提供原唱，不能据此判断 QQ 音乐正式曲库中不存在该歌曲。旧版 Firefox profile 的副本也已
+做只读搜索验证：页面跳转到新版 `ryqq_v2` 搜索页，显示“登录”，并且没有生成可用的歌曲详情
+链接，说明旧 cookie 已失效；当时没有把 Selenium 后端接入正式流程。2026-09-30 用户在
+测试目录的新 profile 重新登录后，搜索和一次短播放已通过。网页结构及播放权限仍可能变化。
+
+QPlay Auth 官方文档中的扫码流程适合车机、带屏音箱等设备：先取得二维码、约每秒轮询授权
+状态，再由服务端用授权码换取 token；H5 流程则需要 appId、签名参数、包名和 callbackUrl。
+两种流程都依赖已审核的开发者应用与获批的 OpenAPI 能力。项目在取得这些前置条件之前不保存
+占位密钥，也不把 H5 登录页误当成音乐搜索或播放 API。
+# QQ 音乐网页认证
+
+QQ 音乐仍由音频进程中的同一个 Selenium Firefox 控制器负责搜索和播放。`prewarm()` 只确认 WebDriver 启动，不代表账号仍在线；搜索页显示“登录”且搜索超时会报告 `auth_required`，并在显示屏左上角提示登录。屏幕触摸“QQ 音乐登录”后，Display API 将请求写入 `private/runtime/qqmusic-auth-request.json`；音频进程在后台打开 QQ 登录网页。无桌面 Qt 屏幕显示整个 Firefox 网页画面，触摸坐标经本机 Display API 转给 Selenium 点击真实网页元素，手机 QQ 扫网页中的二维码。成功后状态变为 `ready`，网页预览文件删除。浏览器截图、配置及 Cookie 均不得提交。
+
+Display 本机接口：`GET /api/music/auth` 查询状态；`GET /api/music/auth/browser` 在网页登录期间提供实时网页截图，`GET /api/music/auth/qr` 提供左侧放大的 QQ 二维码；`POST /api/music/auth/browser/click` 转发归一化触摸坐标，`POST /api/music/auth/browser/cancel` 关闭登录会话；`POST /api/music/auth/login` 只接受带 `X-LuckRobot-Display: 1` 的本机显示屏请求。音频进程未启动时无法生成网页预览。
+
+2026-10-03：Firefox 直接使用 `private/qqmusic-firefox` 作为配置目录，扫码后的 Cookie 会随浏览器持久保存。此前 `Options.profile` 会复制配置到临时目录，导致重启后登录丢失。点击认证入口时，若网页已经登录，返回 `ready`，不会再生成登录界面；只有确实显示“登录”时才打开网页登录弹窗。网页超时会报告具体阶段。
+
+2026-10-04：认证状态增加网页账号昵称与本地头像截图（仅在 QQ 网页实际显示已登录头像时标记 `ready`）。顶部头像没有昵称属性，必要时从 QQ 账号主页 `.profile__name` 读取。屏幕左上角可打开账号面板，查看昵称/头像、退出登录或切换用户。`POST /api/music/auth/logout` 由音频进程关闭专用 Firefox，再删除 `private/qqmusic-firefox` 的 Cookie 数据库；切换用户随后重新打开二维码。`GET /api/music/auth/avatar` 只提供 `private/runtime/` 中的头像截图，不传递 Cookie 或浏览器配置。认证请求仍只在 Jetson 本机 Display API、且带 `X-LuckRobot-Display: 1` 时接受。启动时后台检查实际登录状态；`unknown`/`checking` 不代表已登录。
+
+网页登录预览在 QML 中交替使用两张 Image，下一帧加载完成才换到前台，避免逐帧白屏。QQ 网页的原始二维码另截成私有 PNG，通过兼容的 `/api/music/auth/qr` 在屏幕左侧以 `smooth: false` 放大显示；不能对浏览器二维码使用 CSS transform 平滑放大，现场测试会破坏扫码识别。网页截图与二维码都仅在 `browser` 会话期间提供，结束后清除。
+
+QQ 搜索页在加载账号时可能先短暂显示“登录”，随后才出现账号头像和歌曲列表。认证检查会等待账号状态稳定，再点击真正的登录入口，避免对已登录账号误开弹窗。
+# 屏幕网络管理（2026-10-25）
+
+网络配置只由用户触摸操作，不是 LLM 工具。独立网络辅助服务不授予模型或显示 API
+任意 shell 权限。后续导航使用脑间有线地址，导航模式使用脑间有线ROS 2 Domain100，非TCP网关，不通过SSH下发运动；见 NAVIGATION.md。
+详见 [NETWORK_CONTROL.md](NETWORK_CONTROL.md)。
+
+### 2026-10-30 页面隔离与复合请求
+网络、Nav2、RViz和QQ音乐入口仅主页面可见，子页面不会被底层入口遮挡。网络字体增大，连接/确认/恢复操作右对齐。批次最多4项，完整验证后独立工具并发；含音乐时先执行其他工具并播报结果，再执行音乐，避免天气结果被播放音乐分支跳过。当前策略延后整个音乐工具（包括搜索），不是预搜索并发；播报失败或取消则不启动后续音乐。导航仍受现有状态门控，工具受理不代表完成探索。
+
+2026-10-30补充：复合批次中的音乐搜索与其他工具并发。MusicTools.before_playback在真正启动播放器前等待本批次结果播报完成；播报异常或取消则拒绝播放。搜索无结果或需选歌时不会启动播放器。该等待只约束经过before_playback的播放入口，暂停等控制指令仍按原工具行为执行。

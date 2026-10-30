@@ -1,6 +1,26 @@
+# 2026-10-28 更新：唤醒暂停音乐与底盘模式接口
+
+已实现与验收边界见 [NAVIGATION.md](NAVIGATION.md)。旧阶段的 MOCK/暂缓导航记录保留作为历史，当前支持 ROS 2监督/模式桥接，语义地点和坐标目标仍未支持。开机只查询状态，不启动运动。
+
 # LuckRobot AI - Project State
 
-Last updated: 2026-09-13
+Last updated: 2026-09-23
+
+## 2026-09-23 display and streamed TTS work
+
+- Initial offline Web display implemented for sleeping, listening, ASR, thinking,
+  speaking, interruption and music states, plus current dialogue text.
+- The supervisor can run Cloud, Display and Audio together; Chromium kiosk launch
+  remains a separate graphical-session step pending Jetson screen acceptance.
+- Punctuation chunks now synthesize concurrently (default three workers) and play
+  in model-text order. Timing and PCM edge-silence diagnostics were added.
+- Windows automated validation is complete after implementation; Jetson audio gap,
+  Edge concurrency/network behavior and screen layout still require live acceptance.
+- Jetson display probe confirmed Qt5, `/dev/fb0` and a Fondar USB touchscreen.
+  Qt linuxfb with the software scene graph rendered successfully without X11;
+  the packaged EGLFS and NVIDIA EGLDevice paths failed and are not the baseline.
+- Generic random-music requests now use a curated artist/title configuration and
+  bypass candidate selection. Real ASR phrases ending in “就可以” are regression tested.
 
 ## Hardware architecture
 
@@ -80,6 +100,13 @@ Full duplex:
 - VAD
 - ASR while speaker is active
 - barge-in / interruption
+
+2026-09-22 local implementation candidate: Lucky-only pseudo full duplex now
+monitors THINKING through SPEAKING, can cancel the Edge HTTP response and TTS,
+and optionally archives interrupted input with a marker. Final text answers can
+stream through punctuation-delimited Edge Xiaoxiao requests. Windows tests pass;
+Jetson microphone, echo, latency, cloud cancellation and prosody remain pending
+hardware acceptance.
 
 ## ASR
 
@@ -1331,3 +1358,17 @@ Validation after the TTS and identity runtime work:
 - 69 repository tests passing
 - compileall passed
 - git diff --check passed
+
+
+## Conversation latency development branch
+
+Windows implementation and rollback controls: [CONVERSATION_LATENCY.md](CONVERSATION_LATENCY.md).
+This is a development change; Jetson production has not been switched.
+
+## 2026-09-19 测试分支更新
+
+新增本地结束对话门控、统一启动器及 robot_tools 工具目录。音乐 API 来自用户提供的 wangye.html，搜索后选择再获取播放地址；设备音乐开关保持 false。详见 ARCHITECTURE.md、TOOLS.md 和 OPERATIONS.md。导航仍为 MOCK；事件流不代表逐句 TTS。
+
+### 音乐启用更新
+
+音乐请求日志定位到 enabled=false；现测试分支已启用 HTTP 音乐并加入 QQ → 网易云搜索回退。见 TOOLS.md 最新记录，覆盖此前“音乐开关保持 false”的历史状态。

@@ -140,6 +140,10 @@ class SileroVad:
     ) -> bool:
         return not self._vad.empty()
 
+    @property
+    def is_speech_detected(self) -> bool:
+        return bool(self._vad.is_speech_detected())
+
     def pop_segment(
         self,
     ):
@@ -221,6 +225,10 @@ class SileroVad:
             segment_start
             + len(segment.samples)
         )
+
+        # Audio-clock backlog beyond the detected segment, not acoustic latency.
+        self.last_endpoint_buffer_seconds = max(
+            0.0, (self._accepted_samples - segment_end) / self.sample_rate)
 
         pre_samples = int(
             self.sample_rate

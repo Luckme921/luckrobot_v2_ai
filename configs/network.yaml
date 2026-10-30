@@ -1,0 +1,7 @@
+# Screen-only configuration; not exposed as an LLM tool.
+network:
+  peer_host: "10.0.0.51"
+  peer_user: "nvidia"
+  peer_key: "private/network/peer_ed25519"
+  peer_known_hosts: "private/network/known_hosts"
+  # The helper can modify Wi-Fi only. Ethernet remains 10.0.0.50/24 <-> .51/24.

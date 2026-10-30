@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+from shared.timing import trace_id, measure
+from robot_tools.catalog import LOCAL_SCHEMAS
+from robot_tools.registry import validate
+from robot_tools.batch import validate_plan, REMOTE_SCHEMAS
+from shared.errors import ERROR_MESSAGES
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import (
@@ -20,7 +25,10 @@ from edge.agent.memory_store import (
 
 
 class CloudAgentError(RuntimeError):
-    pass
+    def __init__(self, message, reason="unavailable"):
+        super().__init__(message)
+        self.reason = reason
+
 
 
 @dataclass(frozen=True)
@@ -31,12 +39,24 @@ class VisionRequest:
 
 
 @dataclass(frozen=True)
+class MusicRequest:
+    action: str
+    query: str = ""
+
+
+@dataclass(frozen=True)
 class AgentReply:
     text: str
     model: str
+    tool_request: dict | None = None
     vision_request: (
         VisionRequest | None
     ) = None
+    music_request: (
+        MusicRequest | None
+    ) = None
+    end_conversation: bool = False
+    tool_requests: tuple = ()
 
 
 class CloudAgentClient:
@@ -51,8 +71,11 @@ class CloudAgentClient:
         ),
         compact_batch_turns: int = 100,
         archive_retrieval_limit: int = 6,
+        progress_enabled: bool = False,
     ) -> None:
         self.endpoint = endpoint
+        self.progress_enabled = progress_enabled
+        self.on_event = None
 
         parsed = urlsplit(
             endpoint
@@ -125,11 +148,110 @@ class CloudAgentClient:
     ) -> None:
         self.clear_memory()
 
+    def record_completed_turn(
+        self,
+        user_text: str,
+        assistant_text: str,
+    ) -> None:
+        user_text = str(
+            user_text
+        ).strip()
+
+        assistant_text = str(
+            assistant_text
+        ).strip()
+
+        if (
+            not user_text
+            or not assistant_text
+        ):
+            raise CloudAgentError(
+                "Completed turn text "
+                "must not be empty"
+            )
+
+        self.memory.add_turn(
+            user_text,
+            assistant_text,
+        )
+
+    def _post_chat(self, payload, cancellation=None):
+        if cancellation is not None:
+            cancellation.check()
+        if not self.progress_enabled:
+            if cancellation is None:
+                return self._post_json(self.endpoint, payload)
+            return self._post_json(self.endpoint, payload, cancellation)
+        request = Request(
+            self.endpoint.rstrip("/") + "/events",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/x-ndjson"}, method="POST")
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                if cancellation is not None:
+                    cancellation.register_callback(response.close)
+                for index in range(8192):
+                    if cancellation is not None:
+                        cancellation.check()
+                    line = response.readline(131073)
+                    if not line:
+                        break
+                    if len(line) > 131072:
+                        raise CloudAgentError("Progress event exceeds size limit")
+                    event = json.loads(line.decode("utf-8"))
+                    if not isinstance(event, dict):
+                        raise CloudAgentError("Progress event must be an object")
+                    if event.get("type") == "result":
+                        if not isinstance(event.get("data"), dict):
+                            raise CloudAgentError("Invalid final response")
+                        return event["data"]
+                    if event.get("type") == "error":
+                        reason = event.get("reason", "unavailable")
+                        if reason not in ERROR_MESSAGES:
+                            reason = "unavailable"
+                        raise CloudAgentError(ERROR_MESSAGES[reason], reason=reason)
+                    if event.get("type") == "timing":
+                        print("[REMOTE_TIMING] " + json.dumps(event), flush=True)
+                    elif event.get("type") in {"tool_start", "text_delta"} and self.on_event:
+                        try:
+                            self.on_event(event)
+                        except Exception as exc:
+                            print(f"[ACK] callback failed: {type(exc).__name__}", flush=True)
+        except HTTPError as exc:
+            if cancellation is not None:
+                cancellation.check()
+            if exc.code in {404, 405}:
+                # Old API: no request was executed by this missing endpoint.
+                if cancellation is None:
+                    return self._post_json(self.endpoint, payload)
+                return self._post_json(self.endpoint, payload, cancellation)
+            raise CloudAgentError(f"Agent progress HTTP error {exc.code}") from exc
+        except (OSError, ValueError, AttributeError) as exc:
+            if cancellation is not None:
+                cancellation.check()
+            raise CloudAgentError("Invalid or interrupted Agent progress response") from exc
+        if cancellation is not None:
+            cancellation.check()
+        raise CloudAgentError("Agent progress stream ended without a final result")
+
+    def execute_remote_tool(self, name, arguments, cancellation=None):
+        if name not in REMOTE_SCHEMAS:
+            raise CloudAgentError("Unsupported remote tool")
+        validate(arguments, REMOTE_SCHEMAS[name])
+        endpoint = self.endpoint.rsplit("/chat", 1)[0] + "/tools/execute"
+        with measure("edge_remote_tool_" + name):
+            return self._post_json(endpoint, {"name": name, "arguments": arguments,
+                                             "trace_id": trace_id.get()}, cancellation)
+
     def _post_json(
         self,
         endpoint: str,
         payload: dict,
+        cancellation=None,
     ) -> dict:
+        if cancellation is not None:
+            cancellation.check()
         body = json.dumps(
             payload,
             ensure_ascii=False,
@@ -151,37 +273,37 @@ class CloudAgentClient:
                 request,
                 timeout=self.timeout_seconds,
             ) as response:
+                if cancellation is not None:
+                    cancellation.register_callback(response.close)
                 response_body = (
                     response.read()
                 )
 
         except HTTPError as exc:
+            if cancellation is not None:
+                cancellation.check()
             try:
-                detail = (
-                    exc.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
+                detail = json.loads(exc.read()).get("detail", {})
+                reason = detail.get("reason", "unavailable") if isinstance(detail, dict) else "unavailable"
             except Exception:
-                detail = ""
+                reason = "unavailable"
 
             raise CloudAgentError(
-                "Cloud Agent HTTP error "
-                f"{exc.code}: "
-                f"{detail[:500]}"
+                ERROR_MESSAGES.get(reason, ERROR_MESSAGES["unavailable"]), reason=reason
             ) from exc
 
         except URLError as exc:
+            if cancellation is not None:
+                cancellation.check()
             raise CloudAgentError(
-                "Cloud Agent unavailable: "
-                f"{exc.reason}"
+                "Cloud Agent unavailable", reason="network"
             ) from exc
 
         except TimeoutError as exc:
+            if cancellation is not None:
+                cancellation.check()
             raise CloudAgentError(
-                "Cloud Agent request timed out"
+                "Cloud Agent request timed out", reason="timeout"
             ) from exc
 
         try:
@@ -278,6 +400,7 @@ class CloudAgentClient:
 
     def _compact_pending(
         self,
+        cancellation=None,
     ) -> None:
         while True:
             batch = (
@@ -301,9 +424,7 @@ class CloudAgentClient:
                 flush=True,
             )
 
-            data = self._post_json(
-                self.compact_endpoint,
-                {
+            compact_payload = {
                     "previous_summary": (
                         snapshot
                         .memory_summary
@@ -311,8 +432,12 @@ class CloudAgentClient:
                     "turns": (
                         batch.turns
                     ),
-                },
-            )
+                }
+            if cancellation is None:
+                data = self._post_json(self.compact_endpoint, compact_payload)
+            else:
+                data = self._post_json(
+                    self.compact_endpoint, compact_payload, cancellation)
 
             block_summary = str(
                 data.get(
@@ -380,6 +505,8 @@ class CloudAgentClient:
         jpeg_frames: list[bytes] | None = None,
         local_identity: str = "uncertain",
         tool_mode: str = "auto",
+        cancellation=None,
+        music_candidates: list[dict] | None = None,
     ) -> AgentReply:
         command = text.strip()
 
@@ -414,7 +541,8 @@ class CloudAgentClient:
         )
 
         try:
-            self._compact_pending()
+            with measure("memory_compact"):
+                self._compact_pending(cancellation)
         except (
             CloudAgentError,
             RuntimeError,
@@ -430,25 +558,26 @@ class CloudAgentClient:
                 flush=True,
             )
 
-        snapshot = (
-            self.memory
-            .prepare_context()
-        )
-
-        archive_hits = (
-            self.memory
-            .search_archive(
-                command,
-                through_turn_id=(
-                    snapshot
-                    .summarized_through_turn_id
-                ),
-                limit=(
-                    self
-                    .archive_retrieval_limit
-                ),
+        with measure("memory_context"):
+            snapshot = (
+                self.memory
+                .prepare_context()
             )
-        )
+
+            archive_hits = (
+                self.memory
+                .search_archive(
+                    command,
+                    through_turn_id=(
+                        snapshot
+                        .summarized_through_turn_id
+                    ),
+                    limit=(
+                        self
+                        .archive_retrieval_limit
+                    ),
+                )
+            )
 
         archive_context = ""
 
@@ -478,6 +607,7 @@ class CloudAgentClient:
             )
 
         payload = {
+            "trace_id": trace_id.get(),
             "text": command,
             "local_identity": (
                 local_identity
@@ -494,6 +624,8 @@ class CloudAgentClient:
                 archive_context
             ),
         }
+        if music_candidates:
+            payload["music_candidates"] = music_candidates[:10]
 
         if images_jpeg_base64:
             payload[
@@ -507,10 +639,8 @@ class CloudAgentClient:
                 flush=True,
             )
 
-        data = self._post_json(
-            self.endpoint,
-            payload,
-        )
+        with measure("edge_http_chat"):
+            data = self._post_chat(payload, cancellation)
 
         reply = str(
             data.get(
@@ -583,11 +713,98 @@ class CloudAgentClient:
                 vision_request=request,
             )
 
+        tool_plan = data.get("tool_requests")
+        if tool_plan:
+            try:
+                validate_plan(tool_plan)
+            except ValueError as exc:
+                raise CloudAgentError("Invalid tool plan", reason="invalid_response") from exc
+            ending = data.get("end_conversation", False)
+            if type(ending) is not bool:
+                raise CloudAgentError("Invalid conversation end flag")
+            return AgentReply(text="", model=model, tool_requests=tuple(tool_plan), end_conversation=ending)
+
+        tool_data = data.get("tool_request")
+        if tool_data is not None:
+            if not isinstance(tool_data, dict) or tool_data.get("name") not in LOCAL_SCHEMAS:
+                raise CloudAgentError("Unknown local tool request")
+            try:
+                validate(tool_data.get("arguments"), LOCAL_SCHEMAS[tool_data["name"]])
+            except ValueError as exc:
+                raise CloudAgentError("Invalid local tool arguments") from exc
+            return AgentReply(text="", model=model, tool_request=tool_data)
+
+        music_data = data.get(
+            "music_request"
+        )
+
+        if isinstance(
+            music_data,
+            dict,
+        ):
+            action = str(
+                music_data.get(
+                    "action",
+                    "",
+                )
+            ).strip()
+
+            allowed_actions = {
+                "play_music",
+                "recommend_music",
+                "pause_music",
+                "resume_music",
+                "next_music",
+                "previous_music",
+                "stop_music",
+                "select_music",
+            }
+
+            if action not in allowed_actions:
+                raise CloudAgentError(
+                    "Cloud Agent returned "
+                    "invalid music action"
+                )
+
+            query = str(
+                music_data.get(
+                    "query",
+                    "",
+                )
+            ).strip()
+
+            request = MusicRequest(
+                action=action,
+                query=query,
+            )
+
+            print(
+                "[MUSIC] REQUEST "
+                f"action={request.action} "
+                f"query={request.query!r}",
+                flush=True,
+            )
+
+            # Like request_vision, this is
+            # an intermediate Edge action.
+            # The local runtime executes it
+            # before the turn is completed.
+            return AgentReply(
+                text="",
+                model=model,
+                vision_request=None,
+                music_request=request,
+            )
+
         if not reply:
             raise CloudAgentError(
                 "Cloud Agent returned "
                 "an empty reply"
             )
+
+        end_conversation = data.get("end_conversation", False)
+        if type(end_conversation) is not bool:
+            raise CloudAgentError("Invalid conversation end flag")
 
         # Only successful exchanges are
         # written to durable memory.
@@ -599,5 +816,6 @@ class CloudAgentClient:
         return AgentReply(
             text=reply,
             model=model,
+            end_conversation=end_conversation,
             vision_request=None,
         )

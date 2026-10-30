@@ -12,7 +12,7 @@ source "$ROOT/.venv/bin/activate"
 # resume behavior during repeated runtime starts.
 SUSPEND_ID="$(
   pactl list short modules 2>/dev/null |
-  awk '$2 == "module-suspend-on-idle" {print $1; exit}'
+  awk '$2 == "module-suspend-on-idle" {print $1; exit}' || true
 )"
 
 if [[ -n "${SUSPEND_ID}" ]]; then

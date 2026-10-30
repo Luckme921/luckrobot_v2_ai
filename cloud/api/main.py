@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
+import uuid
+from fastapi.responses import StreamingResponse
+from shared.timing import trace_id, progress, measure
+from shared.errors import error_info, log_error
+from robot_tools.batch import REMOTE_SCHEMAS, result_message
+from robot_tools.registry import validate
+
 import base64
 import binascii
 from pathlib import Path
@@ -16,6 +26,10 @@ from pydantic import (
 
 from cloud.agent.client import (
     GLMAgent,
+    LocalToolRequestRequired,
+    ToolBatchRequired,
+    MusicRequestRequired,
+    ConversationEndRequired,
     VisionRequestRequired,
 )
 
@@ -38,6 +52,24 @@ app = FastAPI(
 _agent: GLMAgent | None = None
 
 
+@app.get("/navigation/status")
+def navigation_status():
+    from edge.navigation.bridge import status
+    return status()
+
+
+@app.post("/navigation/command")
+async def navigation_command(payload: dict):
+    from robot_tools.catalog import NAVIGATION_SCHEMA
+    from robot_tools.navigation import navigation_control
+    try:
+        validate(payload, NAVIGATION_SCHEMA)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid navigation command") from exc
+    return await asyncio.to_thread(navigation_control, payload)
+
+
+
 class ChatMessage(BaseModel):
     role: Literal[
         "user",
@@ -51,6 +83,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    trace_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
+
     text: str = Field(
         min_length=1,
         max_length=4000,
@@ -88,6 +122,7 @@ class ChatRequest(BaseModel):
         default="",
         max_length=30000,
     )
+    music_candidates: list[dict] = Field(default_factory=list, max_length=10)
 
 
 MAX_VISION_IMAGES = 5
@@ -222,11 +257,44 @@ class VisionRequestResponse(
     count: int
 
 
+class MusicRequestResponse(
+    BaseModel
+):
+    action: Literal[
+        "play_music",
+        "recommend_music",
+        "pause_music",
+        "resume_music",
+        "next_music",
+        "previous_music",
+        "stop_music",
+        "select_music",
+    ]
+    query: str = ""
+
+
+class LocalToolResponse(BaseModel):
+    name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control"]
+    arguments: dict
+
+class BatchToolResponse(BaseModel):
+    name: Literal["volume_control", "music_search", "music_select", "music_control", "fan_light_control", "get_weather", "web_search", "navigate_to", "navigation_control"]
+    arguments: dict
+
+
 class ChatResponse(BaseModel):
+    tool_requests: list[BatchToolResponse] = Field(default_factory=list, max_length=4)
+    tool_request: LocalToolResponse | None = None
+
     reply: str = ""
     model: str
+    end_conversation: bool = False
     vision_request: (
         VisionRequestResponse
+        | None
+    ) = None
+    music_request: (
+        MusicRequestResponse
         | None
     ) = None
 
@@ -252,11 +320,34 @@ async def health() -> dict:
     }
 
 
-@app.post(
-    "/chat",
-    response_model=ChatResponse,
-)
-async def chat(
+class RemoteToolRequest(BaseModel):
+    name: Literal["get_weather", "web_search", "navigate_to", "navigation_control"]
+    arguments: dict
+    trace_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
+
+
+@app.post("/tools/execute")
+async def execute_remote_tool(request: RemoteToolRequest):
+    try:
+        validate(request.arguments, REMOTE_SCHEMAS[request.name])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid tool arguments") from exc
+    token = trace_id.set(request.trace_id or uuid.uuid4().hex)
+    try:
+        agent = get_agent()
+        with measure("tool_" + request.name):
+            result = await agent.tool_router.execute(request.name, request.arguments)
+        result["message"] = result_message(result)
+        return result
+    except Exception as exc:
+        log_error(exc, "remote_tool")
+        return {"ok": False, "tool": request.name, "status": "error",
+                "executed": False, "message": "这个查询未完成，请稍后再试。"}
+    finally:
+        trace_id.reset(token)
+
+
+async def _chat(
     request: ChatRequest,
 ) -> ChatResponse:
     image_data_urls = (
@@ -296,6 +387,7 @@ async def chat(
             archive_context=(
                 request.archive_context
             ),
+            music_candidates=request.music_candidates,
             image_data_urls=(
                 image_data_urls
             ),
@@ -318,19 +410,94 @@ async def chat(
             ),
         )
 
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"{type(exc).__name__}: "
-                f"{exc}"
+    except ToolBatchRequired as exc:
+        return ChatResponse(reply="", model=agent.model, end_conversation=exc.end_conversation,
+                            tool_requests=[BatchToolResponse(**item) for item in exc.requests])
+
+    except LocalToolRequestRequired as exc:
+        return ChatResponse(reply="", model=agent.model,
+                            tool_request=LocalToolResponse(name=exc.name, arguments=exc.arguments))
+
+    except MusicRequestRequired as exc:
+        music = exc.request
+
+        return ChatResponse(
+            reply="",
+            model=agent.model,
+            music_request=(
+                MusicRequestResponse(
+                    action=music.action,
+                    query=music.query,
+                )
             ),
-        ) from exc
+        )
+
+    except ConversationEndRequired as exc:
+        return ChatResponse(reply=exc.reply, model=agent.model, end_conversation=True)
+
+    except Exception as exc:
+        info = log_error(exc, "chat")
+        raise HTTPException(status_code=502, detail=info) from exc
 
     return ChatResponse(
         reply=reply,
         model=agent.model,
     )
+
+
+
+async def _scoped_chat(request, callback=None):
+    token = trace_id.set(request.trace_id or uuid.uuid4().hex)
+    progress_token = progress.set(callback)
+    try:
+        with measure("cloud_total"):
+            return await _chat(request)
+    finally:
+        progress.reset(progress_token)
+        trace_id.reset(token)
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    return await _scoped_chat(request)
+
+
+async def chat_events(request):
+    queue = asyncio.Queue()
+
+    async def run():
+        try:
+            reply = await _scoped_chat(request, queue.put_nowait)
+            await queue.put({"type": "result", "data": reply.model_dump()})
+        except Exception as exc:
+            info = error_info(exc)
+            # The wrapper may be HTTPException; retain its original cause.
+            print("[AGENT_ERROR] " + json.dumps(
+                {"trace_id": request.trace_id, "stage": "chat_events", **info}), flush=True)
+            await queue.put({"type": "error", "error": info["type"],
+                             "reason": info["reason"]})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+@app.post("/chat/events")
+async def stream_chat(request: ChatRequest):
+    return StreamingResponse(chat_events(request),
+                             media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 class CompactTurn(BaseModel):
