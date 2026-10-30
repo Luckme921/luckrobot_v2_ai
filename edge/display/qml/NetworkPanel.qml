@@ -231,7 +231,7 @@ Rectangle {
                 NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"符号"; selected:symbols; onClicked:symbols = !symbols }
                 NetworkButton { fontSize:24; width:180; height:(keyboard.height - 30)/5; text:"空格"; onClicked:if (editor) editor.insert(editor.cursorPosition, " ") }
                 NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"退格"; onClicked:if (editor && editor.cursorPosition > 0) editor.remove(editor.cursorPosition - 1, editor.cursorPosition) }
-                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"完成"; onClicked:editor = null; panel.forceActiveFocus() }
+                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"完成"; onClicked:{ editor = null; panel.forceActiveFocus() } }
             }
         }
     }
