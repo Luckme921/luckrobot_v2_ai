@@ -66,6 +66,7 @@ Window {
     property bool qqAuthOpen: false
     property bool networkOpen: false
     property bool navigationOpen: false
+    property bool homePage: !qqAuthOpen && !networkOpen && !navigationOpen && rvizState !== "running"
     property string rvizState: "closed"
     property string rvizMessage: ""
     property bool rvizPolling: false
@@ -98,11 +99,13 @@ Window {
     }
     Item {
         z: 16; x: 20; y: 82; width: 100; height: 48
+        visible: root.homePage
         Text { anchors.centerIn: parent; text: "RViz"; font.pixelSize: 21; color: "#86515a" }
         MouseArea { anchors.fill: parent; onClicked: root.rvizAction("open") }
     }
     Text {
         z: 16; x: 130; y: 96; width: parent.width - 260
+        visible: root.homePage
         font.pixelSize: 17; color: "#bc838a"; wrapMode: Text.Wrap
         text: root.rvizState === "starting" ? "正在打开 RViz…" : root.rvizMessage
     }
@@ -123,6 +126,7 @@ Window {
 
     Item {
         z: 15
+        visible: root.homePage
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.leftMargin: 20
@@ -146,6 +150,7 @@ Window {
 
     NetworkButton {
         z: 15
+        visible: root.homePage
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 20
@@ -783,6 +788,7 @@ Window {
 
     Rectangle {
         id: qqLoginButton
+        visible: root.homePage
         z: 10
         width: Math.max(52, root.height * 0.064)
         height: width

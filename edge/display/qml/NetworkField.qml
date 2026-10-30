@@ -5,14 +5,14 @@ Item {
     property alias text: input.text
     property bool secret: false
     signal editing(var editor)
-    height: 66
-    Text { text: field.label; color: "#a5c4ca"; font.pixelSize: 16 }
+    height: 80
+    Text { text: field.label; color: "#a5c4ca"; font.pixelSize: 22 }
     Rectangle {
-        y: 23; width: parent.width; height: 40; radius: 7
+        y: 28; width: parent.width; height: 48; radius: 7
         color: "#122730"; border.color: input.activeFocus ? "#55dfbe" : "#42606a"
         TextInput {
             id: input; anchors.fill: parent; anchors.margins: 8
-            color: "#ffffff"; font.pixelSize: 20; clip: true
+            color: "#ffffff"; font.pixelSize: 25; clip: true
             echoMode: field.secret ? TextInput.Password : TextInput.Normal
             maximumLength: 128; selectByMouse: true
             onActiveFocusChanged: if (activeFocus) field.editing(input)

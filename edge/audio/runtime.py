@@ -2322,7 +2322,25 @@ def main() -> None:
                                                     return agent_client.execute_remote_tool(name, arguments, token)
                                                 return local_tools.execute(name, arguments)
 
-                                            results = execute_plan(plan, execute_action, token)
+                                            music_plan = [item for item in plan if item["name"].startswith("music_")]
+                                            other_plan = [item for item in plan if not item["name"].startswith("music_")]
+                                            if music_plan and other_plan:
+                                                # Validate the complete batch before any side effects.
+                                                from robot_tools.batch import validate_plan
+                                                validate_plan(plan)
+                                                results = execute_plan(other_plan, execute_action, token)
+                                                spoken = " ".join(result_message(item) for item in results)
+                                                if token is not None:
+                                                    token.check()
+                                                acknowledgements.finish()
+                                                display_dialogue(assistant_text=spoken)
+                                                display_state("speaking", "文字转声音 / speak")
+                                                tts.speak(spoken, speaker)
+                                                if token is not None:
+                                                    token.check()
+                                                results += execute_plan(music_plan, execute_action, token)
+                                            else:
+                                                results = execute_plan(plan, execute_action, token)
                                             messages = [result_message(item) for item in results]
                                             batch_reply = " ".join(messages)
                                             for item in results:

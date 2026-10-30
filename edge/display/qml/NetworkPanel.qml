@@ -143,34 +143,34 @@ Rectangle {
         }
     }
     Text { x:24; y:16; text:"设备网络"; color:"#e7fff8"; font.pixelSize:30 }
-    NetworkButton { anchors.right:parent.right; anchors.top:parent.top; anchors.margins:14; text:"关闭"; onClicked:panel.closed() }
+    NetworkButton { fontSize:24; anchors.right:parent.right; anchors.top:parent.top; anchors.margins:14; text:"关闭"; onClicked:panel.closed() }
     Row {
         x:24; y:64; spacing:24
         Repeater {
             model:["brain", "cerebellum"]
-            Text { width:(panel.width - 72) / 2; height:85; text:panel.deviceText(modelData, modelData === "brain" ? "大脑" : "小脑"); color:"#b4e8dd"; font.pixelSize:18; wrapMode:Text.Wrap }
+            Text { width:(panel.width - 72) / 2; height:105; text:panel.deviceText(modelData, modelData === "brain" ? "大脑" : "小脑"); color:"#b4e8dd"; font.pixelSize:26; wrapMode:Text.Wrap }
         }
     }
     Item {
-        x:24; y:158; width:panel.width - 48
+        x:24; y:190; width:panel.width - 48
         height:panel.height - y - footer.height - keyboard.height - 20
         Column {
             width:parent.width * 0.40; height:parent.height; spacing:8
-            NetworkButton { width:parent.width; text:scanning ? "扫描中…" : "刷新 Wi-Fi 列表"; enabled:!scanning && !busy; onClicked:panel.scan() }
+            NetworkButton { fontSize:24; width:parent.width; text:scanning ? "扫描中…" : "刷新 Wi-Fi 列表"; enabled:!scanning && !busy; onClicked:panel.scan() }
             ListView {
                 width:parent.width; height:parent.height - 54; clip:true; spacing:6; model:panel.networks
                 delegate: Rectangle {
-                    width:ListView.view.width; height:66; radius:8; color:ssid.text === modelData.ssid ? "#195a55" : "#132c37"
-                    Text { anchors.fill:parent; anchors.rightMargin:140; anchors.margins:10; text:modelData.ssid + "\n" + modelData.security + " · " + modelData.signal + "%"; color:"white"; font.pixelSize:17; elide:Text.ElideRight }
+                    width:ListView.view.width; height:86; radius:8; color:ssid.text === modelData.ssid ? "#195a55" : "#132c37"
+                    Text { anchors.fill:parent; anchors.rightMargin:185; anchors.margins:10; text:modelData.ssid + "\n" + modelData.security + " · " + modelData.signal + "%"; color:"white"; font.pixelSize:24; elide:Text.ElideRight }
                     MouseArea { anchors.fill:parent; enabled:!busy; onClicked: {
                         if (/802.1X|EAP/.test(modelData.security)) { message = "暂不支持企业认证 Wi-Fi"; return }
                         ssid.text = modelData.ssid
                         security = modelData.security === "--" || !modelData.security ? "open" : (/WPA3/.test(modelData.security) && !/WPA2/.test(modelData.security) ? "sae" : "wpa-psk")
                         password.text = ""
                     } }
-                    NetworkButton {
+                    NetworkButton { fontSize:24;
                         anchors.right:parent.right; anchors.rightMargin:8; anchors.verticalCenter:parent.verticalCenter
-                        width:126; height:50; text:"已存 · 连接"
+                        width:170; height:60; text:"已存 · 连接"
                         visible:panel.savedFor("brain", modelData.ssid) !== null
                         enabled:!busy && Object.keys(tokens).length === 0
                         onClicked:panel.connectSaved(modelData.ssid)
@@ -185,10 +185,10 @@ Rectangle {
                 id:fields; width:form.width; spacing:8; enabled:!busy
                 NetworkField { id:ssid; width:parent.width; label:"Wi-Fi 名称（可点选左侧）"; onEditing:panel.focusEditor(editor) }
                 NetworkField { id:password; width:parent.width; label:security === "open" ? "开放网络，无需密码" : "Wi-Fi 密码（明文）"; secret:false; enabled:security !== "open"; onEditing:panel.focusEditor(editor) }
-                NetworkButton { width:parent.width; selected:both; text:both ? "✓ 同时配置小脑" : "仅配置大脑"; onClicked:both = !both }
-                NetworkButton { width:parent.width; text:brainStatic ? "大脑：手动 IPv4" : "大脑：自动 DHCP"; onClicked:brainStatic = !brainStatic }
+                NetworkButton { fontSize:24; width:parent.width; selected:both; text:both ? "✓ 同时配置小脑" : "仅配置大脑"; onClicked:both = !both }
+                NetworkButton { fontSize:24; width:parent.width; text:brainStatic ? "大脑：手动 IPv4" : "大脑：自动 DHCP"; onClicked:brainStatic = !brainStatic }
                 NetworkField { id:brainAddress; width:parent.width; visible:brainStatic; height:visible ? 66 : 0; label:"大脑 IP/前缀，例如 192.168.3.23/24"; onEditing:panel.focusEditor(editor) }
-                NetworkButton { width:parent.width; visible:both; height:visible ? 46 : 0; text:peerStatic ? "小脑：手动 IPv4" : "小脑：自动 DHCP"; onClicked:peerStatic = !peerStatic }
+                NetworkButton { fontSize:24; width:parent.width; visible:both; height:visible ? 46 : 0; text:peerStatic ? "小脑：手动 IPv4" : "小脑：自动 DHCP"; onClicked:peerStatic = !peerStatic }
                 NetworkField { id:peerAddress; width:parent.width; visible:both && peerStatic; height:visible ? 66 : 0; label:"小脑 IP/前缀，例如 192.168.3.32/24"; onEditing:panel.focusEditor(editor) }
                 NetworkField { id:gateway; width:parent.width; visible:brainStatic || (both && peerStatic); height:visible ? 66 : 0; label:"网关，例如 192.168.3.1"; onEditing:panel.focusEditor(editor) }
                 NetworkField { id:dns; width:parent.width; visible:gateway.visible; height:visible ? 66 : 0; label:"DNS，例如 223.5.5.5,1.1.1.1"; onEditing:panel.focusEditor(editor) }
@@ -197,12 +197,12 @@ Rectangle {
     }
     Column {
         id:footer; anchors.left:parent.left; anchors.right:parent.right; anchors.bottom:keyboard.top; anchors.margins:20; spacing:8
-        Text { width:parent.width; text:panel.message; color:"#d7e9b0"; font.pixelSize:17; wrapMode:Text.Wrap }
+        Text { width:parent.width; text:panel.message; color:"#d7e9b0"; font.pixelSize:24; wrapMode:Text.Wrap }
         Row {
-            spacing:12
-            NetworkButton { text:busy ? "处理中…" : "连接 Wi-Fi"; enabled:!busy && Object.keys(tokens).length === 0; onClicked:panel.apply() }
-            NetworkButton { width:180; text:"确认保留连接"; enabled:!busy && Object.keys(tokens).length > 0; selected:enabled; onClicked:panel.finish("confirm") }
-            NetworkButton { text:"恢复原配置"; enabled:!busy && Object.keys(tokens).length > 0; onClicked:panel.finish("rollback") }
+            anchors.right:parent.right; spacing:12
+            NetworkButton { fontSize:24; width:190; height:64; text:busy ? "处理中…" : "连接 Wi-Fi"; enabled:!busy && Object.keys(tokens).length === 0; onClicked:panel.apply() }
+            NetworkButton { fontSize:24; width:230; text:"确认保留连接"; enabled:!busy && Object.keys(tokens).length > 0; selected:enabled; onClicked:panel.finish("confirm") }
+            NetworkButton { fontSize:24; width:190; height:64; text:"恢复原配置"; enabled:!busy && Object.keys(tokens).length > 0; onClicked:panel.finish("rollback") }
         }
     }
     Rectangle {
@@ -216,17 +216,17 @@ Rectangle {
                     property string rowText:modelData
                     Repeater {
                         model:parent.rowText.split("")
-                        NetworkButton { width:(panel.width - 60)/11; height:(keyboard.height - 30)/5; text:panel.shift ? modelData.toUpperCase() : modelData; onClicked:if (panel.editor) panel.editor.insert(panel.editor.cursorPosition, text) }
+                        NetworkButton { fontSize:24; width:(panel.width - 60)/11; height:(keyboard.height - 30)/5; text:panel.shift ? modelData.toUpperCase() : modelData; onClicked:if (panel.editor) panel.editor.insert(panel.editor.cursorPosition, text) }
                     }
                 }
             }
             Row {
                 anchors.horizontalCenter:parent.horizontalCenter; spacing:8
-                NetworkButton { width:100; height:(keyboard.height - 30)/5; text:"大小写"; selected:shift; onClicked:shift = !shift }
-                NetworkButton { width:100; height:(keyboard.height - 30)/5; text:"符号"; selected:symbols; onClicked:symbols = !symbols }
-                NetworkButton { width:180; height:(keyboard.height - 30)/5; text:"空格"; onClicked:if (editor) editor.insert(editor.cursorPosition, " ") }
-                NetworkButton { width:100; height:(keyboard.height - 30)/5; text:"退格"; onClicked:if (editor && editor.cursorPosition > 0) editor.remove(editor.cursorPosition - 1, editor.cursorPosition) }
-                NetworkButton { width:100; height:(keyboard.height - 30)/5; text:"完成"; onClicked:editor = null }
+                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"大小写"; selected:shift; onClicked:shift = !shift }
+                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"符号"; selected:symbols; onClicked:symbols = !symbols }
+                NetworkButton { fontSize:24; width:180; height:(keyboard.height - 30)/5; text:"空格"; onClicked:if (editor) editor.insert(editor.cursorPosition, " ") }
+                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"退格"; onClicked:if (editor && editor.cursorPosition > 0) editor.remove(editor.cursorPosition - 1, editor.cursorPosition) }
+                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"完成"; onClicked:editor = null }
             }
         }
     }
