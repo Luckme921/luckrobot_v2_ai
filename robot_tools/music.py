@@ -1559,7 +1559,15 @@ class MusicTools:
         else:
             if self.controller is None:
                 return result("QQ音乐控制器尚未就绪。", ok=False, status="unavailable")
-            actual_track = getattr(self.controller, name)()
+            try:
+                actual_track = getattr(self.controller, name)()
+            except (OSError, RuntimeError) as exc:
+                print(f"[MUSIC] CONTROL_FAILED action={action} type={type(exc).__name__} "
+                      f"cause={type(exc.__cause__).__name__ if exc.__cause__ else 'none'} "
+                      f"reason={str(exc)[:180]!r}", flush=True)
+                return result("QQ 音乐未能确认切歌，可能没有可切换的下一首，或网页响应超时。可以直接说想听的歌曲。",
+                              ok=False, status="unavailable", playing=self.playing,
+                              music=self.current_song)
             self.playing = name in {"resume", "next", "previous"}
             if name in {"next", "previous", "resume"}:
                 self.current_song = self._qq_track_metadata(

@@ -275,6 +275,12 @@ class NetworkManager:
                 return self.status()
             if action == "scan" and set(request) == {"action"}:
                 return self.scan()
+            if action == "saved_password" and set(request) == {"action", "config"}:
+                config = validate_config(request["config"])
+                if "saved_uuid" not in config:
+                    raise ValueError("invalid_saved_profile")
+                settings = self.saved_profiles(config)
+                return {"ok": True, "password": str(settings.get("802-11-wireless-security", {}).get("psk", ""))}
             if action == "apply" and set(request) == {"action", "config"}:
                 return self.apply(request["config"])
             if action in {"confirm", "rollback"} and set(request) == {"action", "token"}:

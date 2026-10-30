@@ -94,7 +94,7 @@ Rectangle {
         if (!a || (both && !b)) { message = "部分设备尚未保存此 Wi-Fi，请输入密码连接一次并确认保存。"; return }
         var configs = {brain:{saved_uuid:a.uuid, ssid:name}}
         if (both) configs.cerebellum = {saved_uuid:b.uuid, ssid:name}
-        busy = true; editor = null
+        busy = true; editor = null; panel.forceActiveFocus()
         message = "正在使用设备各自保存的密码和 IP 配置连接；成功后请确认保留。"
         api("action", {action:"apply", configs:configs}, function(ok, data) {
             if (ok && data && data.id) jobId = data.id
@@ -104,12 +104,18 @@ Rectangle {
     function apply() {
         var configs = {brain:makeConfig(brainStatic, brainAddress.text.trim())}
         if (both) configs.cerebellum = makeConfig(peerStatic, peerAddress.text.trim())
-        busy = true; editor = null
+        busy = true; editor = null; panel.forceActiveFocus()
         message = "正在连接；请勿关闭电源。成功后须在 3 分钟内确认，否则自动回退。"
         api("action", {action:"apply", configs:configs}, function(ok, data) {
-            password.text = ""
             if (ok && data && data.id) jobId = data.id
             else { busy = false; message = "未提交：请检查密码、IP/前缀、网关和 DNS；两台不能使用相同 IP。" }
+        })
+    }
+    function loadSavedPassword(name) {
+        var saved = savedFor("brain", name)
+        if (!saved) return
+        api("action", {action:"saved_password", config:{saved_uuid:saved.uuid, ssid:name}}, function(ok, data) {
+            if (ssid.text === name && ok && data && data.ok) password.text = data.password || ""
         })
     }
     function finish(action) {
@@ -124,7 +130,7 @@ Rectangle {
     }
     onVisibleChanged: {
         if (visible) { refresh(); scan() }
-        else { password.text = ""; editor = null }
+        else { password.text = ""; editor = null; panel.forceActiveFocus() }
     }
     Timer {
         interval: 3000; repeat: true; running: panel.visible
@@ -153,7 +159,7 @@ Rectangle {
     }
     Item {
         x:24; y:190; width:panel.width - 48
-        height:panel.height - y - footer.height - keyboard.height - 20
+        height:Math.max(0, footer.y - y - 24)
         Column {
             width:parent.width * 0.40; height:parent.height; spacing:8
             NetworkButton { fontSize:24; width:parent.width; text:scanning ? "扫描中…" : "刷新 Wi-Fi 列表"; enabled:!scanning && !busy; onClicked:panel.scan() }
@@ -167,13 +173,12 @@ Rectangle {
                         ssid.text = modelData.ssid
                         security = modelData.security === "--" || !modelData.security ? "open" : (/WPA3/.test(modelData.security) && !/WPA2/.test(modelData.security) ? "sae" : "wpa-psk")
                         password.text = ""
+                        panel.loadSavedPassword(modelData.ssid)
                     } }
-                    NetworkButton { fontSize:24;
-                        anchors.right:parent.right; anchors.rightMargin:8; anchors.verticalCenter:parent.verticalCenter
-                        width:170; height:60; text:"已存 · 连接"
+                    Text {
+                        anchors.right:parent.right; anchors.rightMargin:12; anchors.verticalCenter:parent.verticalCenter
+                        text:"已保存"; font.pixelSize:24; color:"#9bc9bb"
                         visible:panel.savedFor("brain", modelData.ssid) !== null
-                        enabled:!busy && Object.keys(tokens).length === 0
-                        onClicked:panel.connectSaved(modelData.ssid)
                     }
                 }
             }
@@ -183,15 +188,15 @@ Rectangle {
             contentHeight:fields.height + 20; clip:true; boundsBehavior:Flickable.StopAtBounds
             Column {
                 id:fields; width:form.width; spacing:8; enabled:!busy
-                NetworkField { id:ssid; width:parent.width; label:"Wi-Fi 名称（可点选左侧）"; onEditing:panel.focusEditor(editor) }
-                NetworkField { id:password; width:parent.width; label:security === "open" ? "开放网络，无需密码" : "Wi-Fi 密码（明文）"; secret:false; enabled:security !== "open"; onEditing:panel.focusEditor(editor) }
+                NetworkField { id:ssid; width:parent.width; label:"Wi-Fi 名称（可点选左侧）"; onEditing:if (!busy && Object.keys(tokens).length === 0) panel.focusEditor(editor) }
+                NetworkField { id:password; width:parent.width; label:security === "open" ? "开放网络，无需密码" : "Wi-Fi 密码（明文）"; secret:false; enabled:security !== "open"; onEditing:if (!busy && Object.keys(tokens).length === 0) panel.focusEditor(editor) }
                 NetworkButton { fontSize:24; width:parent.width; selected:both; text:both ? "✓ 同时配置小脑" : "仅配置大脑"; onClicked:both = !both }
                 NetworkButton { fontSize:24; width:parent.width; text:brainStatic ? "大脑：手动 IPv4" : "大脑：自动 DHCP"; onClicked:brainStatic = !brainStatic }
-                NetworkField { id:brainAddress; width:parent.width; visible:brainStatic; height:visible ? 66 : 0; label:"大脑 IP/前缀，例如 192.168.3.23/24"; onEditing:panel.focusEditor(editor) }
+                NetworkField { id:brainAddress; width:parent.width; visible:brainStatic; height:visible ? 66 : 0; label:"大脑 IP/前缀，例如 192.168.3.23/24"; onEditing:if (!busy && Object.keys(tokens).length === 0) panel.focusEditor(editor) }
                 NetworkButton { fontSize:24; width:parent.width; visible:both; height:visible ? 46 : 0; text:peerStatic ? "小脑：手动 IPv4" : "小脑：自动 DHCP"; onClicked:peerStatic = !peerStatic }
-                NetworkField { id:peerAddress; width:parent.width; visible:both && peerStatic; height:visible ? 66 : 0; label:"小脑 IP/前缀，例如 192.168.3.32/24"; onEditing:panel.focusEditor(editor) }
-                NetworkField { id:gateway; width:parent.width; visible:brainStatic || (both && peerStatic); height:visible ? 66 : 0; label:"网关，例如 192.168.3.1"; onEditing:panel.focusEditor(editor) }
-                NetworkField { id:dns; width:parent.width; visible:gateway.visible; height:visible ? 66 : 0; label:"DNS，例如 223.5.5.5,1.1.1.1"; onEditing:panel.focusEditor(editor) }
+                NetworkField { id:peerAddress; width:parent.width; visible:both && peerStatic; height:visible ? 66 : 0; label:"小脑 IP/前缀，例如 192.168.3.32/24"; onEditing:if (!busy && Object.keys(tokens).length === 0) panel.focusEditor(editor) }
+                NetworkField { id:gateway; width:parent.width; visible:brainStatic || (both && peerStatic); height:visible ? 66 : 0; label:"网关，例如 192.168.3.1"; onEditing:if (!busy && Object.keys(tokens).length === 0) panel.focusEditor(editor) }
+                NetworkField { id:dns; width:parent.width; visible:gateway.visible; height:visible ? 66 : 0; label:"DNS，例如 223.5.5.5,1.1.1.1"; onEditing:if (!busy && Object.keys(tokens).length === 0) panel.focusEditor(editor) }
             }
         }
     }
@@ -226,7 +231,7 @@ Rectangle {
                 NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"符号"; selected:symbols; onClicked:symbols = !symbols }
                 NetworkButton { fontSize:24; width:180; height:(keyboard.height - 30)/5; text:"空格"; onClicked:if (editor) editor.insert(editor.cursorPosition, " ") }
                 NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"退格"; onClicked:if (editor && editor.cursorPosition > 0) editor.remove(editor.cursorPosition - 1, editor.cursorPosition) }
-                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"完成"; onClicked:editor = null }
+                NetworkButton { fontSize:24; width:100; height:(keyboard.height - 30)/5; text:"完成"; onClicked:editor = null; panel.forceActiveFocus() }
             }
         }
     }

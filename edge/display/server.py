@@ -82,6 +82,9 @@ def network_action(payload: dict, x_luckrobot_display: str | None = Header(defau
         raise HTTPException(status_code=403)
     try:
         action = payload.get("action")
+        if action == "saved_password" and set(payload) == {"action", "config"}:
+            value = network_bridge.safe_call("brain", {"action": action, "config": payload["config"]})
+            return JSONResponse(value, headers={"Cache-Control": "no-store"})
         if action == "apply" and set(payload) == {"action", "configs"}:
             return network_bridge.jobs.start(payload["configs"])
         if action == "scan" and set(payload) == {"action", "target"} and payload["target"] in {"brain", "cerebellum"}:
